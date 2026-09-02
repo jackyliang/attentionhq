@@ -1186,10 +1186,19 @@ const toast=document.getElementById('toast'); let toastT;
 function showToast(t){toast.textContent=t;toast.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('show'),2600)}
 
 /* ================= actions ================= */
-document.getElementById('panel-close').addEventListener('click',()=>{
+function closePanel(){
   const el=openCard!=null?cardEl(openCard):focused();
   setBoardMode(); mode='closed'; app.dataset.mode='closed';
   el?.focus();
+}
+document.getElementById('panel-close').addEventListener('click',closePanel);
+document.addEventListener('mousedown',e=>{
+  if(mode==='closed'||e.button!==0)return;
+  if(overlay.classList.contains('open'))return;
+  const t=e.target;
+  if(!(t instanceof Element))return;
+  if(t.closest('aside, header, .card, .add-card'))return;
+  closePanel();
 });
 
 async function pickOption(id,i){
