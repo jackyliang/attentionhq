@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -42,6 +43,11 @@ RENDER_BASE = "https://api.render.com/v1"
 
 ISSUE_TAG_RE = re.compile(r"issue:([\w.-]+/[\w.-]+)#(\d+)")
 PR_ISSUE_RE = re.compile(r"(?:#|issues/)(\d+)")
+# A session started from the prompt box is tagged prompt:<id>; Devin writes the
+# same id into the issue it files so the board can pair them up.
+PROMPT_TAG_RE = re.compile(r"^prompt:([0-9a-f]{12})$")
+PROMPT_MODE_TAG_RE = re.compile(r"^prompt-mode:(file|work)$")
+PROMPT_MARK_RE = re.compile(r"\s*<!--\s*attention:prompt:([0-9a-f]{12})\s*-->")
 
 # ---------------------------------------------------------------- state
 
@@ -55,6 +61,7 @@ state: dict = {
     "github_ok": True,
     "render_ok": True,
     "generated_at": 0,
+    "gh_refresh": False,  # pull GitHub on the next tick instead of waiting out the interval
 }
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
 
@@ -100,9 +107,12 @@ def render_client():
 # ---------------------------------------------------------------- github fetch
 
 def issue_from_gh(repo: str, it: dict) -> dict:
+    body = it.get("body") or ""
+    mark = PROMPT_MARK_RE.search(body)
     return {
         "repo": repo, "number": it["number"], "title": it["title"],
-        "body": it.get("body") or "", "url": it["html_url"],
+        "body": PROMPT_MARK_RE.sub("", body), "url": it["html_url"],
+        "prompt_id": mark.group(1) if mark else None,
         "labels": [l["name"] for l in it.get("labels", [])],
         "created_at": it["created_at"], "updated_at": it["updated_at"],
     }
@@ -365,6 +375,14 @@ async def extract_session(session_id: str, messages: list[dict], context: str = 
 
 # ---------------------------------------------------------------- board assembly
 
+def _epoch(ts: str | int | float | None) -> int:
+    if isinstance(ts, (int, float)):
+        return int(ts)
+    try:
+        return int(datetime.fromisoformat((ts or "").replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
+
 def humanize_age(ts: str | int | float) -> str:
     if isinstance(ts, (int, float)):
         secs = time.time() - ts
@@ -386,6 +404,21 @@ def session_issue_key(sess: dict) -> str | None:
         if m:
             return f"{m.group(1)}#{m.group(2)}"
     return None
+
+def session_prompt(sess: dict) -> tuple[str, str] | None:
+    """(prompt id, mode) for sessions started from the prompt box."""
+    pid = mode = None
+    for tag in sess.get("tags") or []:
+        m = PROMPT_TAG_RE.match(tag)
+        if m:
+            pid = m.group(1)
+        m = PROMPT_MODE_TAG_RE.match(tag)
+        if m:
+            mode = m.group(1)
+    return (pid, mode or "file") if pid else None
+
+def issues_by_prompt() -> dict[str, str]:
+    return {issue["prompt_id"]: key for key, issue in state["issues"].items() if issue.get("prompt_id")}
 
 def pr_issue_key(pr: dict) -> str | None:
     for m in PR_ISSUE_RE.finditer(pr.get("body") or ""):
@@ -444,11 +477,20 @@ async def assemble_board():
                 "number": pr["number"], "url": pr["url"], "sessions": [],
                 "prs": [pr], "created_at": pr["created_at"],
             }
+    by_prompt = issues_by_prompt()
     for sess in sessions:
         st = session_status(sess)
         if st in ("finished", "expired", "suspended") and not session_pr_urls(sess):
             continue
         ik = session_issue_key(sess)
+        prompt = session_prompt(sess)
+        if prompt and not ik:
+            ik = by_prompt.get(prompt[0])
+            if not ik and st not in ACTIVE_STATUSES and time.time() - _epoch(sess.get("created_at")) < 1800:
+                state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
+            # a file-only session is done once the issue exists; don't keep it on the card
+            if prompt[1] == "file" and st not in ACTIVE_STATUSES and (ik or not session_pr_urls(sess)):
+                continue
         if ik and ik in cards:
             cards[ik]["sessions"].append(sess)
         else:
@@ -573,7 +615,8 @@ async def poll_loop():
     last_render = 0.0
     while True:
         try:
-            if time.time() - last_gh >= GITHUB_POLL_SECS:
+            if time.time() - last_gh >= GITHUB_POLL_SECS or state["gh_refresh"]:
+                state["gh_refresh"] = False
                 await fetch_github()
                 last_gh = time.time()
         except Exception as e:  # noqa: BLE001
@@ -591,7 +634,7 @@ async def poll_loop():
             # refresh messages for sessions that appear on the board
             for sess in state["sessions"]:
                 st = session_status(sess)
-                if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess):
+                if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess) or session_prompt(sess):
                     try:
                         await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
                     except httpx.HTTPError:
@@ -648,12 +691,6 @@ def find_card(card_id: str) -> dict:
             if c["id"] == card_id:
                 return c
     raise HTTPException(404, "card not found")
-
-def _epoch(iso: str | None) -> int:
-    try:
-        return int(datetime.fromisoformat((iso or "").replace("Z", "+00:00")).timestamp())
-    except ValueError:
-        return 0
 
 async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
     """Title/state/created_at for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
@@ -839,6 +876,46 @@ async def start_session(body: StartIn):
     )
     async with devin_client() as dv:
         r = await dv.post("/sessions", json={"prompt": prompt, "tags": [tag], "title": issue["title"]})
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+        data = r.json()
+    try:
+        await fetch_devin()
+        await assemble_board()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "session_id": data.get("session_id"), "url": data.get("url")}
+
+class PromptIn(BaseModel):
+    prompt: str
+    start: bool = False
+
+@app.post("/api/prompt")
+async def prompt_devin(body: PromptIn):
+    """The '+' box is a prompt: Devin picks the repo, writes and files the issue
+    (and, with start=True, goes on to implement it)."""
+    text = body.prompt.strip()
+    if not text:
+        raise HTTPException(400, "empty prompt")
+    pid = uuid.uuid4().hex[:12]
+    mode = "work" if body.start else "file"
+    repos = "\n".join(f"- {r}" for r in REPOS)
+    prompt = (
+        "A user typed this task into their Attention board's new-issue box:\n\n"
+        f"\"\"\"\n{text}\n\"\"\"\n\n"
+        "Turn it into a GitHub issue:\n"
+        f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+        "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
+        "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
+        "questions; make reasonable assumptions and note them in the issue.\n"
+        f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
+        "4. Create the issue in that repo and reply with just its URL.\n"
+        + ("5. Then implement the issue and open a PR that references it with 'Fixes #<number>'.\n" if body.start else
+           "Do not start implementing it; filing the issue is the whole task.\n")
+    )
+    title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
+    async with devin_client() as dv:
+        r = await dv.post("/sessions", json={"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title})
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
         data = r.json()
