@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: attentionhq
+    runtime: python
+    plan: starter
+    buildCommand: pip install -e .
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DEVIN_API_KEY
+        sync: false
+      - key: DEVIN_ORG_ID
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-5.6-luna:nitro
+      - key: BOARD_TOKEN
+        sync: false
+      - key: REPOS
+        value: jackyliang/answer-hq,jackyliang/answerhq-web

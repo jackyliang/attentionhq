@@ -452,6 +452,15 @@ aside{
 .composer .hint{font-size:11px;color:var(--ds-gray-600);display:flex;align-items:center;gap:6px}
 .composer .send{margin-left:auto}
 
+.pl-link{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-mono,ui-monospace,monospace);font-size:11px;
+  color:var(--ds-gray-900);text-decoration:none;
+  border:1px solid var(--ds-gray-400);padding:5px 8px;width:fit-content;
+}
+.pl-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
+.pl-link svg{width:12px;height:12px;flex:none}
+
 /* ---- Shortcuts overlay ---- */
 #overlay{
   position:fixed;inset:0;z-index:50;
@@ -498,8 +507,8 @@ aside{
   <header>
     <div class="brand">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/><path d="M6.5 2v12M11 2v12"/></svg>
-      Session Board
-      <span class="variant">combo · ring + ask + next</span>
+      AttentionHQ
+      <span class="variant">live</span>
     </div>
     <div class="hdr-stats">
       <span class="hdr-stat"><span class="dot amber"></span><span class="n" id="stat-needs">6</span> on you</span>
@@ -508,7 +517,7 @@ aside{
       <span class="hdr-stat"><span class="dot grey"></span><span class="n" id="stat-idle">4</span> not started</span>
     </div>
     <div class="hdr-right">
-      <span class="hdr-repo">answerhq/answer-hq</span>
+      <span class="hdr-repo">answer-hq · answerhq-web</span>
       <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts"><kbd>?</kbd> shortcuts</button>
     </div>
   </header>
@@ -561,6 +570,7 @@ aside{
         <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd></span></div>
+        <div class="sc">Archive card <span class="k"><kbd>X</kbd></span></div>
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
@@ -604,9 +614,7 @@ const I = {
 };
 
 /* ================= data =================
-   tone: amber = user action required · blue = machine working · red = failure · green = ready · grey = inert
-   todos: ordered live checklist per issue. owner: 'you' | 'agent'. done | active | open.
-   proposed: true → starter checklist drafted by the agent, not yet running. */
+   Live data from /api/board. tone: amber = user action · blue = working · red = failure · green = ready · grey = inert */
 const columns = [
   {id:'issues',   name:'Issues',        desc:'no session yet'},
   {id:'working',  name:'Working',       desc:'moving without you'},
@@ -615,224 +623,50 @@ const columns = [
   {id:'ready',    name:'Ready to merge',desc:'green & approved'},
 ];
 
-const cards = [
-  /* Issues — open, no session; agent drafts a proposed starter checklist */
-  {col:'issues', tone:'grey', title:'Split monitors into a standalone Alerts tab',
-    now:{icon:'issue', tone:'', text:'Open issue · no session'},
-    action:{label:'Start session', icon:'play', kind:'primary'}, age:'3d',
-    proposed:true,
-    todos:[
-      {owner:'agent', state:'open', text:'Scope routes and nav entry for the Alerts tab'},
-      {owner:'agent', state:'open', text:'Move monitor list + detail views out of Settings'},
-      {owner:'agent', state:'open', text:'Redirect old monitor URLs'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[{who:'system',text:'No session yet. Start one to scope the Alerts tab split. The checklist above is Devin’s proposed plan — it goes live when the session starts.'}]},
-  {col:'issues', tone:'grey', title:'First-party widget analytics, then drop PostHog',
-    now:{icon:'issue', tone:'', text:'Open issue · no session'},
-    action:{label:'Start session', icon:'play', kind:'primary'}, age:'5d',
-    proposed:true,
-    todos:[
-      {owner:'agent', state:'open', text:'Design the event schema for widget analytics'},
-      {owner:'agent', state:'open', text:'Add a first-party capture endpoint'},
-      {owner:'agent', state:'open', text:'Rebuild the two PostHog dashboards in-house'},
-      {owner:'agent', state:'open', text:'Remove the PostHog SDK'},
-    ],
-    thread:[{who:'system',text:'No session yet. Proposed plan drafted from the issue body.'}]},
-  {col:'issues', tone:'grey', title:'Schedule Drive sync on the website cron',
-    now:{icon:'issue', tone:'', text:'Open issue · no session'},
-    action:{label:'Start session', icon:'play', kind:'primary'}, age:'1w',
-    proposed:true,
-    todos:[
-      {owner:'agent', state:'open', text:'Add the sync job to the website cron config'},
-      {owner:'agent', state:'open', text:'Handle token refresh inside the job'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[{who:'system',text:'No session yet. Proposed plan drafted from the issue body.'}]},
-  {col:'issues', tone:'grey', title:'Extract the DashboardPageLayout component',
-    now:{icon:'issue', tone:'', text:'Open issue · no session'},
-    action:{label:'Start session', icon:'play', kind:'primary'}, age:'2w',
-    proposed:true,
-    todos:[
-      {owner:'agent', state:'open', text:'Extract the shared layout from the dashboard pages'},
-      {owner:'agent', state:'open', text:'Migrate the six dashboard pages onto it'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[{who:'system',text:'No session yet. Proposed plan drafted from the issue body.'}]},
-
-  /* Working — session running, not blocked */
-  {col:'working', tone:'blue', title:'Drive folder picker lists folders but no files',
-    now:{icon:'spinner', tone:'blue', text:'Reproducing in the picker component tests'},
-    age:'12m',
-    todos:[
-      {owner:'agent', state:'done', text:'Reproduce: files missing from folder listing'},
-      {owner:'agent', state:'done', text:'Trace to the <code>pageToken</code> loop dropping non-folder entries'},
-      {owner:'agent', state:'active', text:'Write a failing test for the loop'},
-      {owner:'agent', state:'open', text:'Fix the loop to keep file entries'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[
-      {who:'user', ts:'16:02', text:'Start with the Drive picker bug — files missing from folder listing.'},
-      {who:'devin', ts:'16:04', text:'On it. The list call filters on <code>mimeType=folder</code>; checking where the file branch was dropped.'},
-      {who:'devin', ts:'16:29', text:'Found it — the pageToken loop discards non-folder entries. Writing a failing test before the fix.'},
-    ]},
-  {col:'working', tone:'blue', title:'MCP has no knowledge-base search tool',
-    now:{icon:'spinner', tone:'blue', text:'Exploring the MCP server tool registry'},
-    age:'26m',
-    todos:[
-      {owner:'agent', state:'active', text:'Map the existing tool registry conventions'},
-      {owner:'agent', state:'open', text:'Implement the <code>kb_search</code> tool'},
-      {owner:'agent', state:'open', text:'Add registry + tool tests'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[
-      {who:'devin', ts:'16:15', text:'Mapping the existing tool registry so the new <code>kb_search</code> tool matches conventions.'},
-    ]},
-  {col:'working', tone:'blue', title:'Slack bot Autopilot transport and monitors',
-    now:{icon:'spinner', tone:'blue', text:'Drafting PR · running the monitor suite locally'},
-    age:'1h',
-    todos:[
-      {owner:'agent', state:'done', text:'Wire the Slack transport'},
-      {owner:'agent', state:'done', text:'Reuse the email-channel evaluators for monitors'},
-      {owner:'agent', state:'active', text:'Run the monitor suite locally'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[
-      {who:'devin', ts:'15:40', text:'Transport is wired; monitors reuse the email-channel evaluators. Local suite running now.'},
-    ]},
-
-  /* Needs you */
-  {col:'needs-you', tone:'amber', title:'Test signups leak into the Resend audience',
-    now:{icon:'question', tone:'amber', text:'Devin asked a question · session paused'},
-    action:{label:'Reply', icon:'reply', kind:'amber'}, age:'18m',
-    options:['Domain filter','Tagging'],
-    todos:[
-      {owner:'agent', state:'done', text:'Trace the leak: the audience sync job has no environment guard'},
-      {owner:'agent', state:'done', text:'Lay out the two guards: option 1 (domain filter) vs option 2 (tagging)', note:'answered 16:24 · option 1 zero-risk to real sends · option 2 safer long-term but touches signup path'},
-      {owner:'you',   state:'open', text:'Choose option 1 (domain filter) or option 2 (tagging) and reply'},
-      {owner:'agent', state:'open', text:'Implement the chosen guard in the sync job'},
-      {owner:'agent', state:'open', text:'Purge existing test contacts from the audience'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[
-      {who:'devin', ts:'15:58', text:'Signups from e2e runs hit the live Resend audience because the sync job has no environment guard.'},
-      {who:'user', ts:'16:20', text:'Which of the two options is safer for deliverability?'},
-      {who:'devin', ts:'16:24', text:'Two clean options:\n1. Skip any signup whose email matches <code>*@e2e.answerhq.dev</code> — a pure read-side filter, zero risk to real sends.\n2. Tag test signups at creation and filter on the tag — safer long-term, survives domain changes, but touches the signup path.\nWhich do you prefer?'},
-    ]},
-  {col:'needs-you', tone:'red', title:'MCP OAuth 2.1 and dynamic client registration',
-    now:{icon:'x', tone:'red', text:'CI failed · token-rotation integration test'},
-    action:{label:'View logs', icon:'logs', kind:'amber'}, age:'32m',
-    options:['Stale fixture','Real bug'],
-    todos:[
-      {owner:'agent', state:'done', text:'Implement the DCR endpoint + PKCE flow'},
-      {owner:'agent', state:'done', text:'Push and start CI'},
-      {owner:'you',   state:'open', text:'Read the failing token-rotation log: stale fixture, or a real reuse-window bug?'},
-      {owner:'agent', state:'open', text:'Update the fixture or fix the reuse window, per your read'},
-      {owner:'agent', state:'open', text:'Re-run CI'},
-    ],
-    thread:[
-      {who:'devin', ts:'15:30', text:'DCR endpoint and PKCE flow are in. Pushed and CI started.'},
-      {who:'system', ts:'16:10', text:'CI failed: mcp-oauth › rotates refresh token on reuse (exit 1).'},
-      {who:'devin', ts:'16:12', text:'The fixture pins an old token TTL. I can update it, but the failure may also hide a real reuse-window bug — worth a look at the logs before I overwrite it.'},
-    ]},
-  {col:'needs-you', tone:'amber', title:'Slack article approval card cannot be reviewed before approving',
-    now:{icon:'eye', tone:'amber', text:'Preview deployed · session waiting'},
-    action:{label:'Open preview', icon:'external', kind:'amber'}, age:'55m',
-    todos:[
-      {owner:'agent', state:'done', text:'Add an expandable article body + distinct Review state'},
-      {owner:'agent', state:'done', text:'Deploy the preview'},
-      {owner:'you',   state:'open', text:'Walk the card flow end-to-end in the preview'},
-      {owner:'agent', state:'open', text:'Finalize the PR'},
-    ],
-    thread:[
-      {who:'devin', ts:'15:20', text:'Added an expandable article body to the approval card with a distinct Review state before Approve is enabled.'},
-      {who:'devin', ts:'15:49', text:'Preview is up. Please check the card flow end-to-end before I finalize the PR.'},
-    ]},
-  {col:'needs-you', tone:'amber', title:'German topic title on an English question',
-    now:{icon:'stop', tone:'', text:'Session stopped · no PR produced'},
-    action:{label:'Re-run', icon:'rerun', kind:'amber'}, age:'2h',
-    options:['Re-run narrower','Reassign'],
-    todos:[
-      {owner:'agent', state:'done', text:'Trace to the topic-title generator using the site default locale'},
-      {owner:'you',   state:'open', text:'Re-run with a narrower scope, or reassign'},
-      {owner:'agent', state:'open', text:'Fix the locale source in the generator'},
-      {owner:'agent', state:'open', text:'Open PR'},
-    ],
-    thread:[
-      {who:'devin', ts:'14:12', text:'Traced it to the topic-title generator using the site default locale rather than the question locale.'},
-      {who:'system', ts:'14:38', text:'Session stopped before producing a PR.'},
-    ]},
-
-  /* In review */
-  {col:'review', tone:'blue', title:'Fold the widget key into the ahq_ key system',
-    now:{icon:'spinner', tone:'blue', text:'PR 2 in review · fixes in flight · PR 3 drafting'},
-    age:'41m',
-    position:'<b>PR 1 (key aliasing) merged yesterday.</b> PR 2 (call-site migration) is in review with fixes in flight; that review surfaced a widget-embed break, now being drafted as PR 3.',
-    todos:[
-      {owner:'agent', state:'done', text:'PR 1 — alias widget keys as <code>ahq_wgt_</code>', note:'merged yesterday'},
-      {owner:'agent', state:'done', text:'PR 2 — migrate the five widget call sites', note:'open · in review'},
-      {owner:'agent', state:'active', text:'Apply PR 2 review fixes', note:'2 of 3 pushed'},
-      {owner:'agent', state:'active', text:'Draft PR 3 — legacy verifier removal breaks one widget embed path'},
-      {owner:'you',   state:'open', pinned:true, text:'Decide whether legacy keys get a sunset date', note:'asked once mid-thread, long ago — pinned until you rule'},
-      {owner:'agent', state:'open', text:'Remove the legacy verifier once PR 3 lands'},
-    ],
-    thread:[
-      {who:'devin', ts:'yesterday', text:'Plan: alias widget keys as <code>ahq_wgt_</code>, migrate call sites, then remove the legacy verifier. PR 1 (aliasing) is merged.'},
-      {who:'devin', ts:'yesterday', text:'One open judgement call for you, whenever: should legacy keys get a sunset date, or live indefinitely behind the alias? I’ve pinned it to the checklist.'},
-      {who:'devin', ts:'16:00', text:'PR 2 (call-site migration) is open and in review. Two of three review fixes pushed.'},
-      {who:'devin', ts:'16:38', text:'Review found that removing the legacy verifier breaks one widget embed path. Drafting that as PR 3 rather than widening PR 2.'},
-    ]},
-  {col:'review', tone:'blue', title:'Mirror Autopilot replies into the Slack thread',
-    now:{icon:'spinner', tone:'blue', text:'Checks running · 4 of 7 complete'},
-    age:'9m',
-    todos:[
-      {owner:'agent', state:'done', text:'Mirror replies with the intake threading key (no duplicate roots)'},
-      {owner:'agent', state:'done', text:'Open PR'},
-      {owner:'agent', state:'active', text:'CI checks running', note:'4 of 7 complete'},
-      {owner:'agent', state:'open', text:'Request review when green'},
-    ],
-    thread:[
-      {who:'devin', ts:'16:20', text:'PR is open. Replies mirror with the same threading key the intake uses, so no duplicate roots.'},
-    ]},
-  {col:'review', tone:'blue', title:'Name the monitor in the delete approval card',
-    now:{icon:'comment', tone:'', text:'2 review comments outstanding · Devin responding'},
-    age:'1h',
-    todos:[
-      {owner:'agent', state:'done', text:'Open PR'},
-      {owner:'agent', state:'active', text:'Address 2 review comments', note:'rename the prop · truncate long monitor names'},
-      {owner:'agent', state:'open', text:'Re-request review'},
-    ],
-    thread:[
-      {who:'system', ts:'15:32', text:'Reviewer left 2 comments on the PR.'},
-      {who:'devin', ts:'15:41', text:'Addressing both: renaming the prop and adding the missing truncation for long monitor names.'},
-    ]},
-
-  /* Ready to merge */
-  {col:'ready', tone:'green', title:'Make the judge eval a re-runnable check',
-    now:{icon:'check', tone:'green', text:'Checks green · approved'},
-    action:{label:'Merge', icon:'merge', kind:'green'}, age:'3h',
-    todos:[
-      {owner:'agent', state:'done', text:'Register the judge eval as a re-runnable check'},
-      {owner:'agent', state:'done', text:'Cache the corpus between runs'},
-      {owner:'agent', state:'done', text:'Checks green · approved by jacky'},
-      {owner:'you',   state:'open', text:'Merge when ready'},
-    ],
-    thread:[
-      {who:'devin', ts:'13:05', text:'Judge eval now registers as a re-runnable check with cached corpus between runs.'},
-      {who:'system', ts:'13:58', text:'All checks passed. Review approved by jacky.'},
-    ]},
-];
-
+let cards = [];
 const boardThread = [
-  {who:'user',  ts:'16:08', text:'What is waiting on me right now?'},
-  {who:'board', ts:'16:08', text:'6 checklist items are on you across 5 issues:\n· Resend audience leak — choose option 1 or 2 and reply\n· MCP OAuth — read the failing token-rotation log\n· Slack approval card — walk the preview flow\n· German topic title — re-run narrower or reassign\n· Widget → ahq_ keys — rule on a legacy-key sunset date (pinned)\n· Judge eval — merge when ready'},
-  {who:'user',  ts:'16:31', text:'Open the Alerts tab issue when the OAuth one merges.'},
-  {who:'board', ts:'16:31', text:'Queued. I’ll start a session on “Split monitors into a standalone Alerts tab” once “MCP OAuth 2.1” reaches Ready to merge and is merged.'},
+  {who:'board', ts:'', text:'Board chat is local in v1 — open a card to talk to its Devin session. Data refreshes every 15s.'},
 ];
+
+/* ================= api ================= */
+let BOARD_TOKEN = localStorage.getItem('board_token') || '';
+async function api(path, opts={}){
+  const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if(BOARD_TOKEN) headers['X-Board-Token'] = BOARD_TOKEN;
+  const r = await fetch(path, Object.assign({}, opts, {headers}));
+  if(r.status===401){
+    const t = window.prompt('Board token:');
+    if(t){ BOARD_TOKEN=t; localStorage.setItem('board_token',t); return api(path, opts); }
+    throw new Error('unauthorized');
+  }
+  if(!r.ok){
+    let msg = 'HTTP '+r.status;
+    try{ const j = await r.json(); if(j.detail) msg = j.detail }catch(err){}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+function escHTML(s){return (s??'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function shortRepo(r){return r?r.split('/').pop():''}
+
+function mapCard(c,i){
+  return {
+    id:i, key:c.id, kind:c.kind, col:c.col, tone:c.tone, title:c.title,
+    repo:c.repo, num:c.number, url:c.url,
+    session_id:c.session_id, session_url:c.session_url, pr:c.pr,
+    now:c.now?{text:c.now}:null,
+    options:(c.options||[]).slice(0,3),
+    todos:c.todos||[],
+    progress_pct:c.progress_pct,
+    age:c.age||'',
+    proposed:c.kind==='issue'&&!c.session_id,
+    thread:[],
+  };
+}
 
 /* ================= render ================= */
 const boardEl = document.getElementById('board');
-cards.forEach((c,i)=>c.id=i);
 
 function counts(c){
   const done=c.todos.filter(t=>t.state==='done').length;
@@ -840,203 +674,33 @@ function counts(c){
   const open=c.todos.filter(t=>t.state!=='done').length-yours;
   return {done,yours,open,total:c.todos.length};
 }
-function nextYours(c){return c.todos.find(t=>t.owner==='you'&&t.state!=='done')}
 
-function segbarHTML(c){
-  return `<div class="segbar">${c.todos.map(t=>{
-    if(c.proposed)return '<i class="proposed"></i>';
-    if(t.state==='done')return '<i class="done"></i>';
-    if(t.owner==='you')return '<i class="you"></i>';
-    return `<i class="agent${t.state==='active'?' active':''}"></i>`;
-  }).join('')}</div>`;
-}
-function countsHTML(c){
-  if(c.proposed)return `<div class="counts"><span>proposed</span><span class="sep">·</span><span>${c.todos.length} steps</span></div>`;
+function progressOf(c){
   const k=counts(c);
-  const parts=[];
-  if(k.yours)parts.push(`<span class="yours-n">${k.yours} yours</span>`);
-  parts.push(`<span>${k.open} left</span>`);
-  parts.push(`<span>${k.done} done</span>`);
-  return `<div class="counts">${parts.join('<span class="sep">·</span>')}</div>`;
+  if(k.total)return k.done/k.total;
+  if(typeof c.progress_pct==='number')return Math.max(0,Math.min(100,c.progress_pct))/100;
+  return 0;
 }
 
 function cardHTML(c){
-  const num=c.num??(c.num=131+cards.indexOf(c));
-  const ref=`<span class="ref">answer-hq#${num}</span>`;
-  const k=counts(c);
-  const pct=k.total?k.done/k.total:0;
+  const ref=c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const pct=progressOf(c);
   const nx=c.todos.find(t=>t.state!=='done');
-  const you=nx&&nx.owner==='you'&&!c.proposed;
+  const you=c.col==='needs-you';
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  if(c.col==='issues')return `<div class="title">${c.title}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div>`;
-  const working=c.col==='working'&&c.now;
-  const txt=working?c.now.text:(nx&&!c.proposed&&c.col!=='ready'?nx.text:null);
-  const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${txt}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
-  const elapsed=working&&c.age?`<span class="elapsed">${c.age}</span>`:'';
-  const opts=c.col==='needs-you'&&c.options?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${o}</span>`).join('')}</div>`:'';
-  return `<div class="title">${c.title}</div>${line}${opts}${elapsed}`;
+  if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div>`;
+  const working=c.col==='working';
+  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:null);
+  const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${escHTML(txt)}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
+  const mergeRow=c.col==='ready'&&txt?`<div class="nx solo"><span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span></div>`:'';
+  const elapsed=working&&c.age?`<span class="elapsed">${escHTML(c.age)}</span>`:'';
+  const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
+  return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${elapsed}`;
 }
 
-columns.forEach(col=>{
-  const colCards = cards.filter(c=>c.col===col.id);
-  const el = document.createElement('section');
-  el.className='col'; el.dataset.col=col.id;
-  el.innerHTML = `<div class="col-head"><span class="name">${col.name}</span><span class="count">${colCards.length}</span></div>
-    <div class="col-body"></div>`;
-  const body = el.querySelector('.col-body');
-  colCards.forEach(c=>{
-    const b=document.createElement('button');
-    b.className='card'; b.dataset.tone=c.tone; b.dataset.id=c.id;
-    b.setAttribute('aria-label', c.title);
-    b.innerHTML=cardHTML(c);
-    body.appendChild(b);
-  });
-  if(col.id==='issues'){
-    const add=document.createElement('button');
-    add.className='card add-card'; add.id='add-issue';
-    add.setAttribute('aria-label','New issue');
-    add.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
-    body.appendChild(add);
-  }
-  boardEl.appendChild(el);
-});
-
-/* ---- add-issue card ---- */
-const addBtn=document.getElementById('add-issue');
-function addToInput(){
-  if(addBtn.classList.contains('editing'))return;
-  addBtn.classList.add('editing');
-  addBtn.innerHTML='<input class="title-input" type="text" placeholder="Issue title…" />';
-  const inp=addBtn.querySelector('input');
-  inp.focus();
-  inp.addEventListener('keydown',e=>{
-    e.stopPropagation();
-    if(e.key==='Enter'){
-      const v=inp.value.trim();
-      let nb=null;
-      if(v){
-        nb=document.createElement('button');
-        nb.className='card'; nb.dataset.tone='grey';
-        nb.setAttribute('aria-label',v);
-        nb.innerHTML=`<div class="title">${v.replace(/</g,'&lt;')}</div>`;
-        nb.addEventListener('click',()=>nb.focus());
-        addBtn.parentNode.insertBefore(nb,addBtn);
-        const cnt=addBtn.closest('.col').querySelector('.count');
-        cnt.textContent=+cnt.textContent+1;
-        showToast(`GitHub issue created — “${v}” (mockup)`);
-      }
-      addToPlus();
-      if(nb)nb.focus();
-    }
-    if(e.key==='Escape'){
-      addToPlus();
-      const prev=addBtn.previousElementSibling;
-      if(prev)prev.focus();
-    }
-  });
-  inp.addEventListener('blur',()=>{setTimeout(()=>{if(addBtn.classList.contains('editing'))addToPlus()},120)});
-}
-function addToPlus(){
-  addBtn.classList.remove('editing');
-  addBtn.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
-}
-addBtn.addEventListener('click',addToInput);
-addBtn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!addBtn.classList.contains('editing')){e.preventDefault();e.stopPropagation();addToInput();}});
-
-/* ================= panel ================= */
-const app=document.getElementById('app');
-const threadEl=document.getElementById('thread');
-const panelList=document.getElementById('panel-list');
-const convHead=document.getElementById('conv-head');
-const panelScroll=document.getElementById('panel-scroll');
-const panelTitle=document.getElementById('panel-title');
-const panelSub=document.getElementById('panel-sub');
-const panelBadge=document.getElementById('panel-badge');
-const composer=document.getElementById('composer');
-let mode='board', openCard=null;
-
-const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
-function renderThread(msgs){
-  threadEl.innerHTML=msgs.map(m=>`<div class="msg ${m.who}">
-    <div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${m.ts}</span>`:''}</div>
-    <div class="body">${m.text}</div></div>`).join('');
-}
-
-function todoRow(t,i,proposed){
-  const stateCls=t.state==='done'?'done':(t.state==='active'?'active':'');
-  const ownerCls=t.state==='done'?'':(t.owner==='you'?'you':'agent');
-  const box=t.state==='done'?I.boxDone:(t.state==='active'?I.boxActive:I.boxOpen);
-  const chip=t.state==='done'?'done':(t.owner==='you'?'you':(t.state==='active'?'agent · now':'agent'));
-  const pin=t.pinned?`<span class="pin">${I.pin}pinned</span>`:'';
-  const note=t.note?`<span class="note">${t.note}</span>`:'';
-  return `<div class="todo ${stateCls} ${ownerCls} ${proposed?'proposed':''} ${t.pinned?'pinned':''}">
-    <span class="idx">${i+1}</span>
-    <span class="box">${box}</span>
-    <span class="txt">${pin}${t.text}${note}</span>
-    <span class="chip">${proposed?'plan':chip}</span>
-  </div>`;
-}
-
-function checklistHTML(c){
-  const k=counts(c);
-  const head=c.proposed
-    ? `<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${c.todos.length} steps · not started</span></div>`
-    : `<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
-  const pos=c.position?`<div class="pl-position">${I.flag}<span>${c.position}</span></div>`:'';
-  const rows=c.todos.map((t,i)=>todoRow(t,i,c.proposed)).join('');
-  const note=c.proposed?`<div class="pl-proposed-note">${I.play} Starts running when you start the session — <kbd>E</kbd></div>`:'';
-  return `<div class="pl-sect">${head}${pos}${rows}${note}</div>`;
-}
-
-function setBoardMode(){
-  mode='board'; openCard=null;
-  app.dataset.mode='board';
-  panelTitle.textContent='Board';
-  panelSub.textContent='operate the board';
-  panelBadge.textContent='board';
-  composer.placeholder='Message the board…';
-  panelList.innerHTML='';
-  convHead.style.display='none';
-  renderThread(boardThread);
-  panelScroll.scrollTop=panelScroll.scrollHeight;
-  document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
-}
-function setCardMode(id){
-  const c=cards[id];
-  mode='card'; openCard=id;
-  app.dataset.mode='card';
-  panelTitle.textContent=c.title;
-  panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
-  panelBadge.textContent='card';
-  composer.placeholder='Message this session…';
-  panelList.innerHTML=checklistHTML(c);
-  convHead.style.display='flex';
-  renderThread(c.thread);
-  panelScroll.scrollTop=0; /* checklist first: what's next is positional */
-  document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
-  cardEl(id).classList.add('selected');
-  ensureVisible(cardEl(id));
-}
-function cardEl(id){return document.querySelector(`.card[data-id="${id}"]`)}
-const mainEl=document.querySelector('main');
-function ensureVisible(el){
-  if(!el)return;
-  const r=el.getBoundingClientRect();
-  const limit=window.innerWidth-(mode!=='closed'?400:0);
-  if(r.right>limit)mainEl.scrollBy({left:r.right-limit+12,behavior:'smooth'});
-  else if(r.left<0)mainEl.scrollBy({left:r.left-12,behavior:'smooth'});
-}
-setBoardMode();
-mode='closed'; app.dataset.mode='closed';
-
-/* ================= toast ================= */
-const toast=document.getElementById('toast'); let toastT;
-function showToast(t){toast.textContent=t;toast.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('show'),1800)}
-
-/* ================= interactions ================= */
-document.querySelectorAll('.card:not(.add-card)').forEach(el=>{
+function wireCard(el){
   el.addEventListener('click',e=>{
     const opt=e.target.closest('.opt');
     if(opt){pickOption(+el.dataset.id,[...el.querySelectorAll('.opt')].indexOf(opt));e.stopPropagation();return}
@@ -1055,44 +719,309 @@ document.querySelectorAll('.card:not(.add-card)').forEach(el=>{
     if(e.target.closest('.act'))return;
     composer.focus();
   });
-});
+}
+
+function renderBoard(){
+  const a=document.activeElement;
+  const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
+  const wasAdd=a&&a.id==='add-issue';
+  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return; // don't disturb typing
+  boardEl.innerHTML='';
+  columns.forEach(col=>{
+    const colCards = cards.filter(c=>c.col===col.id);
+    const el = document.createElement('section');
+    el.className='col'; el.dataset.col=col.id;
+    el.innerHTML = `<div class="col-head"><span class="name">${col.name}</span><span class="count">${colCards.length}</span></div>
+      <div class="col-body"></div>`;
+    const body = el.querySelector('.col-body');
+    colCards.forEach(c=>{
+      const b=document.createElement('button');
+      b.className='card'; b.dataset.tone=c.tone; b.dataset.id=c.id; b.dataset.key=c.key;
+      b.setAttribute('aria-label', c.title);
+      b.innerHTML=cardHTML(c);
+      wireCard(b);
+      body.appendChild(b);
+    });
+    if(col.id==='issues'){
+      const add=document.createElement('button');
+      add.className='card add-card'; add.id='add-issue';
+      add.setAttribute('aria-label','New issue');
+      add.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
+      wireAddCard(add);
+      body.appendChild(add);
+    }
+    boardEl.appendChild(el);
+  });
+  const by=id=>cards.filter(c=>c.col===id).length;
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
+  set('stat-needs',by('needs-you')); set('stat-working',by('working'));
+  set('stat-ready',by('ready')); set('stat-idle',by('issues'));
+  if(openCard!=null&&openCardKey!=null){
+    const idx=cards.findIndex(c=>c.key===openCardKey);
+    if(idx>=0){openCard=idx; refreshPanel(cards[idx])}
+    else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
+  }
+  if(focusKey){
+    const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`);
+    if(el)el.focus();
+  }else if(wasAdd){
+    const el=document.getElementById('add-issue'); if(el)el.focus();
+  }
+}
+
+async function fetchBoard(){
+  const data=await api('/api/board');
+  const flat=[];
+  for(const col of data.columns)for(const c of col.cards)flat.push(c);
+  cards=flat.map(mapCard);
+  renderBoard();
+}
+
+/* ---- add-issue card ---- */
+function wireAddCard(addBtn){
+  function addToPlus(){
+    addBtn.classList.remove('editing');
+    addBtn.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
+  }
+  function addToInput(){
+    if(addBtn.classList.contains('editing'))return;
+    addBtn.classList.add('editing');
+    addBtn.innerHTML='<input class="title-input" type="text" placeholder="Issue title…" />';
+    const inp=addBtn.querySelector('input');
+    inp.focus();
+    inp.addEventListener('keydown',async e=>{
+      e.stopPropagation();
+      if(e.key==='Enter'){
+        const v=inp.value.trim();
+        addToPlus();
+        addBtn.focus();
+        if(v){
+          showToast(`Creating issue — “${v}”…`);
+          try{
+            const res=await api('/api/issues',{method:'POST',body:JSON.stringify({title:v})});
+            showToast(`Issue created — ${shortRepo(res.repo)}#${res.number}`);
+            await fetchBoard();
+          }catch(err){showToast('Create failed: '+err.message)}
+        }
+      }
+      if(e.key==='Escape'){
+        addToPlus();
+        const prev=addBtn.previousElementSibling;
+        if(prev)prev.focus(); else addBtn.focus();
+      }
+    });
+    inp.addEventListener('blur',()=>{setTimeout(()=>{if(addBtn.classList.contains('editing'))addToPlus()},120)});
+  }
+  addBtn.addEventListener('click',addToInput);
+  addBtn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!addBtn.classList.contains('editing')){e.preventDefault();e.stopPropagation();addToInput();}});
+}
+
+/* ================= panel ================= */
+const app=document.getElementById('app');
+const threadEl=document.getElementById('thread');
+const panelList=document.getElementById('panel-list');
+const convHead=document.getElementById('conv-head');
+const panelScroll=document.getElementById('panel-scroll');
+const panelTitle=document.getElementById('panel-title');
+const panelSub=document.getElementById('panel-sub');
+const panelBadge=document.getElementById('panel-badge');
+const composer=document.getElementById('composer');
+let mode='board', openCard=null, openCardKey=null;
+
+const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
+function fmtTs(ts){
+  if(!ts)return '';
+  const d=new Date(ts);
+  if(isNaN(d))return ts;
+  return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+function renderThread(msgs){
+  threadEl.innerHTML=msgs.map(m=>`<div class="msg ${m.who}">
+    <div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>
+    <div class="body">${escHTML(m.text)}</div></div>`).join('');
+}
+
+function todoRow(t,i,proposed){
+  const stateCls=t.state==='done'?'done':(t.state==='active'?'active':'');
+  const ownerCls=t.state==='done'?'':(t.owner==='you'?'you':'agent');
+  const box=t.state==='done'?I.boxDone:(t.state==='active'?I.boxActive:I.boxOpen);
+  const chip=t.state==='done'?'done':(t.owner==='you'?'you':(t.state==='active'?'agent · now':'agent'));
+  return `<div class="todo ${stateCls} ${ownerCls} ${proposed?'proposed':''}">
+    <span class="idx">${i+1}</span>
+    <span class="box">${box}</span>
+    <span class="txt">${escHTML(t.text)}</span>
+    <span class="chip">${proposed?'plan':chip}</span>
+  </div>`;
+}
+
+function checklistHTML(c){
+  if(!c.todos.length){
+    const note=c.kind==='issue'&&!c.session_id
+      ? `<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`
+      : `<div class="pl-proposed-note">${I.logs} Todos appear here once the session transcript is parsed.</div>`;
+    return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Todo</span><span class="m">—</span></div>${note}</div>`;
+  }
+  const k=counts(c);
+  const head=`<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
+  const rows=c.todos.map((t,i)=>todoRow(t,i,false)).join('');
+  return `<div class="pl-sect">${head}${rows}</div>`;
+}
+
+function linksHTML(c){
+  const links=[];
+  if(c.url)links.push(`<a class="pl-link" href="${c.url}" target="_blank" rel="noopener">${I.external} ${c.kind==='pr'?'Pull request':'GitHub issue'}</a>`);
+  if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR ${escHTML(shortRepo(c.pr.repo))}#${c.pr.number} · CI ${c.pr.ci} · review ${c.pr.review}</a>`);
+  if(c.session_url)links.push(`<a class="pl-link" href="${c.session_url}" target="_blank" rel="noopener">${I.logs} Devin session</a>`);
+  if(!links.length)return '';
+  return `<div class="pl-links" style="display:flex;flex-direction:column;gap:6px;margin:10px 0 4px">${links.join('')}</div>`;
+}
+
+function setBoardMode(){
+  mode='board'; openCard=null; openCardKey=null;
+  app.dataset.mode='board';
+  panelTitle.textContent='Board';
+  panelSub.textContent='operate the board';
+  panelBadge.textContent='board';
+  composer.placeholder='Message the board…';
+  panelList.innerHTML='';
+  convHead.style.display='none';
+  renderThread(boardThread);
+  panelScroll.scrollTop=panelScroll.scrollHeight;
+  document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
+}
+
+function refreshPanel(c){
+  panelTitle.textContent=c.title;
+  panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
+  panelList.innerHTML=checklistHTML(c)+linksHTML(c);
+}
+
+async function loadThread(c){
+  if(!c.session_id){
+    renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
+    return;
+  }
+  renderThread([{who:'system',text:'Loading conversation…'}]);
+  try{
+    const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
+    c.thread=data.messages||[];
+    if(openCardKey===c.key)renderThread(c.thread.length?c.thread:[{who:'system',text:'No messages yet.'}]);
+    panelScroll.scrollTop=panelScroll.scrollHeight;
+  }catch(e){
+    if(openCardKey===c.key)renderThread([{who:'system',text:'Failed to load messages: '+e.message}]);
+  }
+}
+
+function setCardMode(id){
+  const c=cards[id];
+  if(!c)return;
+  mode='card'; openCard=id; openCardKey=c.key;
+  app.dataset.mode='card';
+  panelBadge.textContent='card';
+  composer.placeholder='Message this session…';
+  refreshPanel(c);
+  convHead.style.display='flex';
+  loadThread(c);
+  panelScroll.scrollTop=0;
+  document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
+  const el=cardEl(id);
+  if(el){el.classList.add('selected');ensureVisible(el)}
+}
+function cardEl(id){return document.querySelector(`.card[data-id="${id}"]`)}
+const mainEl=document.querySelector('main');
+function ensureVisible(el){
+  if(!el)return;
+  const r=el.getBoundingClientRect();
+  const limit=window.innerWidth-(mode!=='closed'?400:0);
+  if(r.right>limit)mainEl.scrollBy({left:r.right-limit+12,behavior:'smooth'});
+  else if(r.left<0)mainEl.scrollBy({left:r.left-12,behavior:'smooth'});
+}
+setBoardMode();
+mode='closed'; app.dataset.mode='closed';
+
+/* ================= toast ================= */
+const toast=document.getElementById('toast'); let toastT;
+function showToast(t){toast.textContent=t;toast.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('show'),2600)}
+
+/* ================= actions ================= */
 document.getElementById('panel-close').addEventListener('click',()=>{
   const el=openCard!=null?cardEl(openCard):focused();
   setBoardMode(); mode='closed'; app.dataset.mode='closed';
   el?.focus();
 });
-function pickOption(id,i){
+
+async function pickOption(id,i){
   const c=cards[id];
   if(!c||!c.options||!c.options[i])return;
-  showToast(`Replied \u201c${c.options[i]}\u201d \u2014 \u201c${c.title}\u201d (mockup)`);
+  const text=c.options[i];
+  showToast(`Replying “${text}”…`);
+  try{
+    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text})});
+    showToast(`Sent “${text}” — “${c.title}”`);
+    if(openCardKey===c.key)loadThread(c);
+  }catch(e){showToast('Send failed: '+e.message)}
 }
-function triggerAction(id){
+
+async function triggerAction(id){
   const c=cards[id];
+  if(!c)return;
   if(c.col==='issues'){startIssue(id);return}
-  if(c.action) showToast(`${c.action.label} — “${c.title}” (mockup)`);
+  if(c.col==='ready'&&c.pr){
+    showToast(`Merging ${shortRepo(c.pr.repo)}#${c.pr.number}…`);
+    try{
+      await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo:c.pr.repo,number:c.pr.number})});
+      showToast(`Merged ${shortRepo(c.pr.repo)}#${c.pr.number}`);
+      await fetchBoard();
+    }catch(e){showToast('Merge failed: '+e.message)}
+  }
 }
-function startIssue(id){
+
+async function archiveCard(id){
+  const c=cards[id];
+  if(!c)return;
+  showToast(`Archiving “${c.title}”…`);
+  try{
+    await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
+    showToast(`Archived — “${c.title}”`);
+    if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
+    await fetchBoard();
+    firstCard()?.focus();
+  }catch(e){showToast('Archive failed: '+e.message)}
+}
+
+async function startIssue(id){
   const c=cards[id];
   if(!c||c.col!=='issues')return;
-  c.col='working'; c.tone='blue'; c.proposed=false;
-  const el=cardEl(id);
-  const from=el.closest('.col'), to=document.querySelector('.col[data-col="working"] .col-body');
-  el.dataset.tone='blue';
-  el.innerHTML=cardHTML(c);
-  to.appendChild(el);
-  const dec=from.querySelector('.count'), inc=to.closest('.col').querySelector('.count');
-  dec.textContent=+dec.textContent-1; inc.textContent=+inc.textContent+1;
-  showToast(`Session started — “${c.title}” (mockup)`);
-  el.focus();
+  showToast(`Starting session — “${c.title}”…`);
+  try{
+    await api('/api/issue/start',{method:'POST',body:JSON.stringify({repo:c.repo,number:c.num})});
+    showToast(`Session started — “${c.title}”`);
+    await fetchBoard();
+    const el=document.querySelector(`.card[data-key="${CSS.escape(c.key)}"]`);
+    if(el)el.focus();
+  }catch(e){showToast('Start failed: '+e.message)}
 }
+
 document.getElementById('send-btn').addEventListener('click',sendMsg);
-function sendMsg(){
+async function sendMsg(){
   const v=composer.value.trim(); if(!v)return;
-  const msg={who:'user',ts:'now',text:v.replace(/</g,'&lt;')};
-  if(mode==='board'){boardThread.push(msg);renderThread(boardThread)}
-  else{cards[openCard].thread.push(msg);renderThread(cards[openCard].thread)}
-  panelScroll.scrollTop=panelScroll.scrollHeight;
+  if(mode==='board'||openCard==null){
+    boardThread.push({who:'user',ts:'',text:v});
+    boardThread.push({who:'board',ts:'',text:'Board chat is local-only in v1. Open a card to message its Devin session.'});
+    renderThread(boardThread);
+    panelScroll.scrollTop=panelScroll.scrollHeight;
+    composer.value='';
+    return;
+  }
+  const c=cards[openCard];
+  if(!c.session_id){showToast('This card has no session yet — press E to start one');return}
   composer.value='';
+  c.thread.push({who:'user',ts:new Date().toISOString(),text:v});
+  renderThread(c.thread);
+  panelScroll.scrollTop=panelScroll.scrollHeight;
+  try{
+    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v})});
+  }catch(e){showToast('Send failed: '+e.message)}
 }
 composer.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}
@@ -1162,7 +1091,7 @@ function move(dx,dy){
     let ni=ci+dx;
     while(ni>=0&&ni<cols.length){
       const list=colCards(cols[ni]);
-      if(list.length){ 
+      if(list.length){
         const i=Math.min(colCards(col).indexOf(cur),list.length-1);
         list[i].focus(); syncPanel(); return;
       }
@@ -1184,25 +1113,27 @@ document.addEventListener('keydown',e=>{
     case 'ArrowRight': case 'd': case 'D': move(1,0); e.preventDefault(); break;
     case 'Home': {const f=focused(); if(f)colCards(f.closest('.col'))[0].focus(); e.preventDefault(); break}
     case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
-    case 'Enter': {const f=focused(); if(f){const id=+f.dataset.id; if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
+    case 'Enter': {const f=focused(); if(f){if(f.id==='add-issue')break; const id=+f.dataset.id; if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
     case 'Escape':
       if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; el?.focus()}
       break;
     case 'c': case 'C': setBoardMode(); composer.focus(); e.preventDefault(); break;
     case '?': toggleOverlay(true); e.preventDefault(); break;
-    case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f)triggerAction(+f.dataset.id); break}
-    case 'f': case 'F': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f)startIssue(+f.dataset.id); break}
+    case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(+f.dataset.id); break}
+    case 'f': case 'F': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)startIssue(+f.dataset.id); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
-    case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f)pickOption(+f.dataset.id,+e.key-1); break}
+    case 'x': case 'X': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
+    case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)pickOption(+f.dataset.id,+e.key-1); break}
   }
 });
 
-/* focus first needs-you card on load so keyboard flow is immediately visible */
-window.addEventListener('load',()=>{
-  const q=new URLSearchParams(location.search);
-  if(q.has('card')){const id=+q.get('card'); setCardMode(id); cardEl(id).focus(); return}
-  const c=document.querySelector('[data-col="needs-you"] .card'); if(c)c.focus();
-});
+/* ================= boot ================= */
+renderBoard();
+fetchBoard().then(()=>{
+  const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();
+  if(c)c.focus();
+}).catch(e=>showToast('Load failed: '+e.message));
+setInterval(()=>{fetchBoard().catch(()=>{})},15000);
 </script>
 </body>
 </html>
