@@ -245,7 +245,8 @@ async def fetch_render():
             d.raise_for_status()
             deploys = [x.get("deploy", x) for x in d.json()]
             out.append(deploy_summary(svc, deploys))
-    out.sort(key=lambda s: (s["repo"] not in REPOS, s["name"]))
+    rank = {"deploying": 0, "failed": 1}
+    out.sort(key=lambda s: (rank.get(s["status"], 2), s["repo"] not in REPOS, s["name"]))
     state["deploys"] = out
     state["render_ok"] = True
 
