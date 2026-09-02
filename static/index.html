@@ -196,7 +196,7 @@ main{
 .add-card:hover .plus,.add-card:focus .plus{color:var(--ds-gray-1000)}
 .add-card .add-hint{display:inline-flex;align-items:center;gap:6px;max-width:0;opacity:0;overflow:hidden;margin-left:0;transition:max-width .18s ease,opacity .18s ease,margin-left .18s ease;font-size:11px;line-height:14px;color:var(--ds-gray-900);white-space:nowrap}
 .add-card .add-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
-.add-card:is(:hover,:focus) .add-hint{max-width:64px;opacity:1;margin-left:8px}
+.add-card:is(:hover,:focus) .add-hint{max-width:120px;opacity:1;margin-left:8px}
 .add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
@@ -228,6 +228,9 @@ main{
 .card .nx.you.generic svg circle.fill{stroke:var(--ds-gray-600)}
 .card .elapsed{align-self:flex-end;margin:-3px 0 -4px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .col[data-col="working"] .card .nx svg{animation:ringspin 3.2s linear infinite}
+.card .ci-line{display:flex;gap:8px;align-items:center;font-size:12px;line-height:17px;color:var(--ds-amber-900)}
+.card .ci-line svg{flex:none;color:var(--ds-amber-900)}
+.card .ci-line span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @keyframes ringspin{to{transform:rotate(360deg)}}
 
 /* ---- Cards ---- */
@@ -589,6 +592,9 @@ aside{
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900);background:var(--ds-gray-200);padding:0 3px}
 .msg .body a{color:var(--ds-blue-900);text-decoration:none}
 .msg .body a:hover{text-decoration:underline}
+.msg.working{flex-direction:row;align-items:center;gap:8px;font-size:13px;line-height:18px;font-weight:500;padding:4px 0}
+.msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-600) 0%,var(--ds-gray-600) 35%,#fff 50%,var(--ds-gray-600) 65%,var(--ds-gray-600) 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer-txt 1.4s ease-in-out infinite}
+@keyframes shimmer-txt{from{background-position:100% 0}to{background-position:-100% 0}}
 
 /* message action rows: PR cards, test offers, option buttons (mirrors app.devin.ai) */
 .msg .acts{display:flex;flex-direction:column;gap:6px;width:100%;max-width:100%}
@@ -622,6 +628,9 @@ aside{
 .pr-card .pr-foot .branch{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
 .pr-card .pr-btns{grid-column:1/span 2;display:flex;gap:6px;margin-top:4px}
 .pr-card .act{height:24px;font-size:11px;padding:0 8px}
+.pr-card .act.merge{cursor:pointer}
+.pr-card .act.merge.armed{background:var(--ds-green-500);border-color:var(--ds-green-700);color:var(--ds-gray-1000);box-shadow:0 0 0 1px var(--ds-green-700)}
+.pr-card .act.merge.busy{opacity:.6;pointer-events:none}
 .msg-btns{display:flex;flex-wrap:wrap;gap:6px}
 .msg-btns .act{height:26px;font-size:12px;padding:0 10px;cursor:pointer}
 .msg-btns .act.opt-btn{border-color:var(--ds-amber-500);background:var(--ds-amber-100);color:var(--ds-amber-1000)}
@@ -631,10 +640,6 @@ aside{
 .q-block{width:100%;border:1px solid var(--ds-amber-500);background:var(--ds-amber-100);padding:9px 10px;display:flex;flex-direction:column;gap:8px}
 .q-block .q-head{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-amber-900)}
 .q-block .q-text{font-size:12.5px;line-height:17px;color:var(--ds-amber-1000)}
-.status-line{display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--ds-gray-800);padding:2px 0}
-.status-line .spin{color:var(--ds-blue-900);flex:none}
-.status-line .lbl{font-weight:500;color:var(--ds-gray-900)}
-.status-line .now{color:var(--ds-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
 .msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
@@ -933,8 +938,8 @@ function shortRepo(r){return r?r.split('/').pop():''}
 const CI_STATE={
   passing:{tone:'green',label:'passing'},
   failing:{tone:'red',label:'failing'},
-  running:{tone:'blue',label:'running'},
-  pending:{tone:'blue',label:'running'},
+  running:{tone:'amber',label:'running'},
+  pending:{tone:'amber',label:'running'},
   none:{tone:'grey',label:'no checks'},
   unknown:{tone:'grey',label:'unknown'},
 };
@@ -971,7 +976,7 @@ function prVerdict(c){
   if(pr.review==='changes_requested')return {tone:'amber',icon:I.reply,head:'Changes requested',sub:c.col==='working'?'Devin is addressing the review':'Waiting on a follow-up push'};
   if(c.col==='ready')return {tone:'green',icon:I.merge,head:'Ready to merge',sub:`${ci.label==='no checks'?'No CI configured':'CI green'} · ${review.label==='approved'?'approved':'no blocking review'} · no conflicts`,merge:true};
   if(c.col==='working')return {tone:'blue',icon:I.spinner,head:'Devin is still working',sub:`PR ${n} is open — review once it hands off`};
-  if(pr.ci==='running'||pr.ci==='pending')return {tone:'purple',icon:I.spinner,head:`PR ${n} opened · CI running`,sub:'Review now, or wait for checks to finish'};
+  if(pr.ci==='running'||pr.ci==='pending')return {tone:'amber',icon:I.spinner,head:`PR ${n} opened · CI running`,sub:'Not ready to merge yet — review now, or wait for checks to finish'};
   if(pr.mergeable_state==='blocked'||pr.mergeable_state==='behind')return {tone:'amber',icon:I.flag,head:`PR ${n} · ${merge.label}`,sub:pr.mergeable_state==='behind'?'Update the branch, then merge':'A required check or review is still missing'};
   return {tone:'purple',icon:I.eye,head:`PR ${n} is waiting for your review`,sub:ci.label==='passing'?'CI green — read it and approve or request changes':'Open it on GitHub to review'};
 }
@@ -1013,7 +1018,7 @@ function progressOf(c){
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref">creating\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
   const age=c.age?`<span class="age">${escHTML(c.age)}</span>`:'';
   const meta=`<div class="cmeta">${ref}${prRef}${age}</div>`;
@@ -1026,14 +1031,16 @@ function cardHTML(c){
   const closeHint=c.pending?'':`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>C</kbd><span>${isArmed('archive')?'confirm?':archiveLabel(c).toLowerCase()}</span></span><span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
   if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div></div></div>`;
   const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
-  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'?prStatus:null));
+  const ciRunning=c.col==='review'&&c.pr&&(c.pr.ci==='running'||c.pr.ci==='pending');
+  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'&&!ciRunning?prStatus:null));
   const generic=you&&c.now&&GENERIC_NOW.test(c.now.text);
   const ready=c.col==='ready';
   const mergeBtn=`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`;
   const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>working\u2026</span></div>`:'');
+  const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on PR #${c.pr.number} · not ready to merge yet</span></div>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
-  return `<div class="title">${escHTML(c.title)}</div>${line}${opts}${foot}`;
+  return `<div class="title">${escHTML(c.title)}</div>${line}${ciLine}${opts}${foot}`;
 }
 function isIssueClose(c){return c.kind==='issue'}
 function archiveLabel(c){return !isIssueClose(c)?'Archive':c.session_id?'Close & archive':'Close'}
@@ -1094,8 +1101,8 @@ function renderBoard(){
     if(col.id==='issues'){
       const add=document.createElement('button');
       add.className='card add-card'; add.id='add-issue';
-      add.setAttribute('aria-label','New issue');
-      add.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
+      add.setAttribute('aria-label','New task — describe it and Devin files the issue');
+      add.innerHTML=ADD_HINT;
       wireAddCard(add);
       body.appendChild(add);
     }
@@ -1216,22 +1223,24 @@ async function prefetchThreads(){
   }finally{prefetching=false}
 }
 
-/* ---- add-issue card ---- */
+/* ---- add-task (prompt) card ---- */
+const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new task</span></span>';
 function wireAddCard(addBtn){
   function addToPlus(){
     addBtn.classList.remove('editing');
-    addBtn.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
+    addBtn.innerHTML=ADD_HINT;
   }
   function addToInput(){
     if(addBtn.classList.contains('editing'))return;
     addBtn.classList.add('editing');
-    addBtn.innerHTML='<input class="title-input" type="text" placeholder="Issue title…" />';
+    addBtn.innerHTML='<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ⇧↵ file & start" />';
     const inp=addBtn.querySelector('input');
     inp.focus();
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
       if(e.key==='Enter'){
         const v=inp.value.trim();
+        const start=e.shiftKey;
         addToPlus();
         addBtn.focus();
         if(v){
@@ -1240,13 +1249,13 @@ function wireAddCard(addBtn){
           cards.forEach((c,i)=>c.id=i);
           renderBoard();
           try{
-            const res=await api('/api/issues',{method:'POST',body:JSON.stringify({title:v})});
-            showToast(`Issue created — ${shortRepo(res.repo)}#${res.number}`);
+            await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start})});
+            showToast(start?'Sent to Devin — filing the issue, then starting on it':'Sent to Devin — filing the issue');
             await fetchBoard();
           }catch(err){
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
-            showToast('Create failed: '+err.message);
+            showToast('Send failed: '+err.message);
           }
         }
       }
@@ -1400,8 +1409,8 @@ function prCardHTML(p){
   const state=p.draft&&p.state==='open'?'draft':p.state;
   const ci=state==='open'||state==='draft'?(CI_LABEL[p.ci]?`<span class="ci ${p.ci}">${p.ci==='passing'?I.check:p.ci==='failing'?I.x:p.ci==='running'?I.spinner:''}${CI_LABEL[p.ci]}</span>`:''):'';
   const diff=`<span><span class="add">+${p.additions}</span> <span class="del">\u2212${p.deletions}</span></span>`;
-  const canMerge=state==='open'&&(p.ci==='passing'||p.ci==='none')&&p.mergeable_state==='clean';
-  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a><a class="act" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>${canMerge?`<button class="act green" data-merge-repo="${escHTML(p.repo)}" data-merge-number="${p.number}">${I.merge} Merge</button>`:''}</div>`;
+  const canMerge=state==='open';
+  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a><a class="act" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>${canMerge?`<span class="act green merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}</div>`;
   return `<div class="pr-card" data-state="${escHTML(state)}">
     <div class="pr-repo">${GH_ICON}<span>${escHTML(p.repo)}</span></div>
     <span class="pr-state ${state}">${state==='merged'?I.merge:''}${PR_STATE_LABEL[state]||state}</span>
@@ -1420,7 +1429,16 @@ function whoHTML(m){
   }
   return `<span class="who">${WHO[m.who]||m.who}</span>`;
 }
-// ctx: {options:[...], ask, waiting, working, now}
+function workingText(c){
+  if(c.now&&c.now.text)return c.now.text;
+  const nx=c.todos.find(t=>t.state!=='done');
+  return nx?nx.text:'working\u2026';
+}
+function workingHTML(c){
+  if(!c||c.col!=='working'||c.pending)return '';
+  return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(workingText(c))}</span></div>`;
+}
+// ctx: {options:[...], ask, waiting}
 function renderThread(msgs,ctx={}){
   const convMeta=document.getElementById('conv-meta');
   const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
@@ -1442,8 +1460,8 @@ function renderThread(msgs,ctx={}){
   const tail=[];
   if(ctx.waiting&&(ctx.options||[]).length){
     tail.push(`<div class="msg devin"><div class="acts"><div class="q-block"><div class="q-head">${I.question} Devin is waiting on you</div>${ctx.ask?`<div class="q-text">${escHTML(ctx.ask)}</div>`:''}<div class="msg-btns">${ctx.options.map((o,i)=>`<button class="act opt-btn" data-opt="${i}"><kbd>${i+1}</kbd>${escHTML(o)}</button>`).join('')}</div></div></div></div>`);
-  }else if(ctx.working){
-    tail.push(`<div class="status-line">${I.spinner}<span class="lbl">Devin is working</span>${ctx.now?`<span class="now">\u00b7 ${escHTML(ctx.now)}</span>`:''}</div>`);
+  }else if(mode==='card'){
+    tail.push(workingHTML(cards[openCard]));
   }
   threadEl.innerHTML=html.join('')+tail.join('');
 }
@@ -1461,18 +1479,6 @@ threadEl.addEventListener('click',async e=>{
       showToast(`Sent “${text}”`);
       loadThread(c);
     }catch(err){t.disabled=false;showToast('Send failed: '+err.message)}
-    return;
-  }
-  if(t.dataset.mergeRepo){
-    t.disabled=true;
-    showToast(`Merging ${shortRepo(t.dataset.mergeRepo)}#${t.dataset.mergeNumber}…`);
-    try{
-      await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo:t.dataset.mergeRepo,number:+t.dataset.mergeNumber})});
-      showToast(`Merged ${shortRepo(t.dataset.mergeRepo)}#${t.dataset.mergeNumber}`);
-      await fetchBoard();
-      const cur=cards.find(x=>x.key===c.key);
-      if(cur)loadThread(cur,true);
-    }catch(err){t.disabled=false;showToast('Merge failed: '+err.message)}
   }
 });
 
@@ -1558,6 +1564,8 @@ function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.innerHTML=panelSubHTML(c);
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+usageHTML(c)+linksHTML(c);
+  const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
+  if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
   const mergeBtn=panelList.querySelector('[data-merge]');
   if(mergeBtn)mergeBtn.addEventListener('click',()=>{if(openCard!=null)triggerAction(openCard)});
   const lbl=!isIssueClose(c)?'Archive':c.session_id?'Close issue & archive':'Close issue';
@@ -1581,8 +1589,6 @@ function threadCtx(c,d){
     options:c.options||[],
     ask:c.col==='needs-you'&&c.now?c.now.text:null,
     waiting:!!st.waiting,
-    working:!st.waiting&&['running','working','starting','resuming'].includes(st.state)&&c.col==='working',
-    now:c.now?c.now.text:null,
   };
 }
 let stickToEnd=true;
@@ -1712,6 +1718,52 @@ async function pickOption(id,i){
   }catch(e){showToast('Send failed: '+e.message)}
 }
 
+/* inline PR card merge: first click arms the button, second click within ARM_MS merges */
+let prArm=null;
+function disarmPrMerge(){
+  if(!prArm)return;
+  clearTimeout(prArm.t);
+  const b=prArm.btn; prArm=null;
+  if(b.isConnected){b.classList.remove('armed');b.innerHTML=`${I.merge} Merge`}
+}
+async function prCardMerge(btn){
+  const [repo,num]=btn.dataset.mergePr.split('#');
+  const number=+num, ref=`${shortRepo(repo)}#${number}`;
+  if(prArm&&prArm.btn===btn){
+    clearTimeout(prArm.t); prArm=null;
+    btn.classList.remove('armed'); btn.classList.add('busy'); btn.innerHTML=`${I.merge} Merging\u2026`;
+    showToast(`Merging ${ref}\u2026`);
+    try{
+      await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo,number})});
+      showToast(`Merged ${ref}`);
+      const c=openCardKey?cards.find(x=>x.key===openCardKey):null;
+      if(c){delete threadCache[c.key];loadThread(c)}
+      await fetchBoard();
+    }catch(e){
+      showToast('Merge failed: '+e.message);
+      if(btn.isConnected){btn.classList.remove('busy');btn.innerHTML=`${I.merge} Merge`}
+    }
+    return;
+  }
+  disarmPrMerge();
+  prArm={btn,t:setTimeout(disarmPrMerge,ARM_MS)};
+  btn.classList.add('armed'); btn.innerHTML=`${I.merge} Confirm merge`;
+  showToast(`Click again to merge ${ref}`);
+}
+threadEl.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-merge-pr]');
+  if(!btn||!threadEl.contains(btn))return;
+  e.preventDefault(); e.stopPropagation();
+  prCardMerge(btn);
+});
+threadEl.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ')return;
+  const btn=e.target.closest('[data-merge-pr]');
+  if(!btn)return;
+  e.preventDefault(); e.stopPropagation();
+  prCardMerge(btn);
+});
+
 async function triggerAction(id){
   const c=cards[id];
   if(!c)return;
@@ -1807,7 +1859,7 @@ async function sendMsg(){
   th.msgs.push({who:'user',ts:new Date().toISOString(),text:v});
   th.status={...(th.status||{}),waiting:false,state:'running'};
   th.sig=threadSig(th);
-  renderThread(th.msgs,{...threadCtx(c,th),working:true,now:null});
+  renderThread(th.msgs,threadCtx(c,th));
   scrollThreadToEnd();
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v})});
