@@ -138,6 +138,11 @@ header{
 .hdr-deploys .muted{color:var(--ds-gray-700);padding:6px 12px;display:block}
 .hdr-help{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ds-gray-900)}
 .hdr-help:hover{color:var(--ds-gray-1000)}
+.hdr-sync{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-600);white-space:nowrap}
+.hdr-sync .dot{width:5px;height:5px}
+.hdr-sync.busy .dot{background:var(--ds-blue-700);animation:pulse 1.2s ease-in-out infinite}
+.hdr-sync.err{color:var(--ds-red-900)}
+.hdr-sync.err .dot{background:var(--ds-red-700)}
 
 /* ---- Board ---- */
 main{
@@ -175,7 +180,16 @@ main{
 .col[data-col="review"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-purple-900)}
 .col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
 .col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1;min-height:0;overflow-y:auto}
-.col-empty{font-size:12px;color:var(--ds-gray-600);padding:6px 4px}
+.col-empty{display:flex;flex-direction:column;gap:3px;padding:14px 6px;font-size:12px;line-height:16px;color:var(--ds-gray-600)}
+.col-empty .e1{color:var(--ds-gray-700)}
+.col-empty .e2{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ds-gray-600)}
+.col-empty kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-700);background:transparent;border:1px solid var(--ds-gray-500)}
+.col[data-col="needs-you"] .col-empty .e1{color:var(--ds-green-900)}
+/* first-load skeletons */
+.skel{border:1px solid var(--ds-gray-300);border-left:2px solid var(--ds-gray-400);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.skel i{display:block;height:9px;background:linear-gradient(90deg,var(--ds-gray-200) 0%,var(--ds-gray-300) 50%,var(--ds-gray-200) 100%);background-size:200% 100%;animation:shimmer 1.6s linear infinite}
+.skel i.t{width:78%}.skel i.s{width:52%;height:7px}.skel i.f{width:30%;height:6px;margin-top:2px}
+@keyframes shimmer{to{background-position:-200% 0}}
 .card.add-card{flex-direction:row}
 .add-card{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px dashed var(--ds-gray-500);background:transparent;cursor:pointer}
 .add-card .plus{font-size:16px;line-height:18px;color:var(--ds-gray-600)}
@@ -198,8 +212,20 @@ main{
 .col[data-col="issues"] .card:is(.selected,:focus) .start-hint{visibility:visible}
 .card .hints{display:flex;align-items:center;gap:10px}
 .nx .hints .close-hint{align-self:center}
-.card .cfoot{display:flex;align-items:center;justify-content:space-between;margin:-1px 0 -3px;min-height:14px}
+.card .cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-1px 0 -3px;min-height:14px}
+.card .cmeta{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;white-space:nowrap}
 .card .ref{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
+.card .ref.pr{display:inline-flex;align-items:center;gap:4px}
+.card .ref.pr svg{width:10px;height:10px}
+.card .ref .ci{width:5px;height:5px;flex:none}
+.card .age{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600);margin:0}
+/* press-again confirmation on destructive / costly actions */
+.card .close-hint.armed,.card .start-hint.armed{visibility:visible;color:var(--ds-amber-900);white-space:nowrap}
+.card .close-hint.armed kbd,.card .start-hint.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
+.card .merge-btn.armed{background:var(--ds-green-500);border-color:var(--ds-green-700);box-shadow:0 0 0 1px var(--ds-green-700)}
+.card .merge-btn.armed kbd{visibility:visible}
+.card .nx.you.generic{color:var(--ds-gray-900)}
+.card .nx.you.generic svg circle.fill{stroke:var(--ds-gray-600)}
 .card .elapsed{align-self:flex-end;margin:-3px 0 -4px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .col[data-col="working"] .card .nx svg{animation:ringspin 3.2s linear infinite}
 @keyframes ringspin{to{transform:rotate(360deg)}}
@@ -217,6 +243,7 @@ main{
   text-align:left;width:100%;
 }
 #selring{position:fixed;left:0;top:0;z-index:4;pointer-events:none;box-shadow:var(--ds-focus-border);opacity:0;transition:transform .14s cubic-bezier(.3,.9,.3,1),width .14s cubic-bezier(.3,.9,.3,1),height .14s cubic-bezier(.3,.9,.3,1),opacity .15s ease}
+.card:hover{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card.selected{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card[data-tone="amber"]{border-left-color:var(--ds-amber-700)}
 .card[data-tone="red"]{border-left-color:var(--ds-red-700)}
@@ -273,7 +300,6 @@ main{
 .card .plan .counts .yours-n{color:var(--ds-amber-900)}
 .card .plan .counts .sep{color:var(--ds-gray-500)}
 .card .foot{display:flex;align-items:center;gap:8px;margin-top:1px}
-.card .age{font-family:var(--font-mono);font-size:11px;line-height:16px;color:var(--ds-gray-600);margin-left:auto}
 .act{
   display:inline-flex;align-items:center;gap:6px;
   height:24px;padding:0 9px;
@@ -371,6 +397,8 @@ aside{
 }
 .panel-close:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 .panel-close kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-600);background:transparent;border:1px solid var(--ds-gray-400)}
+.panel-close.armed{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
+.panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-archive{display:none;margin-left:auto;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive{display:inline-flex}
 #app[data-mode="card"] .panel-archive~.panel-close{margin-left:0}
@@ -380,7 +408,15 @@ aside{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.panel-title .s{font-size:11px;line-height:14px;color:var(--ds-gray-600);font-family:var(--font-mono)}
+.panel-title .s{display:flex;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-600);font-family:var(--font-mono);white-space:nowrap;overflow:hidden}
+.panel-title .s .dot{width:5px;height:5px}
+.panel-title .s .st{color:var(--ds-gray-900)}
+.panel-title .s .st.amber{color:var(--ds-amber-900)}
+.panel-title .s .st.red{color:var(--ds-red-900)}
+.panel-title .s .st.green{color:var(--ds-green-900)}
+.panel-title .s .st.blue{color:var(--ds-blue-900)}
+.panel-title .s .st.purple{color:var(--ds-purple-900)}
+.dot.purple{background:var(--ds-purple-700)}
 .panel-mode-badge{
   display:none;
   margin-left:auto;flex:none;
@@ -425,6 +461,41 @@ aside{
 .pl-desc strong{color:var(--ds-gray-1000);font-weight:500}
 .pl-desc a,.msg .body a:not(.att-link){color:var(--ds-gray-1000);text-decoration:underline;text-decoration-color:var(--ds-gray-500);text-underline-offset:2px}
 .pl-desc a:hover,.msg .body a:not(.att-link):hover{text-decoration-color:var(--ds-gray-800)}
+
+/* ---- pull request state block ---- */
+.pl-pr{padding:12px 14px 12px;border-bottom:1px solid var(--ds-gray-400)}
+.pl-pr .pl-sect-head{margin-bottom:8px}
+.pl-pr .pl-sect-head a{color:var(--ds-gray-600);text-decoration:none;font-family:var(--font-mono);font-size:10px;display:inline-flex;align-items:center;gap:4px}
+.pl-pr .pl-sect-head a:hover{color:var(--ds-gray-1000)}
+.pl-pr .pr-title{display:flex;align-items:flex-start;gap:7px;font-size:12px;line-height:17px;color:var(--ds-gray-1000);margin-bottom:10px}
+.pl-pr .pr-title svg{margin-top:3px;color:var(--ds-gray-600)}
+.pl-pr .pr-title .n{font-family:var(--font-mono);color:var(--ds-gray-900);flex:none}
+.pl-pr .pr-title .draft{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-700);border:1px solid var(--ds-gray-400);padding:1px 5px;align-self:center}
+.pr-checks{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--ds-gray-300);border:1px solid var(--ds-gray-300)}
+.pr-check{background:var(--ds-background-100);padding:7px 9px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pr-check .k{font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
+.pr-check .v{display:flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--ds-gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr-check .v .dot{width:6px;height:6px}
+.pr-check .v.green{color:var(--ds-green-900)}
+.pr-check .v.red{color:var(--ds-red-900)}
+.pr-check .v.amber{color:var(--ds-amber-900)}
+.pr-check .v.blue{color:var(--ds-blue-900)}
+.pr-verdict{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;font-size:12px;line-height:16px;border:1px solid var(--ds-gray-400);background:var(--ds-gray-100);color:var(--ds-gray-1000)}
+.pr-verdict svg{flex:none;color:var(--ds-gray-900)}
+.pr-verdict .txt{flex:1;min-width:0}
+.pr-verdict .txt small{display:block;font-size:11px;line-height:14px;color:var(--ds-gray-700)}
+.pr-verdict.green{background:var(--ds-green-100);border-color:var(--ds-green-400)}
+.pr-verdict.green svg{color:var(--ds-green-900)}
+.pr-verdict.green .txt small{color:var(--ds-green-900)}
+.pr-verdict.red{background:var(--ds-red-100);border-color:var(--ds-red-400)}
+.pr-verdict.red svg{color:var(--ds-red-900)}
+.pr-verdict.amber{background:var(--ds-amber-100);border-color:var(--ds-amber-400);color:var(--ds-amber-1000)}
+.pr-verdict.amber svg{color:var(--ds-amber-900)}
+.pr-verdict.purple{border-color:var(--ds-purple-700)}
+.pr-verdict.purple svg{color:var(--ds-purple-900)}
+.pr-verdict .act{height:22px;padding:0 8px;font-size:11px;flex:none}
+.pr-verdict .act kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:#fff;background:transparent;border:1px solid var(--ds-green-700)}
+.pr-verdict a.act{text-decoration:none}
 
 /* single current-position statement */
 .pl-position{
@@ -472,9 +543,12 @@ aside{
 
 /* conversation (demoted) */
 .pl-conv-head{
+  position:sticky;top:0;z-index:1;
   display:flex;align-items:center;gap:8px;
-  padding:10px 14px 0;
+  padding:10px 14px 6px;
+  background:var(--ds-background-100);
 }
+.pl-conv-head .m{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .pl-conv-head .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
 .pl-conv-head .rule{flex:1;height:1px;background:var(--ds-gray-300)}
 .thread{padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px}
@@ -586,6 +660,22 @@ aside{
   opacity:0;pointer-events:none;transition:opacity .15s;
 }
 #toast.show{opacity:1}
+
+/* ---- token gate ---- */
+#gate{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:var(--ds-background-200)}
+#gate.open{display:flex}
+.gate-card{width:360px;max-width:calc(100vw - 48px);border:1px solid var(--ds-gray-400);background:var(--ds-background-100);padding:20px 20px 18px;display:flex;flex-direction:column;gap:14px}
+.gate-card .brand{font-size:14px}
+.gate-card p{font-size:12px;line-height:17px;color:var(--ds-gray-900)}
+.gate-card label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600);display:block;margin-bottom:6px}
+.gate-card input{width:100%;height:32px;padding:0 10px;background:var(--ds-background-200);border:1px solid var(--ds-gray-400);color:var(--ds-gray-1000);font-family:var(--font-mono);font-size:13px;outline:none}
+.gate-card input:focus{box-shadow:var(--ds-focus-border);border-color:var(--ds-gray-500)}
+.gate-card.err input{border-color:var(--ds-red-700)}
+.gate-card .gate-err{display:none;font-size:11px;line-height:14px;color:var(--ds-red-900);margin-top:6px}
+.gate-card.err .gate-err{display:block}
+.gate-card .row{display:flex;align-items:center;gap:8px}
+.gate-card .row .hint{font-size:11px;color:var(--ds-gray-600);display:flex;align-items:center;gap:6px}
+.gate-card .row .act{margin-left:auto}
 </style>
 </head>
 <body>
@@ -604,6 +694,7 @@ aside{
       <span class="hdr-stat"><span class="dot grey"></span><span class="n" id="stat-idle">4</span> not started</span>
     </div>
     <div class="hdr-right">
+      <span class="hdr-sync" id="hdr-sync" aria-live="polite"><span class="dot grey"></span><span id="hdr-sync-txt">loading…</span></span>
       <div class="hdr-deploys" id="hdr-deploys" aria-label="Render deploy status"></div>
       <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts"><kbd>?</kbd> shortcuts</button>
     </div>
@@ -623,7 +714,7 @@ aside{
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Archive</span><kbd>C</kbd>
       </button>
       <button class="panel-close panel-archive" id="panel-hide" aria-label="Hide card from board">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4zM3 13L13 3"/></svg>Hide<kbd>H</kbd>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4zM3 13L13 3"/></svg><span id="panel-hide-label">Hide</span><kbd>H</kbd>
       </button>
       <button class="panel-close" id="panel-close" aria-label="Close panel">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg><kbd>esc</kbd>
@@ -631,7 +722,7 @@ aside{
     </div>
     <div id="panel-list"></div>
     <div class="panel-scroll" id="panel-scroll">
-      <div class="pl-conv-head" id="conv-head" style="display:none"><span class="h">Conversation</span><span class="rule"></span></div>
+      <div class="pl-conv-head" id="conv-head" style="display:none"><span class="h">Conversation</span><span class="rule"></span><span class="m" id="conv-meta"></span></div>
       <div class="thread" id="thread"></div>
     </div>
     <div class="composer">
@@ -659,11 +750,12 @@ aside{
         <div class="sc">Open selected card <span class="k"><kbd>Enter</kbd></span></div>
         <div class="sc">Close card / board chat / panel <span class="k"><kbd>Esc</kbd></span></div>
         <div class="sc">Open board chat <span class="k"><kbd>B</kbd></span></div>
-        <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
-        <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
+        <div class="sc">Merge a ready PR (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
+        <div class="sc">Start session on issue (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
-        <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd></span></div>
-        <div class="sc">Hide card from board (nothing else) <span class="k"><kbd>H</kbd></span></div>
+        <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd><kbd>C</kbd></span></div>
+        <div class="sc">Hide card from board (nothing else) <span class="k"><kbd>H</kbd><kbd>H</kbd></span></div>
+        <div class="sc">Cancel a pending confirmation <span class="k"><kbd>Esc</kbd></span></div>
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
@@ -679,6 +771,25 @@ aside{
 </div>
 
 <div id="toast"></div>
+
+<div id="gate" role="dialog" aria-label="Board token">
+  <form class="gate-card" id="gate-form" autocomplete="off">
+    <div class="brand">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/><path d="M6.5 2v12M11 2v12"/></svg>
+      Attention
+    </div>
+    <p>This board is private. Paste the board token to continue — it stays in this browser only.</p>
+    <div>
+      <label for="gate-input">Board token</label>
+      <input id="gate-input" type="password" spellcheck="false" autocapitalize="off" placeholder="••••••••">
+      <div class="gate-err" id="gate-err">That token didn’t work — check <code>BOARD_TOKEN</code> and try again.</div>
+    </div>
+    <div class="row">
+      <span class="hint"><kbd>⏎</kbd> continue</span>
+      <button class="act primary" type="submit">Open board</button>
+    </div>
+  </form>
+</div>
 
 <script>
 /* ================= icons ================= */
@@ -717,20 +828,50 @@ const columns = [
 ];
 
 let cards = [];
+let armed=null; // {key, action, t} — first press of a destructive/costly key arms it, second press within ARM_MS fires
+const ARM_MS=4000;
 const boardThread = [
   {who:'board', ts:'', text:'Board chat is local in v1 — open a card to talk to its Devin session. Data refreshes every 15s.'},
 ];
 
 /* ================= api ================= */
 let BOARD_TOKEN = localStorage.getItem('board_token') || '';
+
+/* token gate: one shared prompt for every 401, retried once the user submits */
+const gate=document.getElementById('gate');
+const gateForm=document.getElementById('gate-form');
+const gateInput=document.getElementById('gate-input');
+let gateWait=null;
+function requestToken(invalid){
+  gateForm.classList.toggle('err',!!invalid);
+  if(!gateWait){
+    gateWait=new Promise(res=>{gateForm._resolve=res});
+    gate.classList.add('open');
+    gateInput.value='';
+    requestAnimationFrame(()=>gateInput.focus());
+  }
+  return gateWait;
+}
+gateForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const t=gateInput.value.trim();
+  if(!t){gateForm.classList.add('err');gateInput.focus();return}
+  BOARD_TOKEN=t; localStorage.setItem('board_token',t);
+  gate.classList.remove('open');
+  const res=gateForm._resolve; gateForm._resolve=null; gateWait=null;
+  if(res)res();
+});
+gateInput.addEventListener('input',()=>gateForm.classList.remove('err'));
+
 async function api(path, opts={}){
   const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
   if(BOARD_TOKEN) headers['X-Board-Token'] = BOARD_TOKEN;
   const r = await fetch(path, Object.assign({}, opts, {headers}));
   if(r.status===401){
-    const t = window.prompt('Board token:');
-    if(t){ BOARD_TOKEN=t; localStorage.setItem('board_token',t); return api(path, opts); }
-    throw new Error('unauthorized');
+    const had=!!BOARD_TOKEN;
+    BOARD_TOKEN=''; localStorage.removeItem('board_token');
+    await requestToken(had);
+    return api(path, opts);
   }
   if(!r.ok){
     let msg = 'HTTP '+r.status;
@@ -742,6 +883,53 @@ async function api(path, opts={}){
 
 function escHTML(s){return (s??'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function shortRepo(r){return r?r.split('/').pop():''}
+
+/* ---- PR state → colour / label / verdict ---- */
+const CI_STATE={
+  passing:{tone:'green',label:'passing'},
+  failing:{tone:'red',label:'failing'},
+  running:{tone:'blue',label:'running'},
+  pending:{tone:'blue',label:'running'},
+  none:{tone:'grey',label:'no checks'},
+  unknown:{tone:'grey',label:'unknown'},
+};
+const REVIEW_STATE={
+  approved:{tone:'green',label:'approved'},
+  changes_requested:{tone:'amber',label:'changes requested'},
+  pending:{tone:'grey',label:'pending'},
+  none:{tone:'grey',label:'none yet'},
+};
+const MERGE_STATE={
+  clean:{tone:'green',label:'no conflicts'},
+  dirty:{tone:'red',label:'conflicts'},
+  blocked:{tone:'amber',label:'blocked'},
+  behind:{tone:'amber',label:'behind base'},
+  unstable:{tone:'amber',label:'checks unstable'},
+  draft:{tone:'grey',label:'draft'},
+  has_hooks:{tone:'green',label:'no conflicts'},
+  unknown:{tone:'grey',label:'unknown'},
+};
+function prState(pr){
+  const ci=CI_STATE[pr.ci]||CI_STATE.unknown;
+  const review=REVIEW_STATE[pr.review]||{tone:'grey',label:String(pr.review||'').replace(/_/g,' ')||'none yet'};
+  const merge=MERGE_STATE[pr.mergeable_state]||MERGE_STATE.unknown;
+  return {ci,review,merge};
+}
+/* one sentence about where the PR is and what happens next */
+function prVerdict(c){
+  const pr=c.pr; if(!pr)return null;
+  const {ci,review,merge}=prState(pr);
+  const n='#'+pr.number;
+  if(pr.draft)return {tone:'grey',icon:I.logs,head:`Draft PR ${n}`,sub:'Devin is still pushing — nothing to review yet'};
+  if(pr.ci==='failing')return {tone:'red',icon:I.x,head:'CI is failing',sub:'Check the failed job before reviewing'};
+  if(pr.mergeable_state==='dirty')return {tone:'red',icon:I.flag,head:'Merge conflicts',sub:'Branch conflicts with base — resolve before merging'};
+  if(pr.review==='changes_requested')return {tone:'amber',icon:I.reply,head:'Changes requested',sub:c.col==='working'?'Devin is addressing the review':'Waiting on a follow-up push'};
+  if(c.col==='ready')return {tone:'green',icon:I.merge,head:'Ready to merge',sub:`${ci.label==='no checks'?'No CI configured':'CI green'} · ${review.label==='approved'?'approved':'no blocking review'} · no conflicts`,merge:true};
+  if(c.col==='working')return {tone:'blue',icon:I.spinner,head:'Devin is still working',sub:`PR ${n} is open — review once it hands off`};
+  if(pr.ci==='running'||pr.ci==='pending')return {tone:'purple',icon:I.spinner,head:`PR ${n} opened · CI running`,sub:'Review now, or wait for checks to finish'};
+  if(pr.mergeable_state==='blocked'||pr.mergeable_state==='behind')return {tone:'amber',icon:I.flag,head:`PR ${n} · ${merge.label}`,sub:pr.mergeable_state==='behind'?'Update the branch, then merge':'A required check or review is still missing'};
+  return {tone:'purple',icon:I.eye,head:`PR ${n} is waiting for your review`,sub:ci.label==='passing'?'CI green — read it and approve or request changes':'Open it on GitHub to review'};
+}
 
 function mapCard(c,i){
   return {
@@ -777,27 +965,30 @@ function progressOf(c){
   return 0;
 }
 
+const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
+  const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
   const ref=c.pending?`<span class="ref">creating\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
+  const age=c.age?`<span class="age">${escHTML(c.age)}</span>`:'';
+  const meta=`<div class="cmeta">${ref}${prRef}${age}</div>`;
   const pct=Math.max(progressOf(c),c.session_id?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  const closeHint=c.pending?'':`<span class="close-hint" role="button" tabindex="-1"><kbd>C</kbd><span>${archiveLabel(c).toLowerCase()}</span></span><span class="close-hint hide-hint" role="button" tabindex="-1"><kbd>H</kbd><span>hide</span></span>`;
-  if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${ref}<div class="hints">${closeHint}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div></div>`;
-  const working=c.col==='working';
-  const prStatus=c.pr?`CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||('review '+String(c.pr.review).replace(/_/g,' '))}`:null;
+  const closeHint=c.pending?'':`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>C</kbd><span>${isArmed('archive')?'confirm?':archiveLabel(c).toLowerCase()}</span></span><span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
+  if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div></div></div>`;
+  const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
   const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'?prStatus:null));
+  const generic=you&&c.now&&GENERIC_NOW.test(c.now.text);
   const ready=c.col==='ready';
-  const mergeBtn=`<span class="hints">${closeHint}<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span></span>`;
-  const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${escHTML(txt)}</span></div>`:`<div class="nx solo">${ring}${ready?mergeBtn:''}</div>`;
-  const mergeRow=ready&&txt?`<div class="nx solo">${mergeBtn}</div>`:'';
-  const elapsed=working&&c.age?`<span class="elapsed" style="align-self:auto;margin:0">${escHTML(c.age)}</span>`:'';
+  const mergeBtn=`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`;
+  const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>working\u2026</span></div>`:'');
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
-  const foot=ready?'':`<div class="cfoot">${elapsed||'<span></span>'}<div class="hints">${closeHint}</div></div>`;
-  return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${foot}`;
+  const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
+  return `<div class="title">${escHTML(c.title)}</div>${line}${opts}${foot}`;
 }
 function isIssueClose(c){return c.kind==='issue'}
 function archiveLabel(c){return !isIssueClose(c)?'Archive':c.session_id?'Close & archive':'Close'}
@@ -826,17 +1017,33 @@ function wireCard(el){
   });
 }
 
+const EMPTY_COPY={
+  issues:['No open issues','<kbd>\u21b5</kbd> on <b>+</b> to file one'],
+  working:['Nothing running','<kbd>E</kbd> on an issue starts a session'],
+  'needs-you':['Nothing needs you','Devin is either moving or done'],
+  review:['No PRs in review','Devin hands PRs here when it stops'],
+  ready:['Nothing ready to merge','Green CI, no conflicts, no session running'],
+};
+let boardLoaded=false;
+function emptyHTML(colId){
+  if(!boardLoaded){
+    const n=colId==='issues'?1:colId==='working'?3:2;
+    return Array.from({length:n},()=>'<div class="skel" aria-hidden="true"><i class="t"></i><i class="s"></i><i class="f"></i></div>').join('');
+  }
+  const [e1,e2]=EMPTY_COPY[colId];
+  return `<div class="col-empty"><span class="e1">${e1}</span><span class="e2">${e2}</span></div>`;
+}
 function renderBoard(){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
   const wasAdd=a&&a.id==='add-issue';
-  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return; // don't disturb typing
+  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput)return; // don't disturb typing
   boardEl.innerHTML='';
   columns.forEach(col=>{
     const colCards = cards.filter(c=>c.col===col.id);
     const el = document.createElement('section');
     el.className='col'; el.dataset.col=col.id;
-    el.innerHTML = `<div class="col-head"><span class="name">${col.name}</span><span class="count">${colCards.length}</span></div>
+    el.innerHTML = `<div class="col-head"><span class="name">${col.name}</span><span class="count">${boardLoaded?colCards.length:'\u2014'}</span></div>
       <div class="col-body"></div>`;
     const body = el.querySelector('.col-body');
     if(col.id==='issues'){
@@ -847,6 +1054,7 @@ function renderBoard(){
       wireAddCard(add);
       body.appendChild(add);
     }
+    if(!colCards.length)body.insertAdjacentHTML('beforeend',emptyHTML(col.id));
     colCards.forEach(c=>{
       const b=document.createElement('button');
       b.className='card'; b.dataset.tone=c.tone; b.dataset.id=c.id; b.dataset.key=c.key;
@@ -859,8 +1067,9 @@ function renderBoard(){
   });
   const by=id=>cards.filter(c=>c.col===id).length;
   const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
-  set('stat-needs',by('needs-you')); set('stat-working',by('working'));
-  set('stat-ready',by('ready')); set('stat-idle',by('issues'));
+  const n=id=>boardLoaded?by(id):'\u2014';
+  set('stat-needs',n('needs-you')); set('stat-working',n('working'));
+  set('stat-ready',n('ready')); set('stat-idle',n('issues'));
   if(openCard!=null&&openCardKey!=null){
     const idx=cards.findIndex(c=>c.key===openCardKey);
     if(idx>=0){openCard=idx; refreshPanel(cards[idx])}
@@ -874,12 +1083,25 @@ function renderBoard(){
   }
 }
 
+let lastSync=0;
+const syncEl=document.getElementById('hdr-sync'),syncTxt=document.getElementById('hdr-sync-txt');
+function renderSync(state){
+  if(state==='busy'){syncEl.className='hdr-sync busy';syncTxt.textContent=lastSync?'syncing\u2026':'loading board\u2026';return}
+  if(state==='err'){syncEl.className='hdr-sync err';syncTxt.textContent=lastSync?`sync failed \u00b7 last ${ago(lastSync)}`:'load failed';return}
+  syncEl.className='hdr-sync';
+  syncTxt.textContent=lastSync?`synced ${ago(lastSync)}`:'';
+}
 async function fetchBoard(){
-  const data=await api('/api/board');
-  if(data.loading&&cards.length)return; // fresh instance still warming up; keep the last board
+  renderSync('busy');
+  let data;
+  try{data=await api('/api/board')}catch(e){renderSync('err');throw e}
+  if(data.loading&&cards.length){renderSync();return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
   cards=flat.map(mapCard);
+  boardLoaded=!data.loading||flat.length>0;
+  lastSync=Date.now();
+  renderSync();
   renderBoard();
   renderDeploys(data);
   prefetchThreads();
@@ -1004,10 +1226,10 @@ const composer=document.getElementById('composer');
 const panelArchive=document.getElementById('panel-archive');
 const panelHide=document.getElementById('panel-hide');
 const panelArchiveLabel=document.getElementById('panel-archive-label');
+const panelHideLabel=document.getElementById('panel-hide-label');
 let mode='board', openCard=null, openCardKey=null;
 
 const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
-const REVIEW_LABEL={none:'no review yet',pending:'review pending',approved:'approved',changes_requested:'changes requested'};
 function fmtTs(ts){
   if(!ts)return '';
   const n=typeof ts==='number'?ts:(/^\d+(\.\d+)?$/.test(ts)?Number(ts):NaN);
@@ -1075,6 +1297,12 @@ function bodyHTML(text){
   }
   return out;
 }
+function tsMs(ts){
+  if(!ts)return NaN;
+  const n=typeof ts==='number'?ts:(/^\d+(\.\d+)?$/.test(ts)?Number(ts):NaN);
+  const d=new Date(isNaN(n)?ts:(n<1e12?n*1000:n));
+  return d.getTime();
+}
 function prCardHTML(p){
   const state=p.draft&&p.state==='open'?'draft':p.state;
   const label={merged:'Merged PR',open:'Opened PR',closed:'Closed PR',draft:'Draft PR'}[state]||'PR';
@@ -1089,6 +1317,10 @@ function prCardHTML(p){
   </div>`;
 }
 function renderThread(msgs){
+  const convMeta=document.getElementById('conv-meta');
+  const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
+  const last=real.at(-1);
+  convMeta.textContent=real.length?`${real.length} · last ${last&&last.ts?ago(tsMs(last.ts)):''}`.replace(/ · last $/,''):'';
   threadEl.innerHTML=msgs.map(m=>m.who==='pr'?`<div class="msg pr">${prCardHTML(m.pr)}</div>`:`<div class="msg ${m.who}">
     ${m.who==='system'?'':`<div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
     <div class="body">${bodyHTML(m.text)}</div></div>`).join('');
@@ -1112,12 +1344,26 @@ function issueDescHTML(c){
   const desc=c.body.trim()?`<div class="pl-desc">${mdHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
   return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}</div>`;
 }
+function prHTML(c){
+  const pr=c.pr; if(!pr)return '';
+  const {ci,review,merge}=prState(pr);
+  const v=prVerdict(c);
+  const cell=(k,s)=>`<div class="pr-check"><span class="k">${k}</span><span class="v ${s.tone}"><span class="dot ${s.tone}"></span>${escHTML(s.label)}</span></div>`;
+  const title=pr.title?`<div class="pr-title">${I.merge}<span class="n">#${pr.number}</span><span>${escHTML(pr.title)}</span>${pr.draft?'<span class="draft">draft</span>':''}</div>`:'';
+  const opened=pr.created_at?` · opened ${ago(tsMs(pr.created_at))}`:'';
+  const action=v.merge
+    ?`<span class="act green merge-btn" role="button" tabindex="-1" data-merge><kbd>E</kbd>${armed&&armed.key===c.key&&armed.action==='merge'?'Confirm':'Merge'}</span>`
+    :(c.col==='review'?`<a class="act" href="${escHTML(pr.url)}" target="_blank" rel="noopener">Review ${I.external}</a>`:'');
+  return `<div class="pl-pr">
+    <div class="pl-sect-head"><span class="h">Pull request</span><span class="m"><a href="${escHTML(pr.url)}" target="_blank" rel="noopener">${escHTML(shortRepo(pr.repo))}#${pr.number}${escHTML(opened)} ${I.external}</a></span></div>
+    ${title}
+    <div class="pr-checks">${cell('CI',ci)}${cell('Review',review)}${cell('Merge',merge)}</div>
+    <div class="pr-verdict ${v.tone}">${v.icon}<span class="txt">${escHTML(v.head)}<small>${escHTML(v.sub)}</small></span>${action}</div>
+  </div>`;
+}
 function checklistHTML(c){
   if(c.kind==='issue'&&!c.session_id)return issueDescHTML(c);
-  if(!c.todos.length){
-    const note=`<div class="pl-proposed-note">${I.logs} Todos appear here once the session transcript is parsed.</div>`;
-    return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Todo</span><span class="m">—</span></div>${note}</div>`;
-  }
+  if(!c.todos.length)return '';
   const k=counts(c);
   const head=`<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
   const rows=c.todos.map((t,i)=>todoRow(t,i,false)).join('');
@@ -1126,8 +1372,7 @@ function checklistHTML(c){
 
 function linksHTML(c){
   const links=[];
-  if(c.url&&c.url!==c.session_url&&c.kind!=='session')links.push(`<a class="pl-link" href="${c.url}" target="_blank" rel="noopener">${I.external} ${c.kind==='pr'?'Pull request':'GitHub issue'}</a>`);
-  if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR #${c.pr.number}</a>`);
+  if(c.url&&c.url!==c.session_url&&c.kind!=='session'&&c.kind!=='pr')links.push(`<a class="pl-link" href="${c.url}" target="_blank" rel="noopener">${I.external} GitHub issue</a>`);
   if(c.session_url)links.push(`<a class="pl-link" href="${c.session_url}" target="_blank" rel="noopener">${I.logs} Devin session</a>`);
   if(!links.length)return '';
   return `<div class="pl-links">${links.join('')}</div>`;
@@ -1152,12 +1397,25 @@ function usageHTML(c){
   const usd=(c.acus*ACU_USD).toFixed(2);
   return `<div class="pl-usage"><span class="h">On-demand usage</span><span class="v">$${usd} · ${(+c.acus).toFixed(1)} ACUs</span></div>`;
 }
+const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple',ready:'green'};
+function panelSubHTML(c){
+  const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
+  const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'in review',ready:'ready to merge'}[c.col]||c.col;
+  const ref=c.pending?'creating\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'session';
+  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${st}</span><span>·</span><span>${ref}</span>${c.age?`<span>·</span><span>${escHTML(c.age)}</span>`:''}`;
+}
 function refreshPanel(c){
   panelTitle.textContent=c.title;
-  panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
-  panelList.innerHTML=checklistHTML(c)+usageHTML(c)+linksHTML(c);
+  panelSub.innerHTML=panelSubHTML(c);
+  panelList.innerHTML=prHTML(c)+checklistHTML(c)+usageHTML(c)+linksHTML(c);
+  const mergeBtn=panelList.querySelector('[data-merge]');
+  if(mergeBtn)mergeBtn.addEventListener('click',()=>{if(openCard!=null)triggerAction(openCard)});
   const lbl=!isIssueClose(c)?'Archive':c.session_id?'Close issue & archive':'Close issue';
-  panelArchiveLabel.textContent=lbl;
+  const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
+  panelArchiveLabel.textContent=isArmed('archive')?'Press again to confirm':lbl;
+  panelArchive.classList.toggle('armed',isArmed('archive'));
+  panelHideLabel.textContent=isArmed('hide')?'Press again':'Hide';
+  panelHide.classList.toggle('armed',isArmed('hide'));
   panelArchive.setAttribute('aria-label',lbl);
   panelArchive.disabled=!!c.pending;
   panelHide.disabled=!!c.pending;
@@ -1234,6 +1492,33 @@ const toast=document.getElementById('toast'); let toastT;
 function showToast(t){toast.textContent=t;toast.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('show'),2600)}
 
 /* ================= actions ================= */
+/* two-step confirmation: the first press re-labels the hint on the card, the second (within ARM_MS) fires */
+let armTimer=null;
+function rerenderCard(c){
+  const el=document.querySelector(`.card[data-key="${CSS.escape(c.key)}"]`);
+  if(el){el.innerHTML=cardHTML(c);if(ringTarget===el)moveRing(el,true)}
+  if(openCardKey===c.key)refreshPanel(c);
+}
+function disarm(){
+  clearTimeout(armTimer);
+  if(!armed)return;
+  const c=cards.find(x=>x.key===armed.key);
+  armed=null;
+  if(c)rerenderCard(c);
+}
+function confirmArm(c,action,hint){
+  if(armed&&armed.key===c.key&&armed.action===action){clearTimeout(armTimer);armed=null;rerenderCard(c);return true}
+  disarm();
+  armed={key:c.key,action,t:Date.now()};
+  armTimer=setTimeout(disarm,ARM_MS);
+  rerenderCard(c);
+  showToast(hint);
+  return false;
+}
+document.addEventListener('focusin',e=>{
+  if(armed&&e.target.classList&&e.target.classList.contains('card')&&e.target.dataset.key!==armed.key)disarm();
+});
+
 function closePanel(){
   const el=openCard!=null?cardEl(openCard):focused();
   setBoardMode(); mode='closed'; app.dataset.mode='closed';
@@ -1266,6 +1551,7 @@ async function triggerAction(id){
   if(!c)return;
   if(c.col==='issues'){startIssue(id);return}
   if(c.col==='ready'&&c.pr){
+    if(!confirmArm(c,'merge',`Press E again to merge ${shortRepo(c.pr.repo)}#${c.pr.number}`))return;
     showToast(`Merging ${shortRepo(c.pr.repo)}#${c.pr.number}…`);
     try{
       await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo:c.pr.repo,number:c.pr.number})});
@@ -1280,8 +1566,9 @@ async function archiveCard(id){
   const c=cards[id];
   if(!c||c.pending||archiving)return;
   const close=isIssueClose(c);
-  archiving=true;
   const both=close&&c.session_id;
+  if(!confirmArm(c,'archive',both?`Press C again to close ${shortRepo(c.repo)}#${c.num} and archive its session`:close?`Press C again to close ${shortRepo(c.repo)}#${c.num}`:'Press C again to archive this session'))return;
+  archiving=true;
   showToast(both?`Closing ${shortRepo(c.repo)}#${c.num} & archiving session…`:close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
   const snapshot=cards;
@@ -1303,6 +1590,7 @@ panelArchive.addEventListener('click',()=>{if(openCard!=null)archiveCard(openCar
 async function hideCard(id){
   const c=cards[id];
   if(!c||c.pending||archiving)return;
+  if(!confirmArm(c,'hide','Press H again to hide this card from the board'))return;
   archiving=true;
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
   const snapshot=cards;
@@ -1324,6 +1612,7 @@ panelHide.addEventListener('click',()=>{if(openCard!=null)hideCard(openCard)});
 async function startIssue(id){
   const c=cards[id];
   if(!c||c.col!=='issues'||c.pending)return;
+  if(!confirmArm(c,'start','Press E again to start a Devin session (uses ACUs)'))return;
   showToast(`Starting session — “${c.title}”…`);
   try{
     await api('/api/issue/start',{method:'POST',body:JSON.stringify({repo:c.repo,number:c.num})});
@@ -1437,6 +1726,7 @@ function move(dx,dy){
 
 document.addEventListener('keydown',e=>{
   if(e.target===composer||e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(gate.classList.contains('open')){gateInput.focus();return}
   if(overlay.classList.contains('open')){
     if(e.key==='Escape'||e.key==='?'){toggleOverlay(false);e.preventDefault()}
     return;
@@ -1450,6 +1740,7 @@ document.addEventListener('keydown',e=>{
     case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
     case 'Enter': {const f=focused(); if(f){if(f.id==='add-issue')break; const id=+f.dataset.id; if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
     case 'Escape':
+      if(armed){disarm();break}
       if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; requestAnimationFrame(()=>el?.focus())}
       break;
     case 'b': case 'B': setBoardMode(); composer.focus(); e.preventDefault(); break;
