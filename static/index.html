@@ -373,7 +373,7 @@ aside{
 .panel-close kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-600);background:transparent;border:1px solid var(--ds-gray-400)}
 .panel-archive{display:none;margin-left:auto;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive{display:inline-flex}
-#app[data-mode="card"] .panel-archive+.panel-close{margin-left:0}
+#app[data-mode="card"] .panel-archive~.panel-close{margin-left:0}
 .panel-close{margin-left:auto}
 .panel-title{min-width:0}
 .panel-title .t{
@@ -603,6 +603,9 @@ aside{
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Archive</span><kbd>C</kbd>
       </button>
+      <button class="panel-close panel-archive" id="panel-hide" aria-label="Hide card from board">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4zM3 13L13 3"/></svg>Hide<kbd>H</kbd>
+      </button>
       <button class="panel-close" id="panel-close" aria-label="Close panel">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg><kbd>esc</kbd>
       </button>
@@ -641,6 +644,7 @@ aside{
         <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
         <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd></span></div>
+        <div class="sc">Hide card from board (nothing else) <span class="k"><kbd>H</kbd></span></div>
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
@@ -762,7 +766,7 @@ function cardHTML(c){
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  const closeHint=c.pending?'':`<span class="close-hint" role="button" tabindex="-1"><kbd>C</kbd><span>${archiveLabel(c).toLowerCase()}</span></span>`;
+  const closeHint=c.pending?'':`<span class="close-hint" role="button" tabindex="-1"><kbd>C</kbd><span>${archiveLabel(c).toLowerCase()}</span></span><span class="close-hint hide-hint" role="button" tabindex="-1"><kbd>H</kbd><span>hide</span></span>`;
   if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${ref}<div class="hints">${closeHint}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div></div>`;
   const working=c.col==='working';
   const prStatus=c.pr?`CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||('review '+String(c.pr.review).replace(/_/g,' '))}`:null;
@@ -773,7 +777,7 @@ function cardHTML(c){
   const mergeRow=ready&&txt?`<div class="nx solo">${mergeBtn}</div>`:'';
   const elapsed=working&&c.age?`<span class="elapsed" style="align-self:auto;margin:0">${escHTML(c.age)}</span>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
-  const foot=ready?'':`<div class="cfoot">${elapsed||'<span></span>'}${closeHint}</div>`;
+  const foot=ready?'':`<div class="cfoot">${elapsed||'<span></span>'}<div class="hints">${closeHint}</div></div>`;
   return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${foot}`;
 }
 function isIssueClose(c){return c.kind==='issue'}
@@ -783,6 +787,7 @@ function wireCard(el){
   el.addEventListener('click',e=>{
     const opt=e.target.closest('.opt');
     if(opt){pickOption(+el.dataset.id,[...el.querySelectorAll('.opt')].indexOf(opt));e.stopPropagation();return}
+    if(e.target.closest('.hide-hint')){hideCard(+el.dataset.id);e.stopPropagation();return}
     if(e.target.closest('.close-hint')){archiveCard(+el.dataset.id);e.stopPropagation();return}
     const act=e.target.closest('.act');
     if(act){triggerAction(+el.dataset.id);e.stopPropagation();return}
@@ -978,6 +983,7 @@ const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
 const composer=document.getElementById('composer');
 const panelArchive=document.getElementById('panel-archive');
+const panelHide=document.getElementById('panel-hide');
 const panelArchiveLabel=document.getElementById('panel-archive-label');
 let mode='board', openCard=null, openCardKey=null;
 
@@ -1122,6 +1128,7 @@ function refreshPanel(c){
   panelArchiveLabel.textContent=lbl;
   panelArchive.setAttribute('aria-label',lbl);
   panelArchive.disabled=!!c.pending;
+  panelHide.disabled=!!c.pending;
 }
 
 const threadCache={};
@@ -1242,6 +1249,27 @@ async function archiveCard(id){
   finally{archiving=false}
 }
 panelArchive.addEventListener('click',()=>{if(openCard!=null)archiveCard(openCard)});
+
+async function hideCard(id){
+  const c=cards[id];
+  if(!c||c.pending||archiving)return;
+  archiving=true;
+  if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
+  const snapshot=cards;
+  cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
+  renderBoard();
+  firstCard()?.focus();
+  try{
+    await api(`/api/card/${encodeURIComponent(c.key)}/hide`,{method:'POST'});
+    showToast(`Hidden — “${c.title}”`);
+    await fetchBoard();
+  }catch(e){
+    cards=snapshot; cards.forEach((x,i)=>x.id=i); renderBoard();
+    showToast('Hide failed: '+e.message);
+  }
+  finally{archiving=false}
+}
+panelHide.addEventListener('click',()=>{if(openCard!=null)hideCard(openCard)});
 
 async function startIssue(id){
   const c=cards[id];
@@ -1379,6 +1407,7 @@ document.addEventListener('keydown',e=>{
     case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(+f.dataset.id); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
     case 'c': case 'C': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
+    case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(+f.dataset.id); e.preventDefault(); break}
     case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)pickOption(+f.dataset.id,+e.key-1); break}
   }
 });
