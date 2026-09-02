@@ -551,7 +551,7 @@ async def assemble_board():
             "col": col, "tone": tone,
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
-            "pr": {k: pr[k] for k in ("repo", "number", "url", "ci", "review", "mergeable_state")} if pr else None,
+            "pr": {k: pr.get(k) for k in ("repo", "number", "url", "ci", "review", "mergeable_state", "draft", "title", "branch", "created_at")} if pr else None,
             "now": ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text),
             "options": options if col == "needs-you" else [],
             "todos": (extract or {}).get("todos", []),
