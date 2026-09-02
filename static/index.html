@@ -354,6 +354,9 @@ aside{
 
 /* ---- panel scroll region: checklist first, conversation demoted below ---- */
 .panel-scroll{flex:1;overflow-y:auto;min-height:0}
+#panel-list{flex:none;max-height:45%;overflow-y:auto;border-bottom:1px solid var(--ds-gray-400)}
+#panel-list:empty{display:none;border-bottom:none}
+#panel-list .pl-sect:last-child{border-bottom:none}
 
 .pl-sect{padding:12px 14px 14px;border-bottom:1px solid var(--ds-gray-400)}
 .pl-sect-head{
@@ -537,8 +540,8 @@ aside{
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg><kbd>esc</kbd>
       </button>
     </div>
+    <div id="panel-list"></div>
     <div class="panel-scroll" id="panel-scroll">
-      <div id="panel-list"></div>
       <div class="pl-conv-head" id="conv-head" style="display:none"><span class="h">Conversation</span><span class="rule"></span></div>
       <div class="thread" id="thread"></div>
     </div>
