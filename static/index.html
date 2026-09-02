@@ -228,6 +228,9 @@ main{
 .card .nx.you.generic svg circle.fill{stroke:var(--ds-gray-600)}
 .card .elapsed{align-self:flex-end;margin:-3px 0 -4px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .col[data-col="working"] .card .nx svg{animation:ringspin 3.2s linear infinite}
+.card .ci-line{display:flex;gap:8px;align-items:center;font-size:12px;line-height:17px;color:var(--ds-amber-900)}
+.card .ci-line svg{flex:none;color:var(--ds-amber-900)}
+.card .ci-line span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @keyframes ringspin{to{transform:rotate(360deg)}}
 
 /* ---- Cards ---- */
@@ -891,8 +894,8 @@ function shortRepo(r){return r?r.split('/').pop():''}
 const CI_STATE={
   passing:{tone:'green',label:'passing'},
   failing:{tone:'red',label:'failing'},
-  running:{tone:'blue',label:'running'},
-  pending:{tone:'blue',label:'running'},
+  running:{tone:'amber',label:'running'},
+  pending:{tone:'amber',label:'running'},
   none:{tone:'grey',label:'no checks'},
   unknown:{tone:'grey',label:'unknown'},
 };
@@ -929,7 +932,7 @@ function prVerdict(c){
   if(pr.review==='changes_requested')return {tone:'amber',icon:I.reply,head:'Changes requested',sub:c.col==='working'?'Devin is addressing the review':'Waiting on a follow-up push'};
   if(c.col==='ready')return {tone:'green',icon:I.merge,head:'Ready to merge',sub:`${ci.label==='no checks'?'No CI configured':'CI green'} · ${review.label==='approved'?'approved':'no blocking review'} · no conflicts`,merge:true};
   if(c.col==='working')return {tone:'blue',icon:I.spinner,head:'Devin is still working',sub:`PR ${n} is open — review once it hands off`};
-  if(pr.ci==='running'||pr.ci==='pending')return {tone:'purple',icon:I.spinner,head:`PR ${n} opened · CI running`,sub:'Review now, or wait for checks to finish'};
+  if(pr.ci==='running'||pr.ci==='pending')return {tone:'amber',icon:I.spinner,head:`PR ${n} opened · CI running`,sub:'Not ready to merge yet — review now, or wait for checks to finish'};
   if(pr.mergeable_state==='blocked'||pr.mergeable_state==='behind')return {tone:'amber',icon:I.flag,head:`PR ${n} · ${merge.label}`,sub:pr.mergeable_state==='behind'?'Update the branch, then merge':'A required check or review is still missing'};
   return {tone:'purple',icon:I.eye,head:`PR ${n} is waiting for your review`,sub:ci.label==='passing'?'CI green — read it and approve or request changes':'Open it on GitHub to review'};
 }
@@ -984,14 +987,16 @@ function cardHTML(c){
   const closeHint=c.pending?'':`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>C</kbd><span>${isArmed('archive')?'confirm?':archiveLabel(c).toLowerCase()}</span></span><span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
   if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div></div></div>`;
   const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
-  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'?prStatus:null));
+  const ciRunning=c.col==='review'&&c.pr&&(c.pr.ci==='running'||c.pr.ci==='pending');
+  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'&&!ciRunning?prStatus:null));
   const generic=you&&c.now&&GENERIC_NOW.test(c.now.text);
   const ready=c.col==='ready';
   const mergeBtn=`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`;
   const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>working\u2026</span></div>`:'');
+  const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on PR #${c.pr.number} · not ready to merge yet</span></div>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
-  return `<div class="title">${escHTML(c.title)}</div>${line}${opts}${foot}`;
+  return `<div class="title">${escHTML(c.title)}</div>${line}${ciLine}${opts}${foot}`;
 }
 function isIssueClose(c){return c.kind==='issue'}
 function archiveLabel(c){return !isIssueClose(c)?'Archive':c.session_id?'Close & archive':'Close'}
