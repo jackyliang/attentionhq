@@ -1106,6 +1106,7 @@ function focused(){const a=document.activeElement;return a&&a.classList&&a.class
 function firstCard(){return document.querySelector('.card')}
 
 function move(dx,dy){
+  if(mode==='card'){setBoardMode(); mode='closed'; app.dataset.mode='closed'; openCard=null;}
   const cur=focused()||firstCard();
   if(!cur){return}
   if(!focused()){cur.focus();return}
