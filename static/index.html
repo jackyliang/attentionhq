@@ -174,7 +174,8 @@ main{
 .add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
-.nx .merge-btn{margin-left:auto;gap:6px;padding-left:4px}
+.nx .merge-btn{gap:6px;padding-left:4px}
+.nx .hints{margin-left:auto;align-items:center}
 .merge-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:#fff;background:transparent;border:1px solid var(--ds-green-700);visibility:hidden}
 .card:is(.selected,:focus) .merge-btn kbd{visibility:visible}
 .card .start-hint,.card .close-hint{display:flex;visibility:hidden;align-self:flex-end;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
@@ -184,6 +185,7 @@ main{
 .card:is(.selected,:focus) .close-hint{visibility:visible}
 .col[data-col="issues"] .card:is(.selected,:focus) .start-hint{visibility:visible}
 .card .hints{display:flex;align-items:center;gap:10px}
+.nx .hints .close-hint{align-self:center}
 .card .cfoot{display:flex;align-items:center;justify-content:space-between;margin:-1px 0 -3px;min-height:14px}
 .card .ref{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .card .elapsed{align-self:flex-end;margin:-3px 0 -4px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
@@ -753,11 +755,13 @@ function cardHTML(c){
   const working=c.col==='working';
   const prStatus=c.pr?`CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||('review '+String(c.pr.review).replace(/_/g,' '))}`:null;
   const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'?prStatus:null));
-  const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${escHTML(txt)}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
-  const mergeRow=c.col==='ready'&&txt?`<div class="nx solo"><span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span></div>`:'';
+  const ready=c.col==='ready';
+  const mergeBtn=`<span class="hints">${closeHint}<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span></span>`;
+  const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${escHTML(txt)}</span></div>`:`<div class="nx solo">${ring}${ready?mergeBtn:''}</div>`;
+  const mergeRow=ready&&txt?`<div class="nx solo">${mergeBtn}</div>`:'';
   const elapsed=working&&c.age?`<span class="elapsed" style="align-self:auto;margin:0">${escHTML(c.age)}</span>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
-  const foot=`<div class="cfoot">${elapsed||'<span></span>'}${closeHint}</div>`;
+  const foot=ready?'':`<div class="cfoot">${elapsed||'<span></span>'}${closeHint}</div>`;
   return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${foot}`;
 }
 function isIssueClose(c){return c.kind==='issue'}
