@@ -1,0 +1,1167 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Board — Combo: ring + the ask + next only</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet">
+<style>
+/* ============ Geist dark tokens (vercel.com/geist/colors, .dark-theme) ============ */
+:root{
+  --ds-background-100:hsla(0,0%,4%,1);
+  --ds-background-200:hsla(0,0%,0%,1);
+  --ds-gray-100:hsla(0,0%,10%,1);
+  --ds-gray-200:hsla(0,0%,12%,1);
+  --ds-gray-300:hsla(0,0%,16%,1);
+  --ds-gray-400:hsla(0,0%,18%,1);
+  --ds-gray-500:hsla(0,0%,27%,1);
+  --ds-gray-600:hsla(0,0%,53%,1);
+  --ds-gray-700:hsla(0,0%,56%,1);
+  --ds-gray-800:hsla(0,0%,49%,1);
+  --ds-gray-900:hsla(0,0%,63%,1);
+  --ds-gray-1000:hsla(0,0%,93%,1);
+  --ds-gray-alpha-100:#ffffff0f;
+  --ds-gray-alpha-200:#ffffff17;
+  --ds-gray-alpha-400:#ffffff24;
+  --ds-gray-alpha-600:#ffffff82;
+  --ds-blue-100:hsla(216,50%,12%,1);
+  --ds-blue-300:hsla(213,71%,20%,1);
+  --ds-blue-400:hsla(212,78%,23%,1);
+  --ds-blue-500:hsla(211,86%,27%,1);
+  --ds-blue-700:hsla(212,100%,48%,1);
+  --ds-blue-900:hsla(210,100%,66%,1);
+  --ds-purple-700:hsla(272,51%,54%,1);
+  --ds-purple-900:hsla(275,80%,71%,1);
+  --ds-red-100:hsla(357,37%,12%,1);
+  --ds-red-300:hsla(356,54%,22%,1);
+  --ds-red-400:hsla(357,55%,26%,1);
+  --ds-red-500:hsla(357,60%,32%,1);
+  --ds-red-700:hsla(358,75%,59%,1);
+  --ds-red-900:hsla(358,100%,69%,1);
+  --ds-amber-100:hsla(35,100%,8%,1);
+  --ds-amber-300:hsla(33,100%,15%,1);
+  --ds-amber-400:hsla(35,100%,17%,1);
+  --ds-amber-500:hsla(35,91%,22%,1);
+  --ds-amber-700:hsla(39,100%,57%,1);
+  --ds-amber-900:hsla(39,90%,50%,1);
+  --ds-amber-1000:hsla(40,94%,93%,1);
+  --ds-green-100:hsla(136,50%,9%,1);
+  --ds-green-300:hsla(136,50%,14%,1);
+  --ds-green-400:hsla(135,70%,16%,1);
+  --ds-green-500:hsla(135,70%,23%,1);
+  --ds-green-700:hsla(131,41%,46%,1);
+  --ds-green-900:hsla(131,43%,57%,1);
+  --ds-focus-border:0 0 0 1px var(--ds-gray-alpha-600),0px 0px 0px 4px #ffffff3d;
+  --ds-shadow-border-inset:inset 0 0 0 1px #ffffff1a;
+
+  --font-sans:"Geist",-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,"SF Mono",monospace;
+
+  --panel-w:400px;
+  --header-h:48px;
+}
+*{box-sizing:border-box;margin:0;padding:0;border-radius:0}
+html,body{height:100%}
+body{
+  background:var(--ds-background-200);
+  color:var(--ds-gray-1000);
+  font-family:var(--font-sans);
+  font-size:14px;line-height:20px;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+kbd{
+  font-family:var(--font-mono);font-size:11px;line-height:16px;
+  color:var(--ds-gray-900);
+  background:var(--ds-gray-100);
+  border:1px solid var(--ds-gray-400);
+  padding:0 5px;min-width:20px;height:20px;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.mono{font-family:var(--font-mono)}
+svg{display:block;flex:none}
+
+/* ============ App frame ============ */
+#app{display:grid;grid-template-columns:1fr;grid-template-rows:var(--header-h) 1fr;height:100vh}
+#app[data-mode="closed"] aside{display:none}
+
+/* ---- Header ---- */
+header{
+  grid-column:1/-1;
+  display:flex;align-items:center;gap:24px;
+  padding:0 20px;
+  border-bottom:1px solid var(--ds-gray-400);
+  background:var(--ds-background-100);
+}
+.brand{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;letter-spacing:-.01em}
+.brand svg{color:var(--ds-gray-1000)}
+.brand .variant{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-600);font-weight:400;border:1px solid var(--ds-gray-400);padding:1px 6px}
+.hdr-stats{display:flex;align-items:center;gap:16px;margin-left:8px}
+.hdr-stat{display:flex;align-items:center;gap:7px;font-size:12px;line-height:16px;color:var(--ds-gray-900)}
+.hdr-stat .n{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-1000)}
+.dot{width:7px;height:7px;flex:none}
+.dot.amber{background:var(--ds-amber-700)}
+.dot.blue{background:var(--ds-blue-700)}
+.dot.green{background:var(--ds-green-700)}
+.dot.grey{background:var(--ds-gray-500)}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:16px}
+.hdr-repo{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900)}
+.hdr-help{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ds-gray-900)}
+.hdr-help:hover{color:var(--ds-gray-1000)}
+
+/* ---- Board ---- */
+main{
+  overflow:auto;
+  background:var(--ds-background-200);
+}
+.board{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(216px,1fr));
+  width:100vw;
+  min-height:100%;
+  align-items:stretch;
+}
+#app:not([data-mode="closed"]) main{padding-right:var(--panel-w)}
+.col{
+  border-right:1px solid var(--ds-gray-400);
+  display:flex;flex-direction:column;
+  min-width:0;
+}
+.col:last-child{border-right:none}
+.col-head{
+  position:sticky;top:0;z-index:2;
+  display:flex;align-items:center;gap:8px;
+  height:40px;padding:0 14px;
+  background:var(--ds-background-200);
+  border-bottom:1px solid var(--ds-gray-400);
+}
+.col-head .name{font-size:12px;line-height:16px;font-weight:500;letter-spacing:.02em;text-transform:uppercase;color:var(--ds-gray-900)}
+.col-head .count{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-600)}
+.col[data-col="needs-you"] .col-head .name{color:var(--ds-amber-900)}
+.col[data-col="ready"] .col-head .name{color:var(--ds-green-900)}
+.col[data-col="working"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-blue-900)}
+.col[data-col="review"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-purple-900)}
+.col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
+.col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1}
+.col-empty{font-size:12px;color:var(--ds-gray-600);padding:6px 4px}
+.add-card{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px dashed var(--ds-gray-500);background:transparent;cursor:pointer}
+.add-card .plus{font-size:16px;line-height:18px;color:var(--ds-gray-600)}
+.add-card:hover .plus,.add-card:focus .plus{color:var(--ds-gray-1000)}
+.add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
+.add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
+.add-card .title-input::placeholder{color:var(--ds-gray-600)}
+.nx .merge-btn{margin-left:auto;gap:6px;padding-left:4px}
+.merge-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:#fff;background:transparent;border:1px solid var(--ds-green-700)}
+.card .start-hint{display:flex;visibility:hidden;align-self:flex-end;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.card .start-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
+.col[data-col="issues"] .card:is(.selected,:focus) .start-hint{visibility:visible}
+.card .cfoot{display:flex;align-items:center;justify-content:space-between;margin:-1px 0 -3px;min-height:14px}
+.card .ref{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
+.card .elapsed{align-self:flex-end;margin:-3px 0 -4px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
+.col[data-col="working"] .card .nx svg{animation:ringspin 3.2s linear infinite}
+@keyframes ringspin{to{transform:rotate(360deg)}}
+
+/* ---- Cards ---- */
+.card{
+  position:relative;
+  background:var(--ds-background-100);
+  border:1px solid var(--ds-gray-400);
+  border-left-width:2px;
+  padding:10px 12px 10px 12px;
+  cursor:pointer;
+  outline:none;
+  display:flex;flex-direction:column;gap:7px;
+  text-align:left;width:100%;
+}
+.card:focus,.card.selected{box-shadow:var(--ds-focus-border)}
+.card.selected{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
+.card[data-tone="amber"]{border-left-color:var(--ds-amber-700)}
+.card[data-tone="red"]{border-left-color:var(--ds-red-700)}
+.card[data-tone="blue"]{border-left-color:var(--ds-blue-700)}
+.card[data-tone="green"]{border-left-color:var(--ds-green-700)}
+.card[data-tone="grey"]{border-left-color:var(--ds-gray-500)}
+.card .title{
+  font-size:13px;line-height:18px;font-weight:500;
+  color:var(--ds-gray-1000);
+  letter-spacing:-.006em;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.card .now{
+  display:flex;align-items:flex-start;gap:6px;
+  font-size:12px;line-height:16px;color:var(--ds-gray-900);
+}
+.card .now svg{margin-top:1px;color:var(--ds-gray-600)}
+.card .now.blue svg{color:var(--ds-blue-900)}
+.card .now.red svg,.card .now.red{color:var(--ds-red-900)}
+.card .now.amber svg{color:var(--ds-amber-900)}
+.card .now.green svg{color:var(--ds-green-900)}
+
+/* — next item the USER owns (verbatim from checklist) — */
+.card .yours{
+  display:flex;flex-direction:column;gap:2px;
+  color:var(--ds-amber-1000);
+  background:var(--ds-amber-100);
+  border:1px solid var(--ds-amber-400);
+  padding:6px 8px;
+}
+.card .yours .yl{
+  display:flex;align-items:center;gap:6px;
+  font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ds-amber-900);
+}
+.card .yours .yl svg{color:var(--ds-amber-900)}
+.card .yours .yt{font-size:12px;line-height:16px}
+.card[data-tone="green"] .yours{color:var(--ds-gray-1000);background:var(--ds-green-100);border-color:var(--ds-green-400)}
+.card[data-tone="green"] .yours .yl,.card[data-tone="green"] .yours .yl svg{color:var(--ds-green-900)}
+
+/* — checklist progress readout: segmented owner-coded mini-bar + counts — */
+.card .plan{display:flex;flex-direction:column;gap:4px}
+.card .segbar{display:flex;gap:2px;height:4px}
+.card .segbar i{flex:1;background:var(--ds-gray-300)}
+.card .segbar i.done{background:var(--ds-gray-600)}
+.card .segbar i.agent{background:var(--ds-blue-500)}
+.card .segbar i.agent.active{background:var(--ds-blue-700)}
+.card .segbar i.you{background:var(--ds-amber-700)}
+.card .segbar i.proposed{background:transparent;border:1px solid var(--ds-gray-500)}
+.card .plan .counts{
+  display:flex;align-items:center;gap:6px;
+  font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600);
+}
+.card .plan .counts .yours-n{color:var(--ds-amber-900)}
+.card .plan .counts .sep{color:var(--ds-gray-500)}
+.card .foot{display:flex;align-items:center;gap:8px;margin-top:1px}
+.card .age{font-family:var(--font-mono);font-size:11px;line-height:16px;color:var(--ds-gray-600);margin-left:auto}
+.act{
+  display:inline-flex;align-items:center;gap:6px;
+  height:24px;padding:0 9px;
+  font-size:12px;line-height:16px;font-weight:500;
+  background:var(--ds-gray-100);
+  border:1px solid var(--ds-gray-400);
+  color:var(--ds-gray-1000);
+}
+.act:hover{background:var(--ds-gray-200);border-color:var(--ds-gray-500)}
+.act svg{color:var(--ds-gray-900)}
+.act.primary{background:var(--ds-gray-1000);color:var(--ds-background-100);border-color:var(--ds-gray-1000)}
+.act.primary svg{color:var(--ds-background-100)}
+.act.amber{background:var(--ds-amber-300);border-color:var(--ds-amber-500);color:var(--ds-amber-1000)}
+.act.amber svg{color:var(--ds-amber-900)}
+.act.amber:hover{background:var(--ds-amber-400)}
+.act.green{background:var(--ds-green-400);border-color:var(--ds-green-500);color:#fff}
+.act.green svg{color:var(--ds-green-900)}
+.act.green:hover{background:var(--ds-green-500)}
+.card .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.card .opt{
+  display:inline-flex;align-items:center;gap:6px;
+  height:22px;padding:0 8px 0 3px;
+  font-size:11px;line-height:14px;font-weight:500;
+  border:1px solid var(--ds-amber-500);
+  background:var(--ds-amber-100);color:var(--ds-amber-1000);
+  cursor:pointer;
+}
+.card .opt:hover{background:var(--ds-amber-300)}
+.card .opt kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-amber-900);background:transparent;border:1px solid var(--ds-amber-500)}
+
+/* spinner for running sessions */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin 1.2s linear infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.pulse{animation:pulse 1.6s ease-in-out infinite}
+
+/* ==== 3.2 overrides: card = title + segmented line ==== */
+.card{gap:8px}
+.card .segbar{height:3px}
+
+/* combo: ring beside title, ask/next line below */
+.card{gap:6px}
+.card .nx{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:17px;color:var(--ds-gray-900)}
+.card .nx svg{flex:none;margin-top:1px}
+.card .nx.you{color:var(--ds-amber-1000)}
+.card .nx.you span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* quiet columns: nothing here needs you */
+.col[data-col="issues"] .card,.col[data-col="working"] .card,.col[data-col="review"] .card{border-left-color:var(--ds-gray-500)}
+.col[data-col="issues"] .card .title,.col[data-col="working"] .card .title,.col[data-col="review"] .card .title{color:var(--ds-gray-900)}
+.col[data-col="issues"] .card .nx,.col[data-col="working"] .card .nx,.col[data-col="review"] .card .nx{color:var(--ds-gray-600)}
+.col[data-col="issues"] .card .nx .d,.col[data-col="working"] .card .nx .d,.col[data-col="review"] .card .nx .d{background:var(--ds-gray-500)}
+.col[data-col="issues"] .card svg circle.fill,.col[data-col="working"] .card svg circle.fill,.col[data-col="review"] .card svg circle.fill{stroke:var(--ds-gray-600)}
+.col[data-col="issues"] .card:is(.selected,:focus) .title,.col[data-col="working"] .card:is(.selected,:focus) .title,.col[data-col="review"] .card:is(.selected,:focus) .title{color:var(--ds-gray-1000)}
+/* hover: restore the column's live color */
+.col[data-col="issues"] .card:is(.selected,:focus),.col[data-col="working"] .card:is(.selected,:focus),.col[data-col="review"] .card:is(.selected,:focus){border-left-color:currentColor}
+.col .card[data-tone="blue"]:is(.selected,:focus){border-left-color:var(--ds-blue-700)}
+.col .card[data-tone="grey"]:is(.selected,:focus){border-left-color:var(--ds-gray-600)}
+.col[data-col="review"] .card:is(.selected,:focus){border-left-color:var(--ds-purple-700)}
+.col[data-col="working"] .card:is(.selected,:focus) .nx{color:var(--ds-blue-900)}
+.col[data-col="review"] .card:is(.selected,:focus) .nx{color:var(--ds-purple-900)}
+.col[data-col="issues"] .card:is(.selected,:focus) .nx{color:var(--ds-gray-1000)}
+.col[data-col="working"] .card:is(.selected,:focus) .nx .d{background:var(--ds-blue-700)}
+.col[data-col="review"] .card:is(.selected,:focus) .nx .d{background:var(--ds-purple-700)}
+.col[data-col="working"] .card:is(.selected,:focus) svg circle.fill{stroke:var(--ds-blue-700)}
+.col[data-col="review"] .card:is(.selected,:focus) svg circle.fill{stroke:var(--ds-purple-700)}
+.col[data-col="issues"] .card:is(.selected,:focus) svg circle.fill{stroke:var(--ds-gray-1000)}
+
+.pl-sect .todo{grid-template-columns:14px 1fr}
+.pl-sect .todo .idx,.pl-sect .todo .chip{display:none}
+.pl-sect .todo.you{margin:0;padding:5px 0;background:transparent;box-shadow:none}
+.pl-sect .todo.you .txt{color:var(--ds-amber-1000)}
+
+/* ---- Side panel ---- */
+aside{
+  position:fixed;top:var(--header-h);right:0;bottom:0;width:var(--panel-w);z-index:5;
+  border-left:1px solid var(--ds-gray-400);
+  background:var(--ds-background-100);
+  display:flex;flex-direction:column;
+  min-height:0;
+}
+.panel-head{
+  display:flex;align-items:center;gap:10px;
+  height:44px;padding:0 14px;flex:none;
+  border-bottom:1px solid var(--ds-gray-400);
+}
+.panel-close{
+  flex:none;
+  display:inline-flex;align-items:center;gap:6px;
+  height:24px;padding:0 4px;
+  border:1px solid var(--ds-gray-400);
+  background:var(--ds-gray-100);
+  color:var(--ds-gray-900);
+  cursor:pointer;
+}
+.panel-close:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
+.panel-close kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-600);background:transparent;border:1px solid var(--ds-gray-400)}
+.panel-title{min-width:0}
+.panel-title .t{
+  font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.panel-title .s{font-size:11px;line-height:14px;color:var(--ds-gray-600);font-family:var(--font-mono)}
+.panel-mode-badge{
+  margin-left:auto;flex:none;
+  font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.06em;
+  color:var(--ds-gray-900);
+  border:1px solid var(--ds-gray-400);
+  background:var(--ds-gray-100);
+  padding:2px 6px;text-transform:uppercase;
+}
+#app[data-mode="card"] .panel-mode-badge{color:var(--ds-blue-900);border-color:var(--ds-blue-400);background:var(--ds-blue-100)}
+
+/* ---- panel scroll region: checklist first, conversation demoted below ---- */
+.panel-scroll{flex:1;overflow-y:auto;min-height:0}
+
+.pl-sect{padding:12px 14px 14px;border-bottom:1px solid var(--ds-gray-400)}
+.pl-sect-head{
+  display:flex;align-items:baseline;gap:8px;margin-bottom:8px;
+}
+.pl-sect-head .h{
+  font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ds-gray-600);
+}
+.pl-sect-head .m{margin-left:auto;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
+.pl-sect-head .m .yn{color:var(--ds-amber-900)}
+
+/* single current-position statement */
+.pl-position{
+  font-size:12px;line-height:17px;color:var(--ds-gray-900);
+  border:1px dashed var(--ds-gray-500);
+  padding:6px 9px;margin-bottom:10px;
+  display:flex;gap:7px;align-items:flex-start;
+}
+.pl-position svg{margin-top:2px;color:var(--ds-gray-600)}
+.pl-position b{color:var(--ds-gray-1000);font-weight:500}
+
+/* checklist rows */
+.todo{
+  display:grid;grid-template-columns:20px 14px 1fr auto;gap:0 8px;
+  align-items:flex-start;
+  padding:5px 0;
+}
+.todo + .todo{border-top:1px solid var(--ds-gray-200)}
+.todo .idx{font-family:var(--font-mono);font-size:10px;line-height:17px;color:var(--ds-gray-600);text-align:right}
+.todo .box{margin-top:2px}
+.todo .txt{font-size:12px;line-height:17px;color:var(--ds-gray-1000)}
+.todo .txt .note{display:block;font-size:11px;line-height:15px;color:var(--ds-gray-600);margin-top:1px}
+.todo .txt code{font-family:var(--font-mono);font-size:11px;color:var(--ds-blue-900)}
+.chip{
+  font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.08em;text-transform:uppercase;
+  padding:2px 5px;margin-top:1px;
+  border:1px solid var(--ds-gray-400);color:var(--ds-gray-700);background:var(--ds-gray-100);
+}
+.todo.done .txt{color:var(--ds-gray-600);text-decoration:line-through;text-decoration-color:var(--ds-gray-500)}
+.todo.done .txt .note{text-decoration:none}
+.todo.done .box{color:var(--ds-gray-600)}
+.todo.done .chip{opacity:.55}
+.todo.agent .box{color:var(--ds-blue-900)}
+.todo.agent .chip{color:var(--ds-blue-900);border-color:var(--ds-blue-400);background:var(--ds-blue-100)}
+.todo.agent.active .txt{color:var(--ds-gray-1000)}
+.todo.you .box{color:var(--ds-amber-900)}
+.pl-sect .todo.you .txt{color:var(--ds-amber-1000)}
+.todo.you .chip{color:var(--ds-amber-900);border-color:var(--ds-amber-500);background:var(--ds-amber-100)}
+.todo.you{background:var(--ds-amber-100);box-shadow:inset 2px 0 0 var(--ds-amber-700);margin:0 -6px;padding:5px 6px}
+.todo.you + .todo{border-top-color:transparent}
+.todo.pinned .pin{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-amber-900);margin-right:6px}
+.pl-proposed-note{font-size:11px;line-height:15px;color:var(--ds-gray-600);margin-top:8px;display:flex;gap:6px;align-items:center}
+.todo.proposed .box{color:var(--ds-gray-500)}
+.todo.proposed .txt{color:var(--ds-gray-800)}
+
+/* conversation (demoted) */
+.pl-conv-head{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 14px 0;
+}
+.pl-conv-head .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
+.pl-conv-head .rule{flex:1;height:1px;background:var(--ds-gray-300)}
+.thread{padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px}
+.msg{display:flex;flex-direction:column;gap:3px;max-width:100%}
+.msg .meta{display:flex;align-items:baseline;gap:8px}
+.msg .who{font-size:11px;line-height:14px;font-weight:500;color:var(--ds-gray-900)}
+.msg.user .who{color:var(--ds-gray-1000)}
+.msg .ts{font-family:var(--font-mono);font-size:10px;color:var(--ds-gray-600)}
+.msg .body{
+  font-size:13px;line-height:19px;color:var(--ds-gray-1000);
+  background:var(--ds-gray-100);
+  border:1px solid var(--ds-gray-400);
+  padding:8px 10px;
+  white-space:pre-wrap;
+}
+.msg.user .body{background:var(--ds-gray-200);border-color:var(--ds-gray-500)}
+.msg.system .body{background:transparent;border-style:dashed;color:var(--ds-gray-900);font-size:12px;line-height:17px}
+.msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
+/* board mode: conversation is the primary content, no demotion */
+#app[data-mode="board"] .thread{gap:12px}
+
+.composer{flex:none;border-top:1px solid var(--ds-gray-400);padding:10px 14px 12px;display:flex;flex-direction:column;gap:8px}
+.composer textarea{
+  width:100%;resize:none;
+  background:var(--ds-background-200);
+  border:1px solid var(--ds-gray-400);
+  color:var(--ds-gray-1000);
+  font:inherit;font-size:13px;line-height:19px;
+  padding:8px 10px;height:64px;
+  outline:none;
+}
+.composer textarea::placeholder{color:var(--ds-gray-600)}
+.composer textarea:focus{box-shadow:var(--ds-focus-border);border-color:var(--ds-gray-500)}
+.composer .row{display:flex;align-items:center;gap:8px}
+.composer .hint{font-size:11px;color:var(--ds-gray-600);display:flex;align-items:center;gap:6px}
+.composer .send{margin-left:auto}
+
+/* ---- Shortcuts overlay ---- */
+#overlay{
+  position:fixed;inset:0;z-index:50;
+  background:#000000b8;
+  display:none;align-items:center;justify-content:center;
+}
+#overlay.open{display:flex}
+.sheet{
+  width:560px;max-width:calc(100vw - 48px);
+  background:var(--ds-background-100);
+  border:1px solid var(--ds-gray-500);
+  box-shadow:0 0 0 1px #000,0 16px 48px #000c;
+}
+.sheet-head{
+  display:flex;align-items:center;
+  height:44px;padding:0 16px;
+  border-bottom:1px solid var(--ds-gray-400);
+  font-size:13px;font-weight:500;
+}
+.sheet-head .esc{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ds-gray-600)}
+.sheet-body{display:grid;grid-template-columns:1fr 1fr;gap:0 32px;padding:14px 16px 18px}
+.sc-group{padding:6px 0}
+.sc-group h3{
+  font-size:10px;line-height:14px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ds-gray-600);margin:8px 0 6px;
+}
+.sc{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;color:var(--ds-gray-900)}
+.sc .k{margin-left:auto;display:flex;gap:4px}
+
+/* toast for mock actions */
+#toast{
+  position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:60;
+  background:var(--ds-gray-1000);color:var(--ds-background-100);
+  font-size:12px;line-height:16px;font-weight:500;
+  padding:8px 14px;
+  opacity:0;pointer-events:none;transition:opacity .15s;
+}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="app" data-mode="board">
+
+  <header>
+    <div class="brand">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/><path d="M6.5 2v12M11 2v12"/></svg>
+      Session Board
+      <span class="variant">combo · ring + ask + next</span>
+    </div>
+    <div class="hdr-stats">
+      <span class="hdr-stat"><span class="dot amber"></span><span class="n" id="stat-needs">6</span> on you</span>
+      <span class="hdr-stat"><span class="dot blue"></span><span class="n" id="stat-working">6</span> moving</span>
+      <span class="hdr-stat"><span class="dot green"></span><span class="n" id="stat-ready">1</span> ready</span>
+      <span class="hdr-stat"><span class="dot grey"></span><span class="n" id="stat-idle">4</span> not started</span>
+    </div>
+    <div class="hdr-right">
+      <span class="hdr-repo">answerhq/answer-hq</span>
+      <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts"><kbd>?</kbd> shortcuts</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="board" id="board"><!-- columns rendered by JS --></div>
+  </main>
+
+  <aside aria-label="Conversation panel">
+    <div class="panel-head">
+      <div class="panel-title">
+        <div class="t" id="panel-title">Board</div>
+        <div class="s" id="panel-sub">operate the board</div>
+      </div>
+      <span class="panel-mode-badge" id="panel-badge">board</span>
+      <button class="panel-close" id="panel-close" aria-label="Close panel">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg><kbd>esc</kbd>
+      </button>
+    </div>
+    <div class="panel-scroll" id="panel-scroll">
+      <div id="panel-list"></div>
+      <div class="pl-conv-head" id="conv-head" style="display:none"><span class="h">Conversation</span><span class="rule"></span></div>
+      <div class="thread" id="thread"></div>
+    </div>
+    <div class="composer">
+      <textarea id="composer" placeholder="Message the board…" rows="3"></textarea>
+      <div class="row">
+        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board</span>
+        <button class="act primary send" id="send-btn">Send
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div id="overlay" role="dialog" aria-label="Keyboard shortcuts">
+  <div class="sheet">
+    <div class="sheet-head">Keyboard shortcuts <span class="esc"><kbd>Esc</kbd> close</span></div>
+    <div class="sheet-body">
+      <div class="sc-group">
+        <h3>Navigate</h3>
+        <div class="sc">Move between cards <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
+        <div class="sc">Move between columns <span class="k"><kbd>A</kbd><kbd>D</kbd></span></div>
+        <div class="sc">First / last card in column <span class="k"><kbd>Home</kbd><kbd>End</kbd></span></div>
+        <h3>Cards</h3>
+        <div class="sc">Open selected card <span class="k"><kbd>Enter</kbd></span></div>
+        <div class="sc">Close card / board chat / panel <span class="k"><kbd>Esc</kbd></span></div>
+        <div class="sc">Open board chat <span class="k"><kbd>C</kbd></span></div>
+        <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
+        <div class="sc">Start session on issue <span class="k"><kbd>F</kbd></span></div>
+        <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd></span></div>
+      </div>
+      <div class="sc-group">
+        <h3>Panel</h3>
+        <div class="sc">Focus composer <span class="k"><kbd>⏎</kbd></span></div>
+        <div class="sc">Send message <span class="k"><kbd>⏎</kbd></span></div>
+        <div class="sc">Leave composer <span class="k"><kbd>Esc</kbd></span></div>
+        <h3>General</h3>
+        <div class="sc">Shortcut reference <span class="k"><kbd>?</kbd></span></div>
+        <div class="sc">Jump to “Needs you” <span class="k"><kbd>N</kbd></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ================= icons ================= */
+const I = {
+  spinner:'<svg class="spin" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 1.5A6.5 6.5 0 1 1 1.5 8" stroke-linecap="square"/></svg>',
+  stop:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="10" height="10"/></svg>',
+  question:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.6 5.8a2.4 2.4 0 1 1 3.3 2.3c-.7.3-.9.8-.9 1.4v.5"/><path d="M8 12.6v.1"/></svg>',
+  x:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  eye:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/></svg>',
+  check:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 8.5L6 12l7.5-8"/></svg>',
+  comment:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3h12v8H8.5L5 14v-3H2V3Z"/></svg>',
+  issue:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></svg>',
+  play:'<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 2.5l9 5.5-9 5.5v-11Z"/></svg>',
+  reply:'<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3L2.5 7.5 7 12"/><path d="M2.5 7.5H10a3.5 3.5 0 0 1 3.5 3.5v2"/></svg>',
+  logs:'<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 2.5h10v11H3z"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>',
+  external:'<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 3H3v10h10V9.5"/><path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5"/></svg>',
+  rerun:'<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.7 1.8v2.7H11"/></svg>',
+  merge:'<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M4 6.5A4.5 4.5 0 0 0 8.5 8h2"/></svg>',
+  arrow:'<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 8h11M9 3.5L13.5 8 9 12.5"/></svg>',
+  user:'<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5" r="2.6"/><path d="M2.8 13.5c.8-2.5 2.8-3.8 5.2-3.8s4.4 1.3 5.2 3.8"/></svg>',
+  pin:'<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2h4l.6 5 2 2H3.4l2-2L6 2Z"/><path d="M8 9v5"/></svg>',
+  boxOpen:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11"/></svg>',
+  boxDone:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11"/><path d="M5 8.2l2.2 2.3L11.5 5.5" stroke-width="1.7"/></svg>',
+  boxActive:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11"/><rect x="5.5" y="5.5" width="5" height="5" fill="currentColor" stroke="none" class="pulse"/></svg>',
+  flag:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 14V2.5M3.5 3h9l-2 3 2 3h-9"/></svg>',
+};
+
+/* ================= data =================
+   tone: amber = user action required · blue = machine working · red = failure · green = ready · grey = inert
+   todos: ordered live checklist per issue. owner: 'you' | 'agent'. done | active | open.
+   proposed: true → starter checklist drafted by the agent, not yet running. */
+const columns = [
+  {id:'issues',   name:'Issues',        desc:'no session yet'},
+  {id:'working',  name:'Working',       desc:'moving without you'},
+  {id:'needs-you',name:'Needs you',     desc:'you are the blocker'},
+  {id:'review',   name:'In review',     desc:'not on you'},
+  {id:'ready',    name:'Ready to merge',desc:'green & approved'},
+];
+
+const cards = [
+  /* Issues — open, no session; agent drafts a proposed starter checklist */
+  {col:'issues', tone:'grey', title:'Split monitors into a standalone Alerts tab',
+    now:{icon:'issue', tone:'', text:'Open issue · no session'},
+    action:{label:'Start session', icon:'play', kind:'primary'}, age:'3d',
+    proposed:true,
+    todos:[
+      {owner:'agent', state:'open', text:'Scope routes and nav entry for the Alerts tab'},
+      {owner:'agent', state:'open', text:'Move monitor list + detail views out of Settings'},
+      {owner:'agent', state:'open', text:'Redirect old monitor URLs'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[{who:'system',text:'No session yet. Start one to scope the Alerts tab split. The checklist above is Devin’s proposed plan — it goes live when the session starts.'}]},
+  {col:'issues', tone:'grey', title:'First-party widget analytics, then drop PostHog',
+    now:{icon:'issue', tone:'', text:'Open issue · no session'},
+    action:{label:'Start session', icon:'play', kind:'primary'}, age:'5d',
+    proposed:true,
+    todos:[
+      {owner:'agent', state:'open', text:'Design the event schema for widget analytics'},
+      {owner:'agent', state:'open', text:'Add a first-party capture endpoint'},
+      {owner:'agent', state:'open', text:'Rebuild the two PostHog dashboards in-house'},
+      {owner:'agent', state:'open', text:'Remove the PostHog SDK'},
+    ],
+    thread:[{who:'system',text:'No session yet. Proposed plan drafted from the issue body.'}]},
+  {col:'issues', tone:'grey', title:'Schedule Drive sync on the website cron',
+    now:{icon:'issue', tone:'', text:'Open issue · no session'},
+    action:{label:'Start session', icon:'play', kind:'primary'}, age:'1w',
+    proposed:true,
+    todos:[
+      {owner:'agent', state:'open', text:'Add the sync job to the website cron config'},
+      {owner:'agent', state:'open', text:'Handle token refresh inside the job'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[{who:'system',text:'No session yet. Proposed plan drafted from the issue body.'}]},
+  {col:'issues', tone:'grey', title:'Extract the DashboardPageLayout component',
+    now:{icon:'issue', tone:'', text:'Open issue · no session'},
+    action:{label:'Start session', icon:'play', kind:'primary'}, age:'2w',
+    proposed:true,
+    todos:[
+      {owner:'agent', state:'open', text:'Extract the shared layout from the dashboard pages'},
+      {owner:'agent', state:'open', text:'Migrate the six dashboard pages onto it'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[{who:'system',text:'No session yet. Proposed plan drafted from the issue body.'}]},
+
+  /* Working — session running, not blocked */
+  {col:'working', tone:'blue', title:'Drive folder picker lists folders but no files',
+    now:{icon:'spinner', tone:'blue', text:'Reproducing in the picker component tests'},
+    age:'12m',
+    todos:[
+      {owner:'agent', state:'done', text:'Reproduce: files missing from folder listing'},
+      {owner:'agent', state:'done', text:'Trace to the <code>pageToken</code> loop dropping non-folder entries'},
+      {owner:'agent', state:'active', text:'Write a failing test for the loop'},
+      {owner:'agent', state:'open', text:'Fix the loop to keep file entries'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[
+      {who:'user', ts:'16:02', text:'Start with the Drive picker bug — files missing from folder listing.'},
+      {who:'devin', ts:'16:04', text:'On it. The list call filters on <code>mimeType=folder</code>; checking where the file branch was dropped.'},
+      {who:'devin', ts:'16:29', text:'Found it — the pageToken loop discards non-folder entries. Writing a failing test before the fix.'},
+    ]},
+  {col:'working', tone:'blue', title:'MCP has no knowledge-base search tool',
+    now:{icon:'spinner', tone:'blue', text:'Exploring the MCP server tool registry'},
+    age:'26m',
+    todos:[
+      {owner:'agent', state:'active', text:'Map the existing tool registry conventions'},
+      {owner:'agent', state:'open', text:'Implement the <code>kb_search</code> tool'},
+      {owner:'agent', state:'open', text:'Add registry + tool tests'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[
+      {who:'devin', ts:'16:15', text:'Mapping the existing tool registry so the new <code>kb_search</code> tool matches conventions.'},
+    ]},
+  {col:'working', tone:'blue', title:'Slack bot Autopilot transport and monitors',
+    now:{icon:'spinner', tone:'blue', text:'Drafting PR · running the monitor suite locally'},
+    age:'1h',
+    todos:[
+      {owner:'agent', state:'done', text:'Wire the Slack transport'},
+      {owner:'agent', state:'done', text:'Reuse the email-channel evaluators for monitors'},
+      {owner:'agent', state:'active', text:'Run the monitor suite locally'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[
+      {who:'devin', ts:'15:40', text:'Transport is wired; monitors reuse the email-channel evaluators. Local suite running now.'},
+    ]},
+
+  /* Needs you */
+  {col:'needs-you', tone:'amber', title:'Test signups leak into the Resend audience',
+    now:{icon:'question', tone:'amber', text:'Devin asked a question · session paused'},
+    action:{label:'Reply', icon:'reply', kind:'amber'}, age:'18m',
+    options:['Domain filter','Tagging'],
+    todos:[
+      {owner:'agent', state:'done', text:'Trace the leak: the audience sync job has no environment guard'},
+      {owner:'agent', state:'done', text:'Lay out the two guards: option 1 (domain filter) vs option 2 (tagging)', note:'answered 16:24 · option 1 zero-risk to real sends · option 2 safer long-term but touches signup path'},
+      {owner:'you',   state:'open', text:'Choose option 1 (domain filter) or option 2 (tagging) and reply'},
+      {owner:'agent', state:'open', text:'Implement the chosen guard in the sync job'},
+      {owner:'agent', state:'open', text:'Purge existing test contacts from the audience'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[
+      {who:'devin', ts:'15:58', text:'Signups from e2e runs hit the live Resend audience because the sync job has no environment guard.'},
+      {who:'user', ts:'16:20', text:'Which of the two options is safer for deliverability?'},
+      {who:'devin', ts:'16:24', text:'Two clean options:\n1. Skip any signup whose email matches <code>*@e2e.answerhq.dev</code> — a pure read-side filter, zero risk to real sends.\n2. Tag test signups at creation and filter on the tag — safer long-term, survives domain changes, but touches the signup path.\nWhich do you prefer?'},
+    ]},
+  {col:'needs-you', tone:'red', title:'MCP OAuth 2.1 and dynamic client registration',
+    now:{icon:'x', tone:'red', text:'CI failed · token-rotation integration test'},
+    action:{label:'View logs', icon:'logs', kind:'amber'}, age:'32m',
+    options:['Stale fixture','Real bug'],
+    todos:[
+      {owner:'agent', state:'done', text:'Implement the DCR endpoint + PKCE flow'},
+      {owner:'agent', state:'done', text:'Push and start CI'},
+      {owner:'you',   state:'open', text:'Read the failing token-rotation log: stale fixture, or a real reuse-window bug?'},
+      {owner:'agent', state:'open', text:'Update the fixture or fix the reuse window, per your read'},
+      {owner:'agent', state:'open', text:'Re-run CI'},
+    ],
+    thread:[
+      {who:'devin', ts:'15:30', text:'DCR endpoint and PKCE flow are in. Pushed and CI started.'},
+      {who:'system', ts:'16:10', text:'CI failed: mcp-oauth › rotates refresh token on reuse (exit 1).'},
+      {who:'devin', ts:'16:12', text:'The fixture pins an old token TTL. I can update it, but the failure may also hide a real reuse-window bug — worth a look at the logs before I overwrite it.'},
+    ]},
+  {col:'needs-you', tone:'amber', title:'Slack article approval card cannot be reviewed before approving',
+    now:{icon:'eye', tone:'amber', text:'Preview deployed · session waiting'},
+    action:{label:'Open preview', icon:'external', kind:'amber'}, age:'55m',
+    todos:[
+      {owner:'agent', state:'done', text:'Add an expandable article body + distinct Review state'},
+      {owner:'agent', state:'done', text:'Deploy the preview'},
+      {owner:'you',   state:'open', text:'Walk the card flow end-to-end in the preview'},
+      {owner:'agent', state:'open', text:'Finalize the PR'},
+    ],
+    thread:[
+      {who:'devin', ts:'15:20', text:'Added an expandable article body to the approval card with a distinct Review state before Approve is enabled.'},
+      {who:'devin', ts:'15:49', text:'Preview is up. Please check the card flow end-to-end before I finalize the PR.'},
+    ]},
+  {col:'needs-you', tone:'amber', title:'German topic title on an English question',
+    now:{icon:'stop', tone:'', text:'Session stopped · no PR produced'},
+    action:{label:'Re-run', icon:'rerun', kind:'amber'}, age:'2h',
+    options:['Re-run narrower','Reassign'],
+    todos:[
+      {owner:'agent', state:'done', text:'Trace to the topic-title generator using the site default locale'},
+      {owner:'you',   state:'open', text:'Re-run with a narrower scope, or reassign'},
+      {owner:'agent', state:'open', text:'Fix the locale source in the generator'},
+      {owner:'agent', state:'open', text:'Open PR'},
+    ],
+    thread:[
+      {who:'devin', ts:'14:12', text:'Traced it to the topic-title generator using the site default locale rather than the question locale.'},
+      {who:'system', ts:'14:38', text:'Session stopped before producing a PR.'},
+    ]},
+
+  /* In review */
+  {col:'review', tone:'blue', title:'Fold the widget key into the ahq_ key system',
+    now:{icon:'spinner', tone:'blue', text:'PR 2 in review · fixes in flight · PR 3 drafting'},
+    age:'41m',
+    position:'<b>PR 1 (key aliasing) merged yesterday.</b> PR 2 (call-site migration) is in review with fixes in flight; that review surfaced a widget-embed break, now being drafted as PR 3.',
+    todos:[
+      {owner:'agent', state:'done', text:'PR 1 — alias widget keys as <code>ahq_wgt_</code>', note:'merged yesterday'},
+      {owner:'agent', state:'done', text:'PR 2 — migrate the five widget call sites', note:'open · in review'},
+      {owner:'agent', state:'active', text:'Apply PR 2 review fixes', note:'2 of 3 pushed'},
+      {owner:'agent', state:'active', text:'Draft PR 3 — legacy verifier removal breaks one widget embed path'},
+      {owner:'you',   state:'open', pinned:true, text:'Decide whether legacy keys get a sunset date', note:'asked once mid-thread, long ago — pinned until you rule'},
+      {owner:'agent', state:'open', text:'Remove the legacy verifier once PR 3 lands'},
+    ],
+    thread:[
+      {who:'devin', ts:'yesterday', text:'Plan: alias widget keys as <code>ahq_wgt_</code>, migrate call sites, then remove the legacy verifier. PR 1 (aliasing) is merged.'},
+      {who:'devin', ts:'yesterday', text:'One open judgement call for you, whenever: should legacy keys get a sunset date, or live indefinitely behind the alias? I’ve pinned it to the checklist.'},
+      {who:'devin', ts:'16:00', text:'PR 2 (call-site migration) is open and in review. Two of three review fixes pushed.'},
+      {who:'devin', ts:'16:38', text:'Review found that removing the legacy verifier breaks one widget embed path. Drafting that as PR 3 rather than widening PR 2.'},
+    ]},
+  {col:'review', tone:'blue', title:'Mirror Autopilot replies into the Slack thread',
+    now:{icon:'spinner', tone:'blue', text:'Checks running · 4 of 7 complete'},
+    age:'9m',
+    todos:[
+      {owner:'agent', state:'done', text:'Mirror replies with the intake threading key (no duplicate roots)'},
+      {owner:'agent', state:'done', text:'Open PR'},
+      {owner:'agent', state:'active', text:'CI checks running', note:'4 of 7 complete'},
+      {owner:'agent', state:'open', text:'Request review when green'},
+    ],
+    thread:[
+      {who:'devin', ts:'16:20', text:'PR is open. Replies mirror with the same threading key the intake uses, so no duplicate roots.'},
+    ]},
+  {col:'review', tone:'blue', title:'Name the monitor in the delete approval card',
+    now:{icon:'comment', tone:'', text:'2 review comments outstanding · Devin responding'},
+    age:'1h',
+    todos:[
+      {owner:'agent', state:'done', text:'Open PR'},
+      {owner:'agent', state:'active', text:'Address 2 review comments', note:'rename the prop · truncate long monitor names'},
+      {owner:'agent', state:'open', text:'Re-request review'},
+    ],
+    thread:[
+      {who:'system', ts:'15:32', text:'Reviewer left 2 comments on the PR.'},
+      {who:'devin', ts:'15:41', text:'Addressing both: renaming the prop and adding the missing truncation for long monitor names.'},
+    ]},
+
+  /* Ready to merge */
+  {col:'ready', tone:'green', title:'Make the judge eval a re-runnable check',
+    now:{icon:'check', tone:'green', text:'Checks green · approved'},
+    action:{label:'Merge', icon:'merge', kind:'green'}, age:'3h',
+    todos:[
+      {owner:'agent', state:'done', text:'Register the judge eval as a re-runnable check'},
+      {owner:'agent', state:'done', text:'Cache the corpus between runs'},
+      {owner:'agent', state:'done', text:'Checks green · approved by jacky'},
+      {owner:'you',   state:'open', text:'Merge when ready'},
+    ],
+    thread:[
+      {who:'devin', ts:'13:05', text:'Judge eval now registers as a re-runnable check with cached corpus between runs.'},
+      {who:'system', ts:'13:58', text:'All checks passed. Review approved by jacky.'},
+    ]},
+];
+
+const boardThread = [
+  {who:'user',  ts:'16:08', text:'What is waiting on me right now?'},
+  {who:'board', ts:'16:08', text:'6 checklist items are on you across 5 issues:\n· Resend audience leak — choose option 1 or 2 and reply\n· MCP OAuth — read the failing token-rotation log\n· Slack approval card — walk the preview flow\n· German topic title — re-run narrower or reassign\n· Widget → ahq_ keys — rule on a legacy-key sunset date (pinned)\n· Judge eval — merge when ready'},
+  {who:'user',  ts:'16:31', text:'Open the Alerts tab issue when the OAuth one merges.'},
+  {who:'board', ts:'16:31', text:'Queued. I’ll start a session on “Split monitors into a standalone Alerts tab” once “MCP OAuth 2.1” reaches Ready to merge and is merged.'},
+];
+
+/* ================= render ================= */
+const boardEl = document.getElementById('board');
+cards.forEach((c,i)=>c.id=i);
+
+function counts(c){
+  const done=c.todos.filter(t=>t.state==='done').length;
+  const yours=c.todos.filter(t=>t.owner==='you'&&t.state!=='done').length;
+  const open=c.todos.filter(t=>t.state!=='done').length-yours;
+  return {done,yours,open,total:c.todos.length};
+}
+function nextYours(c){return c.todos.find(t=>t.owner==='you'&&t.state!=='done')}
+
+function segbarHTML(c){
+  return `<div class="segbar">${c.todos.map(t=>{
+    if(c.proposed)return '<i class="proposed"></i>';
+    if(t.state==='done')return '<i class="done"></i>';
+    if(t.owner==='you')return '<i class="you"></i>';
+    return `<i class="agent${t.state==='active'?' active':''}"></i>`;
+  }).join('')}</div>`;
+}
+function countsHTML(c){
+  if(c.proposed)return `<div class="counts"><span>proposed</span><span class="sep">·</span><span>${c.todos.length} steps</span></div>`;
+  const k=counts(c);
+  const parts=[];
+  if(k.yours)parts.push(`<span class="yours-n">${k.yours} yours</span>`);
+  parts.push(`<span>${k.open} left</span>`);
+  parts.push(`<span>${k.done} done</span>`);
+  return `<div class="counts">${parts.join('<span class="sep">·</span>')}</div>`;
+}
+
+function cardHTML(c){
+  const num=c.num??(c.num=131+cards.indexOf(c));
+  const ref=`<span class="ref">answer-hq#${num}</span>`;
+  const k=counts(c);
+  const pct=k.total?k.done/k.total:0;
+  const nx=c.todos.find(t=>t.state!=='done');
+  const you=nx&&nx.owner==='you'&&!c.proposed;
+  const r=5.5,cf=2*Math.PI*r;
+  const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
+  const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
+  if(c.col==='issues')return `<div class="title">${c.title}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>↵</kbd><span>start</span></div></div>`;
+  const working=c.col==='working'&&c.now;
+  const txt=working?c.now.text:(nx&&!c.proposed&&c.col!=='ready'?nx.text:null);
+  const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${txt}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
+  const elapsed=working&&c.age?`<span class="elapsed">${c.age}</span>`:'';
+  const opts=c.col==='needs-you'&&c.options?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${o}</span>`).join('')}</div>`:'';
+  return `<div class="title">${c.title}</div>${line}${opts}${elapsed}`;
+}
+
+columns.forEach(col=>{
+  const colCards = cards.filter(c=>c.col===col.id);
+  const el = document.createElement('section');
+  el.className='col'; el.dataset.col=col.id;
+  el.innerHTML = `<div class="col-head"><span class="name">${col.name}</span><span class="count">${colCards.length}</span></div>
+    <div class="col-body"></div>`;
+  const body = el.querySelector('.col-body');
+  colCards.forEach(c=>{
+    const b=document.createElement('button');
+    b.className='card'; b.dataset.tone=c.tone; b.dataset.id=c.id;
+    b.setAttribute('aria-label', c.title);
+    b.innerHTML=cardHTML(c);
+    body.appendChild(b);
+  });
+  if(col.id==='issues'){
+    const add=document.createElement('button');
+    add.className='card add-card'; add.id='add-issue';
+    add.setAttribute('aria-label','New issue');
+    add.innerHTML='<span class="plus">+</span>';
+    body.appendChild(add);
+  }
+  boardEl.appendChild(el);
+});
+
+/* ---- add-issue card ---- */
+const addBtn=document.getElementById('add-issue');
+function addToInput(){
+  if(addBtn.classList.contains('editing'))return;
+  addBtn.classList.add('editing');
+  addBtn.innerHTML='<input class="title-input" type="text" placeholder="Issue title…" />';
+  const inp=addBtn.querySelector('input');
+  inp.focus();
+  inp.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){
+      const v=inp.value.trim();
+      let nb=null;
+      if(v){
+        nb=document.createElement('button');
+        nb.className='card'; nb.dataset.tone='grey';
+        nb.setAttribute('aria-label',v);
+        nb.innerHTML=`<div class="title">${v.replace(/</g,'&lt;')}</div>`;
+        nb.addEventListener('click',()=>nb.focus());
+        addBtn.parentNode.insertBefore(nb,addBtn);
+        const cnt=addBtn.closest('.col').querySelector('.count');
+        cnt.textContent=+cnt.textContent+1;
+        showToast(`GitHub issue created — “${v}” (mockup)`);
+      }
+      addToPlus();
+      if(nb)nb.focus();
+    }
+    if(e.key==='Escape'){
+      addToPlus();
+      const prev=addBtn.previousElementSibling;
+      if(prev)prev.focus();
+    }
+  });
+  inp.addEventListener('blur',()=>{setTimeout(()=>{if(addBtn.classList.contains('editing'))addToPlus()},120)});
+}
+function addToPlus(){
+  addBtn.classList.remove('editing');
+  addBtn.innerHTML='<span class="plus">+</span>';
+}
+addBtn.addEventListener('click',addToInput);
+addBtn.addEventListener('focus',addToInput);
+
+/* ================= panel ================= */
+const app=document.getElementById('app');
+const threadEl=document.getElementById('thread');
+const panelList=document.getElementById('panel-list');
+const convHead=document.getElementById('conv-head');
+const panelScroll=document.getElementById('panel-scroll');
+const panelTitle=document.getElementById('panel-title');
+const panelSub=document.getElementById('panel-sub');
+const panelBadge=document.getElementById('panel-badge');
+const composer=document.getElementById('composer');
+let mode='board', openCard=null;
+
+const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
+function renderThread(msgs){
+  threadEl.innerHTML=msgs.map(m=>`<div class="msg ${m.who}">
+    <div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${m.ts}</span>`:''}</div>
+    <div class="body">${m.text}</div></div>`).join('');
+}
+
+function todoRow(t,i,proposed){
+  const stateCls=t.state==='done'?'done':(t.state==='active'?'active':'');
+  const ownerCls=t.state==='done'?'':(t.owner==='you'?'you':'agent');
+  const box=t.state==='done'?I.boxDone:(t.state==='active'?I.boxActive:I.boxOpen);
+  const chip=t.state==='done'?'done':(t.owner==='you'?'you':(t.state==='active'?'agent · now':'agent'));
+  const pin=t.pinned?`<span class="pin">${I.pin}pinned</span>`:'';
+  const note=t.note?`<span class="note">${t.note}</span>`:'';
+  return `<div class="todo ${stateCls} ${ownerCls} ${proposed?'proposed':''} ${t.pinned?'pinned':''}">
+    <span class="idx">${i+1}</span>
+    <span class="box">${box}</span>
+    <span class="txt">${pin}${t.text}${note}</span>
+    <span class="chip">${proposed?'plan':chip}</span>
+  </div>`;
+}
+
+function checklistHTML(c){
+  const k=counts(c);
+  const head=c.proposed
+    ? `<div class="pl-sect-head"><span class="h">Proposed checklist</span><span class="m">${c.todos.length} steps · not started</span></div>`
+    : `<div class="pl-sect-head"><span class="h">Live checklist</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
+  const pos=c.position?`<div class="pl-position">${I.flag}<span>${c.position}</span></div>`:'';
+  const rows=c.todos.map((t,i)=>todoRow(t,i,c.proposed)).join('');
+  const note=c.proposed?`<div class="pl-proposed-note">${I.play} Starts running when you start the session — <kbd>E</kbd></div>`:'';
+  return `<div class="pl-sect">${head}${pos}${rows}${note}</div>`;
+}
+
+function setBoardMode(){
+  mode='board'; openCard=null;
+  app.dataset.mode='board';
+  panelTitle.textContent='Board';
+  panelSub.textContent='operate the board';
+  panelBadge.textContent='board';
+  composer.placeholder='Message the board…';
+  panelList.innerHTML='';
+  convHead.style.display='none';
+  renderThread(boardThread);
+  panelScroll.scrollTop=panelScroll.scrollHeight;
+  document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
+}
+function setCardMode(id){
+  const c=cards[id];
+  mode='card'; openCard=id;
+  app.dataset.mode='card';
+  panelTitle.textContent=c.title;
+  panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
+  panelBadge.textContent='card';
+  composer.placeholder='Message this session…';
+  panelList.innerHTML=checklistHTML(c);
+  convHead.style.display='flex';
+  renderThread(c.thread);
+  panelScroll.scrollTop=0; /* checklist first: what's next is positional */
+  document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
+  cardEl(id).classList.add('selected');
+  ensureVisible(cardEl(id));
+}
+function cardEl(id){return document.querySelector(`.card[data-id="${id}"]`)}
+const mainEl=document.querySelector('main');
+function ensureVisible(el){
+  if(!el)return;
+  const r=el.getBoundingClientRect();
+  const limit=window.innerWidth-(mode!=='closed'?400:0);
+  if(r.right>limit)mainEl.scrollBy({left:r.right-limit+12,behavior:'smooth'});
+  else if(r.left<0)mainEl.scrollBy({left:r.left-12,behavior:'smooth'});
+}
+setBoardMode();
+mode='closed'; app.dataset.mode='closed';
+
+/* ================= toast ================= */
+const toast=document.getElementById('toast'); let toastT;
+function showToast(t){toast.textContent=t;toast.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('show'),1800)}
+
+/* ================= interactions ================= */
+document.querySelectorAll('.card:not(.add-card)').forEach(el=>{
+  el.addEventListener('click',e=>{
+    const opt=e.target.closest('.opt');
+    if(opt){pickOption(+el.dataset.id,[...el.querySelectorAll('.opt')].indexOf(opt));e.stopPropagation();return}
+    const act=e.target.closest('.act');
+    if(act){triggerAction(+el.dataset.id);e.stopPropagation();return}
+    setCardMode(+el.dataset.id);
+    el.focus();
+  });
+  el.addEventListener('focus',()=>ensureVisible(el));
+  el.addEventListener('mouseenter',()=>{
+    const a=document.activeElement;
+    if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
+    el.focus();
+  });
+  el.addEventListener('dblclick',e=>{
+    if(e.target.closest('.act'))return;
+    composer.focus();
+  });
+});
+document.getElementById('panel-close').addEventListener('click',()=>{
+  const el=openCard!=null?cardEl(openCard):focused();
+  setBoardMode(); mode='closed'; app.dataset.mode='closed';
+  el?.focus();
+});
+function pickOption(id,i){
+  const c=cards[id];
+  if(!c||!c.options||!c.options[i])return;
+  showToast(`Replied \u201c${c.options[i]}\u201d \u2014 \u201c${c.title}\u201d (mockup)`);
+}
+function triggerAction(id){
+  const c=cards[id];
+  if(c.col==='issues'){startIssue(id);return}
+  if(c.action) showToast(`${c.action.label} — “${c.title}” (mockup)`);
+}
+function startIssue(id){
+  const c=cards[id];
+  if(!c||c.col!=='issues')return;
+  c.col='working'; c.tone='blue'; c.proposed=false;
+  const el=cardEl(id);
+  const from=el.closest('.col'), to=document.querySelector('.col[data-col="working"] .col-body');
+  el.dataset.tone='blue';
+  el.innerHTML=cardHTML(c);
+  to.appendChild(el);
+  const dec=from.querySelector('.count'), inc=to.closest('.col').querySelector('.count');
+  dec.textContent=+dec.textContent-1; inc.textContent=+inc.textContent+1;
+  showToast(`Session started — “${c.title}” (mockup)`);
+  el.focus();
+}
+document.getElementById('send-btn').addEventListener('click',sendMsg);
+function sendMsg(){
+  const v=composer.value.trim(); if(!v)return;
+  const msg={who:'user',ts:'now',text:v.replace(/</g,'&lt;')};
+  if(mode==='board'){boardThread.push(msg);renderThread(boardThread)}
+  else{cards[openCard].thread.push(msg);renderThread(cards[openCard].thread)}
+  panelScroll.scrollTop=panelScroll.scrollHeight;
+  composer.value='';
+}
+composer.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}
+  if(e.key==='Escape'){e.stopPropagation();composer.blur();(openCard!=null?cardEl(openCard):focused()||firstCard())?.focus()}
+});
+
+/* ---- overlay ---- */
+const overlay=document.getElementById('overlay');
+function toggleOverlay(force){overlay.classList.toggle('open',force)}
+document.getElementById('help-btn').addEventListener('click',()=>toggleOverlay(true));
+overlay.addEventListener('click',e=>{if(e.target===overlay)toggleOverlay(false)});
+
+/* ---- keyboard navigation ---- */
+function allCols(){return [...document.querySelectorAll('.col')]}
+function colCards(col){return [...col.querySelectorAll('.card')]}
+function focused(){const a=document.activeElement;return a&&a.classList&&a.classList.contains('card')?a:null}
+function firstCard(){return document.querySelector('.card')}
+
+function move(dx,dy){
+  const cur=focused()||firstCard();
+  if(!cur){return}
+  if(!focused()){cur.focus();return}
+  const col=cur.closest('.col');
+  const cols=allCols();
+  if(dy!==0){
+    const list=colCards(col);
+    const i=list.indexOf(cur);
+    const next=list[Math.min(Math.max(i+dy,0),list.length-1)];
+    next.focus();
+  }else if(dx!==0){
+    const ci=cols.indexOf(col);
+    let ni=ci+dx;
+    while(ni>=0&&ni<cols.length){
+      const list=colCards(cols[ni]);
+      if(list.length){ 
+        const i=Math.min(colCards(col).indexOf(cur),list.length-1);
+        list[i].focus(); return;
+      }
+      ni+=dx;
+    }
+  }
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.target===composer||e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(overlay.classList.contains('open')){
+    if(e.key==='Escape'||e.key==='?'){toggleOverlay(false);e.preventDefault()}
+    return;
+  }
+  switch(e.key){
+    case 'ArrowUp': case 'w': case 'W': move(0,-1); e.preventDefault(); break;
+    case 'ArrowDown': case 's': case 'S': move(0,1); e.preventDefault(); break;
+    case 'ArrowLeft': case 'a': case 'A': move(-1,0); e.preventDefault(); break;
+    case 'ArrowRight': case 'd': case 'D': move(1,0); e.preventDefault(); break;
+    case 'Home': {const f=focused(); if(f)colCards(f.closest('.col'))[0].focus(); e.preventDefault(); break}
+    case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
+    case 'Enter': {const f=focused(); if(f){const id=+f.dataset.id; if(cards[id]&&cards[id].col==='issues'){startIssue(id)}else if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
+    case 'Escape':
+      if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; el?.focus()}
+      break;
+    case 'c': case 'C': setBoardMode(); composer.focus(); e.preventDefault(); break;
+    case '?': toggleOverlay(true); e.preventDefault(); break;
+    case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f)triggerAction(+f.dataset.id); break}
+    case 'f': case 'F': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f)startIssue(+f.dataset.id); break}
+    case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
+    case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f)pickOption(+f.dataset.id,+e.key-1); break}
+  }
+});
+
+/* focus first needs-you card on load so keyboard flow is immediately visible */
+window.addEventListener('load',()=>{
+  const q=new URLSearchParams(location.search);
+  if(q.has('card')){const id=+q.get('card'); setCardMode(id); cardEl(id).focus(); return}
+  const c=document.querySelector('[data-col="needs-you"] .card'); if(c)c.focus();
+});
+</script>
+</body>
+</html>
