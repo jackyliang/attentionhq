@@ -147,12 +147,13 @@ main{
 .col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
 .col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1}
 .col-empty{font-size:12px;color:var(--ds-gray-600);padding:6px 4px}
+.card.add-card{flex-direction:row}
 .add-card{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px dashed var(--ds-gray-500);background:transparent;cursor:pointer}
 .add-card .plus{font-size:16px;line-height:18px;color:var(--ds-gray-600)}
 .add-card:hover .plus,.add-card:focus .plus{color:var(--ds-gray-1000)}
-.add-card .add-hint{display:none;align-items:center;gap:6px;margin-left:8px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.add-card .add-hint{visibility:hidden;display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
 .add-card .add-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
-.add-card:is(:hover,:focus) .add-hint{display:inline-flex}
+.add-card:is(:hover,:focus) .add-hint{visibility:visible}
 .add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
