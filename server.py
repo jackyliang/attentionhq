@@ -204,10 +204,11 @@ EXTRACT_PROMPT = """You are given the chat transcript between a user and Devin (
 Return STRICT JSON (no markdown) with this shape:
 {"todos":[{"text":"...","owner":"agent|you","state":"done|active|open"}],
  "current_activity":"one short line: what the agent is doing right now, present tense",
- "ask":"if the agent is waiting on the user, the exact question/request in one short line, else null",
+ "ask":"if the agent is waiting on the user, the user's next action in one short imperative line (e.g. 'Approve the blog PR' / 'Choose between A and B'), else null",
  "options":["short option labels if the agent offered numbered/discrete choices, max 3, else empty"],
  "progress_pct":0-100}
-Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you"."""
+Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you".
+If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you to ...") — never invent in-progress work."""
 
 async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
     if not OPENROUTER_API_KEY or not messages:
@@ -275,6 +276,10 @@ def pr_issue_key(pr: dict) -> str | None:
 def session_status(sess: dict) -> str:
     return (sess.get("status") or "").lower()
 
+def session_needs_user(sess: dict) -> bool:
+    detail = (sess.get("status_detail") or "").lower()
+    return detail == "waiting_for_user" or session_status(sess) == "blocked"
+
 def session_pr_urls(sess: dict) -> list[str]:
     return [p["pr_url"] for p in sess.get("pull_requests") or [] if p.get("pr_url")]
 
@@ -341,7 +346,7 @@ async def assemble_board():
             msgs = (session_msgs_cache.get(sid) or {}).get("msgs") or []
             extract = await extract_session(sid, msgs) if msgs else None
 
-        if st == "blocked" or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested"):
+        if (sess and session_needs_user(sess)) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested"):
             col, tone = "needs-you", ("red" if pr and pr["ci"] == "failing" else "amber")
         elif pr and not pr["draft"] and pr["ci"] == "passing" and pr["review"] == "approved" and pr["mergeable_state"] == "clean":
             col, tone = "ready", "green"
@@ -366,8 +371,12 @@ async def assemble_board():
                 ask = "CI failed — take a look"
             elif st == "blocked":
                 ask = "Devin is blocked and waiting on you"
+            elif sess and session_needs_user(sess):
+                ask = "Devin asked you a question — reply"
             elif pr and pr["review"] == "changes_requested":
                 ask = "Review requested changes"
+        if col == "review" and not ask and pr and pr["ci"] == "passing":
+            now_text = f"You: review & merge PR #{pr['number']}"
 
         out.append({
             **{k: c[k] for k in ("id", "kind", "title", "repo", "number", "url")},
@@ -375,7 +384,7 @@ async def assemble_board():
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
             "pr": {k: pr[k] for k in ("repo", "number", "url", "ci", "review", "mergeable_state")} if pr else None,
-            "now": ask if col == "needs-you" else now_text,
+            "now": ask if col == "needs-you" else (f"You: {ask}" if ask else now_text),
             "options": options if col == "needs-you" else [],
             "todos": (extract or {}).get("todos", []),
             "progress_pct": (extract or {}).get("progress_pct"),
