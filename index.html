@@ -150,6 +150,9 @@ main{
 .add-card{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px dashed var(--ds-gray-500);background:transparent;cursor:pointer}
 .add-card .plus{font-size:16px;line-height:18px;color:var(--ds-gray-600)}
 .add-card:hover .plus,.add-card:focus .plus{color:var(--ds-gray-1000)}
+.add-card .add-hint{display:none;align-items:center;gap:6px;margin-left:8px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.add-card .add-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
+.add-card:is(:hover,:focus) .add-hint{display:inline-flex}
 .add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
@@ -891,7 +894,7 @@ columns.forEach(col=>{
     const add=document.createElement('button');
     add.className='card add-card'; add.id='add-issue';
     add.setAttribute('aria-label','New issue');
-    add.innerHTML='<span class="plus">+</span>';
+    add.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new issue</span></span>';
     body.appendChild(add);
   }
   boardEl.appendChild(el);
@@ -934,7 +937,7 @@ function addToInput(){
 }
 function addToPlus(){
   addBtn.classList.remove('editing');
-  addBtn.innerHTML='<span class="plus">+</span>';
+  addBtn.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new issue</span></span>';
 }
 addBtn.addEventListener('click',addToInput);
 addBtn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!addBtn.classList.contains('editing')){e.preventDefault();e.stopPropagation();addToInput();}});
