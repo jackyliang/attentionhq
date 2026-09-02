@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -67,7 +67,7 @@ def save_dismissed(d: set):
 
 dismissed: set = load_dismissed()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
-session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None}
+session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 
 # ---------------------------------------------------------------- clients
 
@@ -187,8 +187,6 @@ async def fetch_session_messages(session_id: str) -> list[dict]:
             r.raise_for_status()
             page = r.json()
             for m in page.get("items", []):
-                # The API returns end_cursor=None on the final page, so that page is
-                # re-fetched on every poll; dedupe by event_id to avoid re-appending it.
                 eid = m.get("event_id") or f"{m.get('created_at')}:{m.get('message')}"
                 if eid in seen:
                     continue
@@ -198,6 +196,8 @@ async def fetch_session_messages(session_id: str) -> list[dict]:
                     "ts": m.get("created_at", ""),
                     "text": _clean_text(m.get("message") or ""),
                 })
+            # the final page carries no end_cursor, so it is re-read on the next
+            # call; `seen` keeps those items from being appended twice
             cursor = page.get("end_cursor") or cursor
             if not page.get("has_next_page"):
                 break
@@ -458,7 +458,10 @@ app = FastAPI(lifespan=lifespan)
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if request.url.path.startswith("/api/") and BOARD_TOKEN:
-        if request.headers.get("x-board-token") != BOARD_TOKEN:
+        token = request.headers.get("x-board-token")
+        if token is None and request.url.path.startswith("/api/attachment/"):
+            token = request.query_params.get("t")
+        if token != BOARD_TOKEN:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -485,6 +488,20 @@ async def get_messages(card_id: str):
     if not card["session_id"]:
         return {"messages": []}
     return {"messages": await fetch_session_messages(card["session_id"])}
+
+@app.get("/api/attachment/{uuid}/{name}")
+async def get_attachment(uuid: str, name: str):
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid) or name in (".", ".."):
+        raise HTTPException(400, "bad attachment path")
+    async with devin_client() as dv:
+        r = await dv.get(f"/attachments/{uuid}/{name}", follow_redirects=True, timeout=60)
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, "attachment unavailable")
+    return Response(
+        content=r.content,
+        media_type=r.headers.get("content-type", "application/octet-stream"),
+        headers={"Cache-Control": "private, max-age=86400", "Content-Disposition": "inline"},
+    )
 
 class MessageIn(BaseModel):
     text: str

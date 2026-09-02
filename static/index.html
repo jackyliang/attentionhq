@@ -468,7 +468,7 @@ aside{
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
-.msg .body img.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px}
+.msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
 .msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 /* board mode: conversation is the primary content, no demotion */
@@ -598,7 +598,7 @@ aside{
     <div class="sheet-body">
       <div class="sc-group">
         <h3>Navigate</h3>
-        <div class="sc">Move between cards <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
+        <div class="sc">Move between cards (panel closed) <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
         <div class="sc">Move between columns <span class="k"><kbd>A</kbd><kbd>D</kbd></span></div>
         <div class="sc">First / last card in column <span class="k"><kbd>Home</kbd><kbd>End</kbd></span></div>
         <h3>Cards</h3>
@@ -612,6 +612,8 @@ aside{
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
+        <div class="sc">Scroll conversation <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
+        <div class="sc">Top / bottom of conversation <span class="k"><kbd>Home</kbd><kbd>End</kbd></span></div>
         <div class="sc">Focus composer <span class="k"><kbd>⏎</kbd></span></div>
         <div class="sc">Send message <span class="k"><kbd>⏎</kbd></span></div>
         <div class="sc">Leave composer <span class="k"><kbd>Esc</kbd></span></div>
@@ -888,8 +890,9 @@ const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
 const REVIEW_LABEL={none:'no review yet',pending:'review pending',approved:'approved',changes_requested:'changes requested'};
 function fmtTs(ts){
   if(!ts)return '';
-  const d=new Date(ts);
-  if(isNaN(d))return ts;
+  const n=typeof ts==='number'?ts:(/^\d+(\.\d+)?$/.test(ts)?Number(ts):NaN);
+  const d=new Date(isNaN(n)?ts:(n<1e12?n*1000:n));
+  if(isNaN(d))return String(ts);
   return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
 const URL_RE=/https?:\/\/[^\s<>"')\]]+/g;
@@ -899,13 +902,15 @@ function inlineMD(escaped){
     .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>'));
 }
 function linkifyMD(s){
-  s=s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
-  return s.replace(URL_RE,(u,i,str)=>{
+  s=s.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g,(m,alt,u)=>`<img class="att" src="${attURL(u)}" alt="${alt}" loading="lazy">`);
+  s=s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>`<a href="${attURL(u)}" target="_blank" rel="noopener">${t}</a>`);
+  return s.replace(URL_RE,(full,i,str)=>{
     const before=str.slice(0,i);
-    if(/href="$/.test(before)||/>$/.test(before.trimEnd().slice(-1)))return u;
+    if(/(href|src)="$/.test(before)||/>$/.test(before.trimEnd().slice(-1)))return full;
     const open=before.lastIndexOf('<a ');const close=before.lastIndexOf('</a>');
-    if(open>close)return u;
-    return `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+    if(open>close)return full;
+    const u=full.replace(/(?:[.,;:!?]|&(?:quot|amp);)+$/,'');
+    return `<a href="${attURL(u)}" target="_blank" rel="noopener">${u}</a>${full.slice(u.length)}`;
   });
 }
 function mdHTML(text){
@@ -926,15 +931,24 @@ function mdHTML(text){
   }).join('');
 }
 const ATT_RE=/ATTACHMENT:\s*(?:\{"url":"(https?:\/\/[^"]+)"[^}]*\}|"(https?:\/\/[^"]+)")/g;
+const DEVIN_ATT_RE=/^https:\/\/app\.devin\.ai\/attachments\/([0-9a-f-]+)\/([^/?#]+)/i;
+function attURL(u){
+  const m=u.match(DEVIN_ATT_RE);
+  if(!m)return u;
+  return `/api/attachment/${m[1]}/${m[2]}${BOARD_TOKEN?`?t=${encodeURIComponent(BOARD_TOKEN)}`:''}`;
+}
 function bodyHTML(text){
   const t=(text??'').toString();
   const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]||m[2]);
   let out=linkifyMD(escHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim()));
   for(const u of atts){
-    const safe=escHTML(u);
+    const safe=escHTML(attURL(u));
     const name=escHTML(decodeURIComponent(u.split('/').pop().split('?')[0]||'attachment'));
-    if(/\.(png|jpe?g|gif|webp|svg)$/i.test(u.split('?')[0])){
+    const ext=(u.split('?')[0].match(/\.(\w+)$/)||[])[1]?.toLowerCase()||'';
+    if(/^(png|jpe?g|gif|webp|svg)$/.test(ext)){
       out+=`<a href="${safe}" target="_blank" rel="noopener"><img class="att" src="${safe}" alt="${name}" loading="lazy" onerror="this.outerHTML='<span class=&quot;att-name&quot;>'+this.alt+'</span>'"></a>`;
+    }else if(/^(mp4|webm|mov)$/.test(ext)){
+      out+=`<video class="att" src="${safe}" controls preload="metadata" title="${name}" onerror="this.outerHTML='<a class=&quot;att-link&quot; href=&quot;${safe}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>'+this.title+'</a>'"></video>`;
     }else{
       out+=`\n<a class="att-link" href="${safe}" target="_blank" rel="noopener">${name}</a>`;
     }
@@ -1233,6 +1247,10 @@ document.addEventListener('keydown',e=>{
   if(overlay.classList.contains('open')){
     if(e.key==='Escape'||e.key==='?'){toggleOverlay(false);e.preventDefault()}
     return;
+  }
+  if(mode!=='closed'){
+    const step=e.key==='Home'?-1e9:e.key==='End'?1e9:/^(ArrowUp|w|W)$/.test(e.key)?-96:/^(ArrowDown|s|S)$/.test(e.key)?96:0;
+    if(step){panelScroll.scrollBy({top:step});e.preventDefault();return}
   }
   switch(e.key){
     case 'ArrowUp': case 'w': case 'W': move(0,-1); e.preventDefault(); break;
