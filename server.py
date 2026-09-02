@@ -27,7 +27,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-5.6-luna:nitro")
 BOARD_TOKEN = os.environ.get("BOARD_TOKEN", "")
-REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web").split(",") if r.strip()]
+REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web,jackyliang/attentionhq").split(",") if r.strip()]
 RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
@@ -309,20 +309,25 @@ Return STRICT JSON (no markdown) with this shape:
  "ask":"if the agent is waiting on the user, the user's next action in one short imperative line (e.g. 'Approve the blog PR' / 'Choose between A and B'), else null",
  "last_said":"the agent's most recent message to the user compressed to one line (<80 chars): the question it asked, or the answer/result it reported (e.g. 'Asked: keep Jinja or switch to Next?' / 'Reviewed #378: no dead code found')",
  "options":["short option labels if the agent offered numbered/discrete choices, max 3, else empty"],
+ "blocked":true|false,
  "progress_pct":0-100}
 Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you".
-If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you to ...") — never invent in-progress work."""
+If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you to ...") — never invent in-progress work.
+"blocked": true only if the agent explicitly says it cannot continue until the user supplies something (a credential/token, a decision between alternatives, an approval). Examples of blocked=true: "blocked on you for the token", "which approach should I take?", "waiting for your approval to run X". Examples of blocked=false: "PR is up — want me to record a test?", "done; anything else?", "want me to also do X?" (delivered work + optional offer). If one of the offered choices is to skip / do nothing / proceed without it, blocked=false.
+A trailing [prs] line lists the session's pull requests and their current state. A PR that is already merged or closed needs nothing from the user: do not ask them to review or merge it, and set ask to null if that was the only pending action."""
 
-EXTRACT_VERSION = 2
+EXTRACT_VERSION = 4
 
-async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
+async def extract_session(session_id: str, messages: list[dict], context: str = "") -> dict | None:
     if not OPENROUTER_API_KEY or not messages:
         return None
-    key = f"{EXTRACT_VERSION}:{len(messages)}:{messages[-1]['ts']}"
+    key = f"{EXTRACT_VERSION}:{len(messages)}:{messages[-1]['ts']}:{context}"
     cached = extract_cache.get(session_id)
-    if cached and (cached["key"] == key or (cached.get("count") == len(messages) and cached.get("v") == EXTRACT_VERSION)):
+    if cached and (cached["key"] == key or (cached.get("count") == len(messages) and cached.get("v") == EXTRACT_VERSION and cached.get("ctx") == context)):
         return cached["data"]
     transcript = "\n".join(f"[{m['who']}] {m['text']}" for m in messages)[-24000:]
+    if context:
+        transcript += f"\n[prs] {context}"
     try:
         async with httpx.AsyncClient(timeout=60) as cl:
             r = await cl.post(
@@ -344,7 +349,7 @@ async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
     except Exception as e:  # noqa: BLE001 — extractor is best-effort by design
         log.warning("extractor failed for %s: %s", session_id, e)
         return None
-    extract_cache[session_id] = {"key": key, "count": len(messages), "v": EXTRACT_VERSION, "data": data}
+    extract_cache[session_id] = {"key": key, "count": len(messages), "v": EXTRACT_VERSION, "ctx": context, "data": data}
     return data
 
 # ---------------------------------------------------------------- board assembly
@@ -394,6 +399,18 @@ def session_needs_user(sess: dict) -> bool:
 
 def session_pr_urls(sess: dict) -> list[str]:
     return [p["pr_url"] for p in sess.get("pull_requests") or [] if p.get("pr_url")]
+
+GH_PR_URL_RE = re.compile(r"github\.com/([^/]+/[^/]+)/pull/(\d+)")
+
+def session_prs(sess: dict) -> list[dict]:
+    """PRs Devin reports for the session, in any repo (not only the tracked ones)."""
+    out = []
+    for p in sess.get("pull_requests") or []:
+        m = GH_PR_URL_RE.search(p.get("pr_url") or "")
+        if m:
+            out.append({"repo": m.group(1), "number": int(m.group(2)), "url": p["pr_url"],
+                        "state": (p.get("pr_state") or "open").lower()})
+    return out
 
 async def assemble_board():
     issues, prs, sessions = state["issues"], state["prs"], state["sessions"]
@@ -453,15 +470,29 @@ async def assemble_board():
         st = session_status(sess) if sess else None
         pr = c["prs"][0] if c["prs"] else None
         extract = None
+        s_prs = session_prs(sess) if sess else []
         if sess:
             sid = sess["session_id"]
             msgs = (session_msgs_cache.get(sid) or {}).get("msgs") or []
-            extract = await extract_session(sid, msgs) if msgs else None
+            ctx = ", ".join(f"{p['repo']}#{p['number']} {p['state']}" for p in s_prs)
+            extract = await extract_session(sid, msgs, ctx) if msgs else None
 
-        pr_conflict = bool(pr) and pr["mergeable_state"] == "dirty" and st not in ACTIVE_STATUSES
-        if (sess and session_needs_user(sess)) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested") or pr_conflict:
+        waiting = bool(sess) and session_needs_user(sess)
+        busy = st in ACTIVE_STATUSES and not waiting
+        blocked = waiting and (st == "blocked" or bool((extract or {}).get("blocked")))
+        # Devin is done and the ball is a PR, not a question: file under the PR
+        handed_off = waiting and not blocked and (bool(pr) or any(p["state"] == "open" for p in s_prs))
+        if pr is None and handed_off:
+            ext = next(p for p in s_prs if p["state"] == "open")
+            pr = {**ext, "ci": "unknown", "review": "none", "mergeable_state": "unknown", "draft": False}
+        # everything it shipped is merged/closed and it isn't asking anything: nothing left for you
+        if waiting and not blocked and s_prs and not handed_off and extract is not None and not extract.get("ask"):
+            continue
+
+        pr_conflict = bool(pr) and pr["mergeable_state"] == "dirty" and not busy
+        if (waiting and not handed_off) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested") or pr_conflict:
             col, tone = "needs-you", ("red" if pr and pr["ci"] == "failing" else "amber")
-        elif pr and not pr["draft"] and pr["ci"] == "passing" and pr["mergeable_state"] == "clean" and st not in ACTIVE_STATUSES:
+        elif pr and not pr["draft"] and pr["ci"] in ("passing", "none") and pr["mergeable_state"] == "clean" and not busy:
             col, tone = "ready", "green"
         elif pr and not pr["draft"]:
             col, tone = "review", "purple"
@@ -490,7 +521,7 @@ async def assemble_board():
                 ask = f"Resolve merge conflicts on PR #{pr['number']}"
         if col == "ready" and not ask:
             now_text = f"You: merge PR #{pr['number']}"
-        if col == "review" and not ask and pr and pr["ci"] == "passing" and st not in ACTIVE_STATUSES:
+        if col == "review" and not ask and pr and (pr["ci"] == "passing" or handed_off) and not busy:
             now_text = f"You: review PR #{pr['number']}"
 
         out.append({
@@ -499,7 +530,7 @@ async def assemble_board():
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
             "pr": {k: pr[k] for k in ("repo", "number", "url", "ci", "review", "mergeable_state")} if pr else None,
-            "now": ask if col == "needs-you" else (f"You: {ask}" if ask else now_text),
+            "now": ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text),
             "options": options if col == "needs-you" else [],
             "todos": (extract or {}).get("todos", []),
             "progress_pct": (extract or {}).get("progress_pct"),
