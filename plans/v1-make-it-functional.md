@@ -67,8 +67,8 @@ Working card face text = last Devin message (truncated); elapsed = now − sessi
 Needs-you ask = last Devin message. Suggested option buttons (1/2/3): parse trailing numbered
 options out of the last Devin message when present; otherwise hide the option row.
 Progress ring & card intelligence: no checklist API exists, so an **LLM extractor** fills the gap.
-An OpenRouter call (`OPENROUTER_API_KEY` in `.env`, small/fast model — default
-`google/gemini-2.5-flash-lite`, configurable via `OPENROUTER_MODEL`) parses a session's concise
+An OpenRouter call (`OPENROUTER_API_KEY` in `.env`, default model
+`openai/gpt-5.6-terra`, configurable via `OPENROUTER_MODEL`) parses a session's concise
 message transcript into structured JSON: `{todos:[{text,owner,state}], current_activity, ask,
 options[], progress_pct}`. Runs only when a session has new messages since last extraction
 (cache keyed by session_id + last event_id), so cost stays near zero. Powers the panel checklist,
