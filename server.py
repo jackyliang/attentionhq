@@ -649,6 +649,11 @@ async def post_message(card_id: str, body: MessageIn):
             raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     return {"ok": True}
 
+@app.exception_handler(httpx.HTTPError)
+async def _upstream_error(_req, exc: httpx.HTTPError):
+    log.warning("upstream request failed: %r", exc)
+    return JSONResponse({"detail": f"upstream error: {exc.__class__.__name__}"}, status_code=502)
+
 @app.post("/api/card/{card_id:path}/archive")
 async def archive_card(card_id: str):
     """Archive the attached Devin session (if any), close the GitHub issue (if
@@ -675,19 +680,18 @@ async def archive_card(card_id: str):
         save_dismissed(dismissed)
     if card["session_id"]:
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
+    for col in (state["board"] or {"columns": []})["columns"]:
+        col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
+    asyncio.create_task(_refresh_after_archive(bool(card["session_id"])))
+    return {"ok": True, "actions": actions}
+
+async def _refresh_after_archive(had_session: bool):
     try:
+        if had_session:
+            await fetch_devin()
         await assemble_board()
     except Exception:  # noqa: BLE001
-        pass
-    if card["session_id"]:
-        async def refresh():
-            try:
-                await fetch_devin()
-                await assemble_board()
-            except Exception:  # noqa: BLE001
-                pass
-        asyncio.create_task(refresh())
-    return {"ok": True, "actions": actions}
+        log.warning("post-archive refresh failed", exc_info=True)
 
 class StartIn(BaseModel):
     repo: str
