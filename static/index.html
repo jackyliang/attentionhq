@@ -571,6 +571,8 @@ aside{
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg.pr{align-items:stretch}
+.msg.working{flex-direction:row;align-items:center;gap:8px;font-size:12px;line-height:17px;padding:2px 0}
+.msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.8s linear infinite}
 .prcard{
   display:flex;flex-direction:column;gap:6px;
   border:1px solid var(--ds-gray-400);border-left:3px solid var(--ds-purple-700);
@@ -1316,6 +1318,15 @@ function prCardHTML(p){
     </div>
   </div>`;
 }
+function workingText(c){
+  if(c.now&&c.now.text)return c.now.text;
+  const nx=c.todos.find(t=>t.state!=='done');
+  return nx?nx.text:'working\u2026';
+}
+function workingHTML(c){
+  if(!c||c.col!=='working'||c.pending)return '';
+  return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(workingText(c))}</span></div>`;
+}
 function renderThread(msgs){
   const convMeta=document.getElementById('conv-meta');
   const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
@@ -1323,7 +1334,7 @@ function renderThread(msgs){
   convMeta.textContent=real.length?`${real.length} · last ${last&&last.ts?ago(tsMs(last.ts)):''}`.replace(/ · last $/,''):'';
   threadEl.innerHTML=msgs.map(m=>m.who==='pr'?`<div class="msg pr">${prCardHTML(m.pr)}</div>`:`<div class="msg ${m.who}">
     ${m.who==='system'?'':`<div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
-    <div class="body">${bodyHTML(m.text)}</div></div>`).join('');
+    <div class="body">${bodyHTML(m.text)}</div></div>`).join('')+(mode==='card'?workingHTML(cards[openCard]):'');
 }
 
 function todoRow(t,i,proposed){
@@ -1408,6 +1419,8 @@ function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.innerHTML=panelSubHTML(c);
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+usageHTML(c)+linksHTML(c);
+  const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
+  if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
   const mergeBtn=panelList.querySelector('[data-merge]');
   if(mergeBtn)mergeBtn.addEventListener('click',()=>{if(openCard!=null)triggerAction(openCard)});
   const lbl=!isIssueClose(c)?'Archive':c.session_id?'Close issue & archive':'Close issue';
