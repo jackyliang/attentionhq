@@ -66,13 +66,20 @@ Finished sessions with a merged PR and no open obligations → card leaves the b
 Working card face text = last Devin message (truncated); elapsed = now − session `created_at`.
 Needs-you ask = last Devin message. Suggested option buttons (1/2/3): parse trailing numbered
 options out of the last Devin message when present; otherwise hide the option row.
-Progress ring: no checklist API exists → ring maps from status (issues: none; working: spinner ring
-as today; review/ready: full ring). The mock per-item ring fill is dropped.
+Progress ring & card intelligence: no checklist API exists, so an **LLM extractor** fills the gap.
+An OpenRouter call (`OPENROUTER_API_KEY` in `.env`, small/fast model — default
+`google/gemini-2.5-flash-lite`, configurable via `OPENROUTER_MODEL`) parses a session's concise
+message transcript into structured JSON: `{todos:[{text,owner,state}], current_activity, ask,
+options[], progress_pct}`. Runs only when a session has new messages since last extraction
+(cache keyed by session_id + last event_id), so cost stays near zero. Powers the panel checklist,
+ring fill, Working "currently doing" line, Needs-you ask text, and the 1/2/3 option buttons.
+If the extractor fails or the key is unset, degrade to status-based ring + last-message text.
 
 ### Server endpoints
 - `GET /api/board` → `{columns:[{id,cards:[...]}], generated_at}` (from cache; poller refreshes
   Devin every 15s, GitHub every 60s, respecting rate limits).
 - `GET /api/card/{id}/messages` → concise chat transcript for the card's session.
+  (Board payload already includes the extractor's todos/ask/options/progress per card.)
 - `POST /api/card/{id}/message` `{text}` → forward to Devin session.
 - `POST /api/issue/{repo}/{n}/start` → create Devin session with prompt = issue title+body+link,
   tag `issue:<repo>#<n>`.
@@ -127,6 +134,8 @@ as today; review/ready: full ring). The mock per-item ring fill is dropped.
 - [ ] GitHub client: issues, PRs, checks, reviews for both repos
 - [ ] Poller task (15s Devin / 60s GitHub) + in-memory cache + stale-serving on upstream failure
 - [ ] Card assembly: tag/PR-body linking, column derivation rules above, standalone session cards
+- [ ] OpenRouter extractor: transcript → {todos, current_activity, ask, options, progress_pct},
+      cached per session by last event_id; graceful degrade without key
 - [ ] Frontend: render from `/api/board`, poll every 15s, patch-don't-rebuild to preserve selection
 
 **Verification:** Real issues from answer-hq/answerhq-web appear; a live Devin session shows in
@@ -144,7 +153,8 @@ and see the reply appear; create an issue; merge a test PR.
 
 ### Milestone 4: Deploy + polish
 **Goal:** Live on Render, gated, documented.
-- [ ] Deploy to Render (env vars: DEVIN_API_KEY, GITHUB_TOKEN, BOARD_TOKEN, REPOS)
+- [ ] Deploy to Render (env vars: DEVIN_API_KEY, GITHUB_TOKEN, BOARD_TOKEN, REPOS,
+      OPENROUTER_API_KEY, OPENROUTER_MODEL)
 - [ ] Token prompt UI on 401; localStorage persistence
 - [ ] Create `CHANGELOGS.md` in root with v1 entry; update `README.md` run/deploy instructions
 
@@ -155,7 +165,6 @@ and see the reply appear; create an issue; merge a test PR.
 - Tests (explicitly skipped)
 - Real-time push (SSE/webhooks) — polling only; upstream request documented in
   `plan/realtime-updates-request.md`
-- Checklist/todo data on cards (no Devin API for it; ring degrades to status-based)
 - Drag-and-drop column moves (columns are derived, not manual)
 
 ## Progress Summary
