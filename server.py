@@ -225,17 +225,20 @@ Return STRICT JSON (no markdown) with this shape:
 {"todos":[{"text":"...","owner":"agent|you","state":"done|active|open"}],
  "current_activity":"one short line: what the agent is doing right now, present tense",
  "ask":"if the agent is waiting on the user, the user's next action in one short imperative line (e.g. 'Approve the blog PR' / 'Choose between A and B'), else null",
+ "last_said":"the agent's most recent message to the user compressed to one line (<80 chars): the question it asked, or the answer/result it reported (e.g. 'Asked: keep Jinja or switch to Next?' / 'Reviewed #378: no dead code found')",
  "options":["short option labels if the agent offered numbered/discrete choices, max 3, else empty"],
  "progress_pct":0-100}
 Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you".
 If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you to ...") — never invent in-progress work."""
 
+EXTRACT_VERSION = 2
+
 async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
     if not OPENROUTER_API_KEY or not messages:
         return None
-    key = f"{len(messages)}:{messages[-1]['ts']}"
+    key = f"{EXTRACT_VERSION}:{len(messages)}:{messages[-1]['ts']}"
     cached = extract_cache.get(session_id)
-    if cached and (cached["key"] == key or cached.get("count") == len(messages)):
+    if cached and (cached["key"] == key or (cached.get("count") == len(messages) and cached.get("v") == EXTRACT_VERSION)):
         return cached["data"]
     transcript = "\n".join(f"[{m['who']}] {m['text']}" for m in messages)[-24000:]
     try:
@@ -259,7 +262,7 @@ async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
     except Exception as e:  # noqa: BLE001 — extractor is best-effort by design
         log.warning("extractor failed for %s: %s", session_id, e)
         return None
-    extract_cache[session_id] = {"key": key, "count": len(messages), "data": data}
+    extract_cache[session_id] = {"key": key, "count": len(messages), "v": EXTRACT_VERSION, "data": data}
     return data
 
 # ---------------------------------------------------------------- board assembly
@@ -293,6 +296,12 @@ def pr_issue_key(pr: dict) -> str | None:
         if key in state["issues"]:
             return key
     return None
+
+def _short(text, limit: int = 90) -> str | None:
+    if not isinstance(text, str) or not text.strip():
+        return None
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "\u2026"
 
 def session_status(sess: dict) -> str:
     return (sess.get("status") or "").lower()
@@ -367,9 +376,10 @@ async def assemble_board():
             msgs = (session_msgs_cache.get(sid) or {}).get("msgs") or []
             extract = await extract_session(sid, msgs) if msgs else None
 
-        if (sess and session_needs_user(sess)) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested"):
+        pr_conflict = bool(pr) and pr["mergeable_state"] == "dirty" and st not in ACTIVE_STATUSES
+        if (sess and session_needs_user(sess)) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested") or pr_conflict:
             col, tone = "needs-you", ("red" if pr and pr["ci"] == "failing" else "amber")
-        elif pr and not pr["draft"] and pr["ci"] == "passing" and pr["review"] == "approved" and pr["mergeable_state"] == "clean":
+        elif pr and not pr["draft"] and pr["ci"] == "passing" and pr["mergeable_state"] == "clean" and st not in ACTIVE_STATUSES:
             col, tone = "ready", "green"
         elif pr and not pr["draft"]:
             col, tone = "review", "purple"
@@ -390,14 +400,16 @@ async def assemble_board():
         if col == "needs-you" and not ask:
             if pr and pr["ci"] == "failing":
                 ask = "CI failed — take a look"
-            elif st == "blocked":
-                ask = "Devin is blocked and waiting on you"
             elif sess and session_needs_user(sess):
-                ask = "Devin asked you a question — reply"
+                ask = _short((extract or {}).get("last_said")) or ("Devin is blocked and waiting on you" if st == "blocked" else "Devin is waiting on your reply")
             elif pr and pr["review"] == "changes_requested":
                 ask = "Review requested changes"
-        if col == "review" and not ask and pr and pr["ci"] == "passing":
-            now_text = f"You: review & merge PR #{pr['number']}"
+            elif pr_conflict:
+                ask = f"Resolve merge conflicts on PR #{pr['number']}"
+        if col == "ready" and not ask:
+            now_text = f"You: merge PR #{pr['number']}"
+        if col == "review" and not ask and pr and pr["ci"] == "passing" and st not in ACTIVE_STATUSES:
+            now_text = f"You: review PR #{pr['number']}"
 
         out.append({
             **{k: c[k] for k in ("id", "kind", "title", "repo", "number", "url")},
