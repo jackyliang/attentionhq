@@ -183,6 +183,10 @@ async def fetch_devin():
         sessions = [s for s in r.json().get("items", []) if not s.get("is_archived")]
     state["sessions"] = sessions
     state["devin_ok"] = True
+    live = {s["session_id"] for s in sessions}
+    for cache in (session_msgs_cache, extract_cache):
+        for sid in [sid for sid in cache if sid not in live]:
+            del cache[sid]
 
 def _clean_text(text: str) -> str:
     if text.startswith("SYSTEM:"):
@@ -191,8 +195,12 @@ def _clean_text(text: str) -> str:
             text = re.sub(r"^\S+ \(U[\w]+\) \[ts=[\d.]+\]: ", "", m.group(1))
     return text
 
-async def fetch_session_messages(session_id: str) -> list[dict]:
+async def fetch_session_messages(session_id: str, updated_at: int | None = None) -> list[dict]:
     cached = session_msgs_cache.get(session_id) or {"msgs": [], "cursor": None, "seen": set()}
+    # The session's updated_at tracks its latest message, so skip the round-trip
+    # (which always re-downloads the final page) when nothing has changed.
+    if updated_at is not None and cached.get("updated_at") == updated_at:
+        return cached["msgs"]
     msgs, cursor, seen = list(cached["msgs"]), cached["cursor"], set(cached["seen"])
     async with devin_client() as dv:
         for _ in range(20):
@@ -215,7 +223,10 @@ async def fetch_session_messages(session_id: str) -> list[dict]:
             cursor = page.get("end_cursor") or cursor
             if not page.get("has_next_page"):
                 break
-    session_msgs_cache[session_id] = {"msgs": msgs, "cursor": cursor, "seen": seen}
+    session_msgs_cache[session_id] = {
+        "msgs": msgs, "cursor": cursor, "seen": seen,
+        "updated_at": updated_at if updated_at is not None else cached.get("updated_at"),
+    }
     return msgs
 
 # ---------------------------------------------------------------- extractor
@@ -448,7 +459,7 @@ async def poll_loop():
                 st = session_status(sess)
                 if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess):
                     try:
-                        await fetch_session_messages(sess["session_id"])
+                        await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
                     except httpx.HTTPError:
                         pass
         except Exception as e:  # noqa: BLE001
