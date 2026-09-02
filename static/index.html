@@ -421,21 +421,28 @@ aside{
 .pl-conv-head .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
 .pl-conv-head .rule{flex:1;height:1px;background:var(--ds-gray-300)}
 .thread{padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px}
-.msg{display:flex;flex-direction:column;gap:3px;max-width:100%}
+.msg{display:flex;flex-direction:column;gap:3px;max-width:100%;align-items:flex-start}
 .msg .meta{display:flex;align-items:baseline;gap:8px}
 .msg .who{font-size:11px;line-height:14px;font-weight:500;color:var(--ds-gray-900)}
 .msg.user .who{color:var(--ds-gray-1000)}
 .msg .ts{font-family:var(--font-mono);font-size:10px;color:var(--ds-gray-600)}
 .msg .body{
   font-size:13px;line-height:19px;color:var(--ds-gray-1000);
-  background:var(--ds-gray-100);
-  border:1px solid var(--ds-gray-400);
-  padding:8px 10px;
   white-space:pre-wrap;
+  overflow-wrap:anywhere;word-break:break-word;
+  min-width:0;max-width:100%;
 }
-.msg.user .body{background:var(--ds-gray-200);border-color:var(--ds-gray-500)}
-.msg.system .body{background:transparent;border-style:dashed;color:var(--ds-gray-900);font-size:12px;line-height:17px}
+.msg.user{align-items:flex-end}
+.msg.user .meta{flex-direction:row-reverse}
+.msg.user .body{
+  background:var(--ds-gray-200);border:1px solid var(--ds-gray-500);
+  padding:8px 10px;max-width:85%;
+}
+.msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
+.msg .body img.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px}
+.msg .body a.att-link{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
+.msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 /* board mode: conversation is the primary content, no demotion */
 #app[data-mode="board"] .thread{gap:12px}
 
@@ -650,7 +657,7 @@ async function api(path, opts={}){
   return r.json();
 }
 
-function escHTML(s){return (s??'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function escHTML(s){return (s??'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function shortRepo(r){return r?r.split('/').pop():''}
 
 function mapCard(c,i){
@@ -838,10 +845,26 @@ function fmtTs(ts){
   if(isNaN(d))return ts;
   return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
+const ATT_RE=/ATTACHMENT:"(https?:\/\/[^"]+)"/g;
+function bodyHTML(text){
+  const t=(text??'').toString();
+  const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]);
+  let out=escHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim());
+  for(const u of atts){
+    const safe=escHTML(u);
+    const name=escHTML(decodeURIComponent(u.split('/').pop().split('?')[0]||'attachment'));
+    if(/\.(png|jpe?g|gif|webp|svg)$/i.test(u.split('?')[0])){
+      out+=`<a href="${safe}" target="_blank" rel="noopener"><img class="att" src="${safe}" alt="${name}" loading="lazy" onerror="this.outerHTML='<span class=&quot;att-name&quot;>'+this.alt+'</span>'"></a>`;
+    }else{
+      out+=`<a class="att-link" href="${safe}" target="_blank" rel="noopener">${name}</a>`;
+    }
+  }
+  return out;
+}
 function renderThread(msgs){
   threadEl.innerHTML=msgs.map(m=>`<div class="msg ${m.who}">
     <div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>
-    <div class="body">${escHTML(m.text)}</div></div>`).join('');
+    <div class="body">${bodyHTML(m.text)}</div></div>`).join('');
 }
 
 function todoRow(t,i,proposed){
