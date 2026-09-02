@@ -117,13 +117,25 @@ header{
 .dot.grey{background:var(--ds-gray-500)}
 .dot.red{background:var(--ds-red-700)}
 .hdr-right{margin-left:auto;display:flex;align-items:center;gap:16px}
-.hdr-deploys{display:flex;align-items:center;gap:14px;font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900)}
-.hdr-deploys .deploy{display:flex;align-items:center;gap:7px;color:inherit;text-decoration:none;white-space:nowrap}
-.hdr-deploys .deploy:hover .svc{color:var(--ds-gray-1000)}
-.hdr-deploys .deploy .st{color:var(--ds-gray-700)}
+.hdr-deploys{position:relative;display:flex;align-items:center;align-self:stretch;font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900)}
+.hdr-deploys .trigger{display:flex;align-items:center;gap:7px;height:100%;padding:0 6px;cursor:default;background:none;border:0;color:inherit;font:inherit}
+.hdr-deploys .card{
+  display:none;position:absolute;top:100%;right:0;z-index:6;min-width:300px;
+  background:var(--ds-background-100);border:1px solid var(--ds-gray-400);
+  box-shadow:0 8px 24px rgba(0,0,0,.4);padding:6px 0
+}
+.hdr-deploys:hover .card,.hdr-deploys:focus-within .card{display:block}
+.hdr-deploys .card .hd{display:flex;justify-content:space-between;gap:16px;padding:4px 12px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-600);border-bottom:1px solid var(--ds-gray-300)}
+.hdr-deploys .card.deploying .hd span:last-child{color:var(--ds-blue-900)}
+.hdr-deploys .card.failed .hd span:last-child{color:var(--ds-red-900)}
+.hdr-deploys .deploy{display:grid;grid-template-columns:7px 1fr auto;column-gap:9px;align-items:center;padding:7px 12px;color:inherit;text-decoration:none;white-space:nowrap}
+.hdr-deploys .deploy:hover{background:var(--ds-gray-100)}
+.hdr-deploys .deploy .svc{color:var(--ds-gray-1000)}
+.hdr-deploys .deploy .st{color:var(--ds-gray-700);text-align:right}
 .hdr-deploys .deploy.deploying .st{color:var(--ds-blue-900)}
 .hdr-deploys .deploy.failed .st{color:var(--ds-red-900)}
-.hdr-deploys .muted{color:var(--ds-gray-700)}
+.hdr-deploys .deploy .sub{grid-column:2/-1;font-size:11px;color:var(--ds-gray-600);overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px}
+.hdr-deploys .muted{color:var(--ds-gray-700);padding:6px 12px;display:block}
 .hdr-help{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ds-gray-900)}
 .hdr-help:hover{color:var(--ds-gray-1000)}
 
@@ -874,19 +886,26 @@ function renderDeploys(data){
   if(!r.configured){el.innerHTML='<span class="muted" title="Set RENDER_API_KEY to show Render deploy status">render · not connected</span>';return}
   const svcs=d.deploys||[];
   if(d.loading&&!svcs.length){el.innerHTML='';return}
-  if(!svcs.length){el.innerHTML=r.ok?'<span class="muted">render · no services</span>':'<span class="deploy"><span class="dot amber"></span><span class="muted">render · unreachable</span></span>';return}
-  el.innerHTML=svcs.map(s=>{
-    let dot='grey',st='',tip='';
+  if(!svcs.length){el.innerHTML=r.ok?'<span class="muted">render · no services</span>':'<span class="trigger"><span class="dot amber"></span><span class="n">render unreachable</span></span>';return}
+  const deploying=svcs.filter(s=>s.status==='deploying').length;
+  const failed=svcs.filter(s=>s.status==='failed').length;
+  const agg=deploying?'deploying':failed?'failed':svcs.every(s=>s.status==='live')?'live':'unknown';
+  const aggDot={deploying:'blue pulse',failed:'red',live:'green',unknown:'grey'}[agg];
+  const aggLabel=deploying?`${deploying} deploying`:failed?`${failed} failed`:'';
+  const rows=svcs.map(s=>{
+    let dot='grey',st='',sub='';
     const lc=s.last_deployed_commit,dc=s.deploying_commit;
-    const lastLine=s.last_deployed_at?`Last deployed ${ago(s.last_deployed_at)}${lc?` — ${lc.sha} ${lc.message}`:''}`:'Never deployed';
-    if(s.status==='deploying'){dot='blue pulse';st=`deploying · ${elapsed(s.deploying_since)}`;tip=`Deploying now${dc?`: ${dc.sha} ${dc.message}`:''}\n${lastLine}`}
-    else if(s.status==='failed'){dot='red';st=`failed ${ago(s.failed_at)}`;tip=`Latest deploy failed ${ago(s.failed_at)}\n${lastLine}`}
-    else if(s.status==='live'){dot='green';st=`deployed ${ago(s.last_deployed_at)}`;tip=lastLine}
-    else if(s.status==='canceled'){dot='grey';st=s.last_deployed_at?`deployed ${ago(s.last_deployed_at)}`:'canceled';tip=`Latest deploy canceled\n${lastLine}`}
-    else{st='no deploys';tip=lastLine}
-    return `<a class="deploy ${escHTML(s.status)}" href="${escHTML(s.url)}" target="_blank" rel="noopener" title="${escHTML(tip)}"><span class="dot ${dot}"></span><span class="svc">${escHTML(s.name)}</span><span class="st">${st}</span></a>`;
+    const lastLine=s.last_deployed_at?`last deployed ${ago(s.last_deployed_at)}${lc?` · ${lc.sha} ${lc.message}`:''}`:'never deployed';
+    if(s.status==='deploying'){dot='blue pulse';st=`deploying · ${elapsed(s.deploying_since)}`;sub=dc?`${dc.sha} ${dc.message}`:lastLine}
+    else if(s.status==='failed'){dot='red';st=`failed ${ago(s.failed_at)}`;sub=lastLine}
+    else if(s.status==='live'){dot='green';st=`deployed ${ago(s.last_deployed_at)}`;sub=lc?`${lc.sha} ${lc.message}`:''}
+    else if(s.status==='canceled'){dot='grey';st=s.last_deployed_at?`deployed ${ago(s.last_deployed_at)}`:'canceled';sub=`latest deploy canceled · ${lastLine}`}
+    else{st='no deploys';sub=lastLine}
+    return `<a class="deploy ${escHTML(s.status)}" href="${escHTML(s.url)}" target="_blank" rel="noopener"><span class="dot ${dot}"></span><span class="svc">${escHTML(s.name)}</span><span class="st">${st}</span>${sub?`<span class="sub" title="${escHTML(sub)}">${escHTML(sub)}</span>`:''}</a>`;
   }).join('');
-  if(!r.ok)el.insertAdjacentHTML('beforeend','<span class="muted" title="Render API unreachable — showing last known state">stale</span>');
+  const tip=aggLabel||(agg==='live'?`all ${svcs.length} live`:'render deploys');
+  el.innerHTML=`<button class="trigger ${agg}" aria-label="Render deploys: ${escHTML(tip)}" aria-haspopup="true"><span class="dot ${aggDot}"></span></button>`+
+    `<div class="card ${agg}" role="dialog" aria-label="Render deploy status"><div class="hd"><span>render · ${svcs.length} services</span><span>${r.ok?escHTML(tip):'stale'}</span></div>${rows}</div>`;
 }
 
 let prefetching=false;
@@ -1203,13 +1222,19 @@ async function archiveCard(id){
   archiving=true;
   const both=close&&c.session_id;
   showToast(both?`Closing ${shortRepo(c.repo)}#${c.num} & archiving session…`:close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
+  if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
+  const snapshot=cards;
+  cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
+  renderBoard();
+  firstCard()?.focus();
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
     showToast(both?`Closed ${shortRepo(c.repo)}#${c.num} & archived session — “${c.title}”`:close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
-    if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
     await fetchBoard();
-    firstCard()?.focus();
-  }catch(e){showToast((close?'Close':'Archive')+' failed: '+e.message)}
+  }catch(e){
+    cards=snapshot; cards.forEach((x,i)=>x.id=i); renderBoard();
+    showToast((close?'Close':'Archive')+' failed: '+e.message);
+  }
   finally{archiving=false}
 }
 panelArchive.addEventListener('click',()=>{if(openCard!=null)archiveCard(openCard)});

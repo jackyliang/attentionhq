@@ -241,13 +241,11 @@ async def fetch_render():
         for svc in services:
             if svc.get("type") not in RENDER_SERVICE_TYPES or svc.get("suspended") == "suspended":
                 continue
-            if repo_from_url(svc.get("repo", "")) not in REPOS:
-                continue
             d = await rc.get(f"/services/{svc['id']}/deploys", params={"limit": 10})
             d.raise_for_status()
             deploys = [x.get("deploy", x) for x in d.json()]
             out.append(deploy_summary(svc, deploys))
-    out.sort(key=lambda s: (REPOS.index(s["repo"]), s["name"]))
+    out.sort(key=lambda s: (s["repo"] not in REPOS, s["name"]))
     state["deploys"] = out
     state["render_ok"] = True
 
