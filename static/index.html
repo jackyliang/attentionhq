@@ -962,6 +962,7 @@ const boardEl = document.getElementById('board');
 const mainEl = document.querySelector('main');
 
 /* the board keeps its scroll offsets across re-renders and panel open/close */
+let restoringFocus=false;
 function captureScroll(){
   const cols={};
   document.querySelectorAll('.col').forEach(col=>{
@@ -1035,7 +1036,7 @@ function wireCard(el){
     setCardMode(+el.dataset.id);
     el.focus();
   });
-  el.addEventListener('focus',()=>ensureVisible(el));
+  el.addEventListener('focus',()=>{if(!restoringFocus)ensureVisible(el)});
   el.addEventListener('mouseenter',()=>{
     if(performance.now()-lastMouseMove>150)return;
     const a=document.activeElement;
@@ -1108,12 +1109,14 @@ function renderBoard(){
     else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
   }
   restoreScroll(scroll);
+  restoringFocus=true;
   if(focusKey){
     const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`);
     if(el)el.focus({preventScroll:true});
   }else if(wasAdd){
     const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
+  restoringFocus=false;
 }
 
 let lastSync=0;
@@ -1572,7 +1575,7 @@ function neighborKey(c){
   const i=col.findIndex(x=>x.key===c.key);
   return (col[i+1]||col[i-1]||null)?.key||null;
 }
-function focusKey(key){
+function focusCardByKey(key){
   const el=key?document.querySelector(`.card[data-key="${CSS.escape(key)}"]`):null;
   const target=el||firstCard();
   target?.focus({preventScroll:true});
@@ -1685,7 +1688,7 @@ async function archiveCard(id){
   const snapshot=cards;
   cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
   renderBoard();
-  focusKey(nextKey);
+  focusCardByKey(nextKey);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
     showToast(both?`Closed ${shortRepo(c.repo)}#${c.num} & archived session — “${c.title}”`:close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
@@ -1708,7 +1711,7 @@ async function hideCard(id){
   const snapshot=cards;
   cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
   renderBoard();
-  focusKey(nextKey);
+  focusCardByKey(nextKey);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/hide`,{method:'POST'});
     showToast(`Hidden — “${c.title}”`);
