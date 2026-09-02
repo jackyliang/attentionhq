@@ -99,6 +99,8 @@ def issue_from_gh(repo: str, it: dict) -> dict:
 # until the listing catches up (or they get closed).
 RECENT_ISSUE_TTL = 300
 recent_issues: dict[str, tuple[float, dict]] = {}
+# ...and hide issues we just closed until the listing stops returning them.
+recently_closed: dict[str, float] = {}
 
 async def fetch_github():
     issues, prs = {}, {}
@@ -106,11 +108,17 @@ async def fetch_github():
         for repo in REPOS:
             r = await gh.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
             r.raise_for_status()
+            now = time.time()
+            for key, ts in list(recently_closed.items()):
+                if now - ts > RECENT_ISSUE_TTL:
+                    recently_closed.pop(key, None)
             for it in r.json():
                 if "pull_request" in it:
                     continue
-                issues[f"{repo}#{it['number']}"] = issue_from_gh(repo, it)
-            now = time.time()
+                key = f"{repo}#{it['number']}"
+                if key in recently_closed:
+                    continue
+                issues[key] = issue_from_gh(repo, it)
             for key, (ts, issue) in list(recent_issues.items()):
                 if now - ts > RECENT_ISSUE_TTL or key in issues:
                     recent_issues.pop(key, None)
@@ -534,21 +542,35 @@ async def post_message(card_id: str, body: MessageIn):
 
 @app.post("/api/card/{card_id:path}/archive")
 async def archive_card(card_id: str):
+    """Issues-column cards: close the GitHub issue. Anything else: archive the
+    attached Devin session (if any) and drop the card from the board."""
     card = find_card(card_id)
-    if card["kind"] == "session" and card["session_id"]:
-        async with devin_client() as dv:
-            r = await dv.post(f"/sessions/{card['session_id']}/archive")
+    action = "archived"
+    if card["kind"] == "issue" and card["col"] == "issues":
+        async with gh_client() as gh:
+            r = await gh.patch(f"/repos/{card['repo']}/issues/{card['number']}", json={"state": "closed"})
             if r.status_code >= 400:
-                raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+                raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
+        recently_closed[card_id] = time.time()
+        recent_issues.pop(card_id, None)
+        state["issues"].pop(card_id, None)
+        action = "closed"
     else:
-        dismissed.add(card_id)
-        save_dismissed(dismissed)
+        if card["session_id"]:
+            async with devin_client() as dv:
+                r = await dv.post(f"/sessions/{card['session_id']}/archive")
+                if r.status_code >= 400:
+                    raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+        if card["kind"] != "session":
+            dismissed.add(card_id)
+            save_dismissed(dismissed)
     try:
-        await fetch_devin()
+        if card["session_id"]:
+            await fetch_devin()
         await assemble_board()
     except Exception:  # noqa: BLE001
         pass
-    return {"ok": True}
+    return {"ok": True, "action": action}
 
 class StartIn(BaseModel):
     repo: str
