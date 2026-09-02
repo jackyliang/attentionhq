@@ -1,4 +1,4 @@
-# Session Board
+# AttentionHQ
 
 Linear-style Kanban for managing concurrent Devin sessions and GitHub issues.
 
