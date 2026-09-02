@@ -468,7 +468,7 @@ aside{
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
-.msg .body img.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px}
+.msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
 .msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 /* board mode: conversation is the primary content, no demotion */
@@ -941,8 +941,11 @@ function bodyHTML(text){
   for(const u of atts){
     const safe=escHTML(attURL(u));
     const name=escHTML(decodeURIComponent(u.split('/').pop().split('?')[0]||'attachment'));
-    if(/\.(png|jpe?g|gif|webp|svg)$/i.test(u.split('?')[0])){
+    const ext=(u.split('?')[0].match(/\.(\w+)$/)||[])[1]?.toLowerCase()||'';
+    if(/^(png|jpe?g|gif|webp|svg)$/.test(ext)){
       out+=`<a href="${safe}" target="_blank" rel="noopener"><img class="att" src="${safe}" alt="${name}" loading="lazy" onerror="this.outerHTML='<span class=&quot;att-name&quot;>'+this.alt+'</span>'"></a>`;
+    }else if(/^(mp4|webm|mov)$/.test(ext)){
+      out+=`<video class="att" src="${safe}" controls preload="metadata" title="${name}" onerror="this.outerHTML='<a class=&quot;att-link&quot; href=&quot;${safe}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>'+this.title+'</a>'"></video>`;
     }else{
       out+=`\n<a class="att-link" href="${safe}" target="_blank" rel="noopener">${name}</a>`;
     }
