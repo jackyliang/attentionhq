@@ -11,6 +11,7 @@ import os
 import re
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -74,6 +75,8 @@ def save_dismissed(d: set):
 dismissed: set = load_dismissed()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
+pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
+PR_META_TTL = 300
 
 # ---------------------------------------------------------------- clients
 
@@ -363,7 +366,6 @@ async def extract_session(session_id: str, messages: list[dict], context: str = 
 # ---------------------------------------------------------------- board assembly
 
 def humanize_age(ts: str | int | float) -> str:
-    from datetime import datetime, timezone
     if isinstance(ts, (int, float)):
         secs = time.time() - ts
     else:
@@ -647,12 +649,74 @@ def find_card(card_id: str) -> dict:
                 return c
     raise HTTPException(404, "card not found")
 
+def _epoch(iso: str | None) -> int:
+    try:
+        return int(datetime.fromisoformat((iso or "").replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
+
+async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
+    """Title/state/created_at for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
+    key = f"{repo}#{number}"
+    hit = pr_meta_cache.get(key)
+    if hit and (hit["data"]["state"] != "open" or time.time() - hit["at"] < PR_META_TTL):
+        return hit["data"]
+    tracked = state["prs"].get(key)
+    if tracked:
+        data = {"title": tracked["title"], "state": "open", "draft": tracked["draft"], "created": _epoch(tracked["created_at"])}
+    else:
+        try:
+            async with gh_client() as gh:
+                r = await gh.get(f"/repos/{repo}/pulls/{number}")
+                r.raise_for_status()
+                p = r.json()
+            data = {
+                "title": p.get("title") or f"PR #{number}",
+                "state": "merged" if p.get("merged") else (p.get("state") or "open"),
+                "draft": bool(p.get("draft")),
+                "created": _epoch(p.get("created_at")),
+            }
+        except httpx.HTTPError:
+            return hit["data"] if hit else {"title": f"PR #{number}", "state": fallback_state, "draft": False, "created": 0}
+    pr_meta_cache[key] = {"at": time.time(), "data": data}
+    return data
+
+async def with_pr_cards(sess: dict, msgs: list[dict]) -> list[dict]:
+    """Insert a card for each of the session's PRs where it entered the conversation:
+    after the first Devin message linking it, else at the PR's creation time."""
+    prs = session_prs(sess)
+    if not prs:
+        return msgs
+    metas = await asyncio.gather(*(pr_meta(p["repo"], p["number"], p["state"]) for p in prs))
+    cards = []
+    for p, meta in zip(prs, metas):
+        needle = re.escape(f"{p['repo']}/pull/{p['number']}") + r"(?!\d)"
+        anchor = next((i for i, m in enumerate(msgs) if m["who"] == "devin" and re.search(needle, m["text"])), None)
+        if anchor is None:
+            anchor = next((i for i, m in enumerate(msgs) if isinstance(m["ts"], (int, float)) and m["ts"] >= meta["created"]), len(msgs)) - 1
+        cards.append((anchor, {
+            "who": "pr",
+            "ts": msgs[anchor]["ts"] if 0 <= anchor < len(msgs) else meta["created"],
+            "text": "",
+            "pr": {
+                "repo": p["repo"], "number": p["number"], "url": p["url"],
+                "title": meta["title"], "state": meta["state"], "draft": meta["draft"],
+                "review_url": f"https://app.devin.ai/review/{p['repo']}/pull/{p['number']}",
+            },
+        }))
+    out = list(msgs)
+    for anchor, card in sorted(cards, key=lambda ac: (ac[0], ac[1]["pr"]["number"]), reverse=True):
+        out.insert(anchor + 1, card)
+    return out
+
 @app.get("/api/card/{card_id:path}/messages")
 async def get_messages(card_id: str):
     card = find_card(card_id)
     if not card["session_id"]:
         return {"messages": []}
-    return {"messages": await fetch_session_messages(card["session_id"])}
+    msgs = await fetch_session_messages(card["session_id"])
+    sess = next((s for s in state["sessions"] if s["session_id"] == card["session_id"]), None)
+    return {"messages": await with_pr_cards(sess, msgs) if sess else msgs}
 
 @app.get("/api/attachment/{uuid}/{name}")
 async def get_attachment(uuid: str, name: str):
