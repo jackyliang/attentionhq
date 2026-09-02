@@ -1,4 +1,4 @@
-"""AttentionHQ server — FastAPI app serving the board UI and JSON API.
+"""Attention server — FastAPI app serving the board UI and JSON API.
 
 Reads GitHub issues/PRs and Devin sessions, derives Kanban columns, and
 exposes mutations: start session, chat, create issue, merge PR.
@@ -99,6 +99,7 @@ async def fetch_github():
                 issues[f"{repo}#{it['number']}"] = {
                     "repo": repo, "number": it["number"], "title": it["title"],
                     "body": it.get("body") or "", "url": it["html_url"],
+                    "labels": [l["name"] for l in it.get("labels", [])],
                     "created_at": it["created_at"], "updated_at": it["updated_at"],
                 }
             r = await gh.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
@@ -285,6 +286,7 @@ async def assemble_board():
         cards[key] = {
             "id": key, "kind": "issue", "title": issue["title"],
             "repo": issue["repo"], "number": issue["number"], "url": issue["url"],
+            "body": issue["body"], "labels": issue["labels"],
             "sessions": [], "prs": [], "created_at": issue["created_at"],
         }
     for key, pr in prs.items():
@@ -378,6 +380,9 @@ async def assemble_board():
             "todos": (extract or {}).get("todos", []),
             "progress_pct": (extract or {}).get("progress_pct"),
             "age": humanize_age(sess.get("created_at", "") if sess else c["created_at"]),
+            "acus": sess.get("acus_consumed") if sess else None,
+            "body": c.get("body", ""),
+            "labels": c.get("labels", []),
         })
 
     order = {"issues": 0, "working": 1, "needs-you": 2, "review": 3, "ready": 4}

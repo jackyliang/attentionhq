@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Session Board — Combo: ring + the ask + next only</title>
+<title>Attention</title>
+<meta name="description" content="Attention — a stripped-down Kanban board for Devin sessions and GitHub issues: see what needs you now, what's moving, and what's ready to merge.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0a'/%3E%3Crect x='2' y='2' width='3' height='12' fill='%23ededed'/%3E%3Crect x='6.5' y='2' width='3' height='8' fill='%23888'/%3E%3Crect x='11' y='2' width='3' height='5' fill='%23444'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet">
@@ -62,7 +64,12 @@
   --panel-w:400px;
   --header-h:48px;
 }
-*{box-sizing:border-box;margin:0;padding:0;border-radius:0}
+*{box-sizing:border-box;margin:0;padding:0;border-radius:0;scrollbar-width:thin;scrollbar-color:var(--ds-gray-500) transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--ds-gray-500)}
+::-webkit-scrollbar-thumb:hover{background:var(--ds-gray-600)}
+::-webkit-scrollbar-corner{background:transparent}
 html,body{height:100%}
 body{
   background:var(--ds-background-200);
@@ -368,6 +375,12 @@ aside{
 }
 .pl-sect-head .m{margin-left:auto;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .pl-sect-head .m .yn{color:var(--ds-amber-900)}
+.pl-usage{display:flex;align-items:baseline;gap:8px;padding:10px 14px;border-bottom:1px solid var(--ds-gray-400)}
+.pl-usage .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
+.pl-usage .v{margin-left:auto;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.pl-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.pl-tag{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-900);border:1px solid var(--ds-gray-400);padding:1px 6px}
+.pl-desc{font-size:12px;line-height:18px;color:var(--ds-gray-900);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin-bottom:8px}
 
 /* single current-position statement */
 .pl-position{
@@ -517,7 +530,7 @@ aside{
   <header>
     <div class="brand">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/><path d="M6.5 2v12M11 2v12"/></svg>
-      AttentionHQ
+      Attention
       <span class="variant">live</span>
     </div>
     <div class="hdr-stats">
@@ -664,7 +677,8 @@ function mapCard(c,i){
   return {
     id:i, key:c.id, kind:c.kind, col:c.col, tone:c.tone, title:c.title,
     repo:c.repo, num:c.number, url:c.url,
-    session_id:c.session_id, session_url:c.session_url, pr:c.pr,
+    session_id:c.session_id, session_url:c.session_url, pr:c.pr, acus:c.acus,
+    body:c.body||'', labels:c.labels||[],
     now:c.now?{text:c.now}:null,
     options:(c.options||[]).slice(0,3),
     todos:c.todos||[],
@@ -702,7 +716,8 @@ function cardHTML(c){
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
   if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div>`;
   const working=c.col==='working';
-  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:null);
+  const prStatus=c.pr?`CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||('review '+String(c.pr.review).replace(/_/g,' '))}`:null;
+  const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'?prStatus:null));
   const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${escHTML(txt)}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
   const mergeRow=c.col==='ready'&&txt?`<div class="nx solo"><span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span></div>`:'';
   const elapsed=working&&c.age?`<span class="elapsed">${escHTML(c.age)}</span>`:'';
@@ -785,6 +800,22 @@ async function fetchBoard(){
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
   cards=flat.map(mapCard);
   renderBoard();
+  prefetchThreads();
+}
+
+let prefetching=false;
+async function prefetchThreads(){
+  if(prefetching)return;
+  prefetching=true;
+  try{
+    const pending=cards.filter(c=>c.session_id&&!threadCache[c.key]);
+    for(const c of pending){
+      try{
+        const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
+        threadCache[c.key]=data.messages||[];
+      }catch(e){/* warm cache best-effort */}
+    }
+  }finally{prefetching=false}
 }
 
 /* ---- add-issue card ---- */
@@ -839,16 +870,17 @@ const composer=document.getElementById('composer');
 let mode='board', openCard=null, openCardKey=null;
 
 const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
+const REVIEW_LABEL={none:'no review yet',pending:'review pending',approved:'approved',changes_requested:'changes requested'};
 function fmtTs(ts){
   if(!ts)return '';
   const d=new Date(ts);
   if(isNaN(d))return ts;
   return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
-const ATT_RE=/ATTACHMENT:"(https?:\/\/[^"]+)"/g;
+const ATT_RE=/ATTACHMENT:\s*(?:\{"url":"(https?:\/\/[^"]+)"[^}]*\}|"(https?:\/\/[^"]+)")/g;
 function bodyHTML(text){
   const t=(text??'').toString();
-  const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]);
+  const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]||m[2]);
   let out=escHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim());
   for(const u of atts){
     const safe=escHTML(u);
@@ -880,11 +912,16 @@ function todoRow(t,i,proposed){
   </div>`;
 }
 
+function issueDescHTML(c){
+  const tags=c.labels.length?`<div class="pl-tags">${c.labels.map(l=>`<span class="pl-tag">${escHTML(l)}</span>`).join('')}</div>`:'';
+  const desc=c.body.trim()?`<div class="pl-desc">${escHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
+  const start=`<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`;
+  return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}${start}</div>`;
+}
 function checklistHTML(c){
+  if(c.kind==='issue'&&!c.session_id)return issueDescHTML(c);
   if(!c.todos.length){
-    const note=c.kind==='issue'&&!c.session_id
-      ? `<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`
-      : `<div class="pl-proposed-note">${I.logs} Todos appear here once the session transcript is parsed.</div>`;
+    const note=`<div class="pl-proposed-note">${I.logs} Todos appear here once the session transcript is parsed.</div>`;
     return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Todo</span><span class="m">—</span></div>${note}</div>`;
   }
   const k=counts(c);
@@ -895,8 +932,8 @@ function checklistHTML(c){
 
 function linksHTML(c){
   const links=[];
-  if(c.url)links.push(`<a class="pl-link" href="${c.url}" target="_blank" rel="noopener">${I.external} ${c.kind==='pr'?'Pull request':'GitHub issue'}</a>`);
-  if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR ${escHTML(shortRepo(c.pr.repo))}#${c.pr.number} · CI ${c.pr.ci} · review ${c.pr.review}</a>`);
+  if(c.url&&c.url!==c.session_url&&c.kind!=='session')links.push(`<a class="pl-link" href="${c.url}" target="_blank" rel="noopener">${I.external} ${c.kind==='pr'?'Pull request':'GitHub issue'}</a>`);
+  if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR ${escHTML(shortRepo(c.pr.repo))}#${c.pr.number} · CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||escHTML(String(c.pr.review).replace(/_/g,' '))}</a>`);
   if(c.session_url)links.push(`<a class="pl-link" href="${c.session_url}" target="_blank" rel="noopener">${I.logs} Devin session</a>`);
   if(!links.length)return '';
   return `<div class="pl-links" style="display:flex;flex-direction:column;gap:6px;margin:10px 0 4px">${links.join('')}</div>`;
@@ -916,25 +953,42 @@ function setBoardMode(){
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
+const ACU_USD=2.25;
+function usageHTML(c){
+  if(c.acus==null)return '';
+  const usd=(c.acus*ACU_USD).toFixed(2);
+  return `<div class="pl-usage"><span class="h">On-demand usage</span><span class="v">$${usd} · ${(+c.acus).toFixed(1)} ACUs</span></div>`;
+}
 function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
-  panelList.innerHTML=checklistHTML(c)+linksHTML(c);
+  panelList.innerHTML=checklistHTML(c)+usageHTML(c)+linksHTML(c);
 }
 
+const threadCache={};
 async function loadThread(c){
   if(!c.session_id){
     renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
     return;
   }
-  renderThread([{who:'system',text:'Loading conversation…'}]);
+  const cached=threadCache[c.key];
+  if(cached){
+    renderThread(cached.length?cached:[{who:'system',text:'No messages yet.'}]);
+    panelScroll.scrollTop=panelScroll.scrollHeight;
+  }else{
+    renderThread([{who:'system',text:'Loading conversation…'}]);
+  }
   try{
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-    c.thread=data.messages||[];
-    if(openCardKey===c.key)renderThread(c.thread.length?c.thread:[{who:'system',text:'No messages yet.'}]);
-    panelScroll.scrollTop=panelScroll.scrollHeight;
+    const msgs=data.messages||[];
+    const changed=!cached||cached.length!==msgs.length;
+    threadCache[c.key]=msgs;
+    if(openCardKey===c.key&&changed){
+      renderThread(msgs.length?msgs:[{who:'system',text:'No messages yet.'}]);
+      panelScroll.scrollTop=panelScroll.scrollHeight;
+    }
   }catch(e){
-    if(openCardKey===c.key)renderThread([{who:'system',text:'Failed to load messages: '+e.message}]);
+    if(openCardKey===c.key&&!cached)renderThread([{who:'system',text:'Failed to load messages: '+e.message}]);
   }
 }
 
@@ -1042,8 +1096,9 @@ async function sendMsg(){
   const c=cards[openCard];
   if(!c.session_id){showToast('This card has no session yet — press E to start one');return}
   composer.value='';
-  c.thread.push({who:'user',ts:new Date().toISOString(),text:v});
-  renderThread(c.thread);
+  const th=threadCache[c.key]||(threadCache[c.key]=[]);
+  th.push({who:'user',ts:new Date().toISOString(),text:v});
+  renderThread(th);
   panelScroll.scrollTop=panelScroll.scrollHeight;
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v})});
