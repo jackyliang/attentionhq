@@ -196,7 +196,7 @@ main{
 .add-card:hover .plus,.add-card:focus .plus{color:var(--ds-gray-1000)}
 .add-card .add-hint{display:inline-flex;align-items:center;gap:6px;max-width:0;opacity:0;overflow:hidden;margin-left:0;transition:max-width .18s ease,opacity .18s ease,margin-left .18s ease;font-size:11px;line-height:14px;color:var(--ds-gray-900);white-space:nowrap}
 .add-card .add-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
-.add-card:is(:hover,:focus) .add-hint{max-width:64px;opacity:1;margin-left:8px}
+.add-card:is(:hover,:focus) .add-hint{max-width:120px;opacity:1;margin-left:8px}
 .add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
@@ -978,7 +978,7 @@ function progressOf(c){
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref">creating\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
   const age=c.age?`<span class="age">${escHTML(c.age)}</span>`:'';
   const meta=`<div class="cmeta">${ref}${prRef}${age}</div>`;
@@ -1061,8 +1061,8 @@ function renderBoard(){
     if(col.id==='issues'){
       const add=document.createElement('button');
       add.className='card add-card'; add.id='add-issue';
-      add.setAttribute('aria-label','New issue');
-      add.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
+      add.setAttribute('aria-label','New task — describe it and Devin files the issue');
+      add.innerHTML=ADD_HINT;
       wireAddCard(add);
       body.appendChild(add);
     }
@@ -1181,22 +1181,24 @@ async function prefetchThreads(){
   }finally{prefetching=false}
 }
 
-/* ---- add-issue card ---- */
+/* ---- add-task (prompt) card ---- */
+const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new task</span></span>';
 function wireAddCard(addBtn){
   function addToPlus(){
     addBtn.classList.remove('editing');
-    addBtn.innerHTML='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new</span></span>';
+    addBtn.innerHTML=ADD_HINT;
   }
   function addToInput(){
     if(addBtn.classList.contains('editing'))return;
     addBtn.classList.add('editing');
-    addBtn.innerHTML='<input class="title-input" type="text" placeholder="Issue title…" />';
+    addBtn.innerHTML='<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ⇧↵ file & start" />';
     const inp=addBtn.querySelector('input');
     inp.focus();
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
       if(e.key==='Enter'){
         const v=inp.value.trim();
+        const start=e.shiftKey;
         addToPlus();
         addBtn.focus();
         if(v){
@@ -1205,13 +1207,13 @@ function wireAddCard(addBtn){
           cards.forEach((c,i)=>c.id=i);
           renderBoard();
           try{
-            const res=await api('/api/issues',{method:'POST',body:JSON.stringify({title:v})});
-            showToast(`Issue created — ${shortRepo(res.repo)}#${res.number}`);
+            await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start})});
+            showToast(start?'Sent to Devin — filing the issue, then starting on it':'Sent to Devin — filing the issue');
             await fetchBoard();
           }catch(err){
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
-            showToast('Create failed: '+err.message);
+            showToast('Send failed: '+err.message);
           }
         }
       }
