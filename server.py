@@ -13,6 +13,7 @@ import time
 from contextlib import asynccontextmanager
 
 import httpx
+import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -56,8 +57,20 @@ state: dict = {
     "generated_at": 0,
 }
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+def _db():
+    return psycopg.connect(DATABASE_URL, connect_timeout=10)
 
 def load_dismissed() -> set:
+    if DATABASE_URL:
+        try:
+            with _db() as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS dismissed (card_id text PRIMARY KEY, created_at timestamptz DEFAULT now())")
+                return {r[0] for r in conn.execute("SELECT card_id FROM dismissed")}
+        except psycopg.Error:
+            log.warning("could not load dismissed list from db", exc_info=True)
+            return set()
     try:
         with open(DISMISSED_FILE) as f:
             return set(json.load(f))
@@ -65,6 +78,15 @@ def load_dismissed() -> set:
         return set()
 
 def save_dismissed(d: set):
+    if DATABASE_URL:
+        try:
+            with _db() as conn:
+                conn.execute("DELETE FROM dismissed WHERE card_id <> ALL(%s)", (list(d),))
+                for cid in d:
+                    conn.execute("INSERT INTO dismissed (card_id) VALUES (%s) ON CONFLICT DO NOTHING", (cid,))
+        except psycopg.Error:
+            log.warning("could not persist dismissed list to db", exc_info=True)
+        return
     try:
         with open(DISMISSED_FILE, "w") as f:
             json.dump(sorted(d), f)
@@ -710,7 +732,7 @@ async def archive_card(card_id: str):
         actions.append("closed")
     elif card["kind"] != "session":
         dismissed.add(card_id)
-        save_dismissed(dismissed)
+        await asyncio.to_thread(save_dismissed, dismissed)
     if card["session_id"]:
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     for col in (state["board"] or {"columns": []})["columns"]:
@@ -723,7 +745,7 @@ async def hide_card(card_id: str):
     """Drop the card from the board without touching the Devin session or the
     GitHub issue."""
     dismissed.add(card_id)
-    save_dismissed(dismissed)
+    await asyncio.to_thread(save_dismissed, dismissed)
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
     return {"ok": True, "actions": ["hidden"]}
