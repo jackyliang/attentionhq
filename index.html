@@ -937,7 +937,7 @@ function addToPlus(){
   addBtn.innerHTML='<span class="plus">+</span>';
 }
 addBtn.addEventListener('click',addToInput);
-addBtn.addEventListener('focus',addToInput);
+addBtn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!addBtn.classList.contains('editing')){e.preventDefault();e.stopPropagation();addToInput();}});
 
 /* ================= panel ================= */
 const app=document.getElementById('app');
