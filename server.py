@@ -32,7 +32,7 @@ RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
 GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "60"))
-RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "30"))
+RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
 
 DEVIN_BASE = f"https://api.devin.ai/v3/organizations/{DEVIN_ORG_ID}"
 GH_BASE = "https://api.github.com"
