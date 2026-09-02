@@ -571,8 +571,9 @@ aside{
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg.pr{align-items:stretch}
-.msg.working{flex-direction:row;align-items:center;gap:8px;font-size:12px;line-height:17px;padding:2px 0}
-.msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.8s linear infinite}
+.msg.working{flex-direction:row;align-items:center;gap:8px;font-size:13px;line-height:18px;font-weight:500;padding:4px 0}
+.msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-600) 0%,var(--ds-gray-600) 35%,#fff 50%,var(--ds-gray-600) 65%,var(--ds-gray-600) 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer-txt 1.4s ease-in-out infinite}
+@keyframes shimmer-txt{from{background-position:100% 0}to{background-position:-100% 0}}
 .prcard{
   display:flex;flex-direction:column;gap:6px;
   border:1px solid var(--ds-gray-400);border-left:3px solid var(--ds-purple-700);
