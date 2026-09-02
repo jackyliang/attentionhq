@@ -557,7 +557,7 @@ aside{
         <div class="sc">Close card / board chat / panel <span class="k"><kbd>Esc</kbd></span></div>
         <div class="sc">Open board chat <span class="k"><kbd>C</kbd></span></div>
         <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
-        <div class="sc">Start session on issue <span class="k"><kbd>F</kbd></span></div>
+        <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd></span></div>
       </div>
       <div class="sc-group">
@@ -868,7 +868,7 @@ function cardHTML(c){
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  if(c.col==='issues')return `<div class="title">${c.title}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>↵</kbd><span>start</span></div></div>`;
+  if(c.col==='issues')return `<div class="title">${c.title}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div>`;
   const working=c.col==='working'&&c.now;
   const txt=working?c.now.text:(nx&&!c.proposed&&c.col!=='ready'?nx.text:null);
   const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${txt}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
@@ -1180,7 +1180,7 @@ document.addEventListener('keydown',e=>{
     case 'ArrowRight': case 'd': case 'D': move(1,0); e.preventDefault(); break;
     case 'Home': {const f=focused(); if(f)colCards(f.closest('.col'))[0].focus(); e.preventDefault(); break}
     case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
-    case 'Enter': {const f=focused(); if(f){const id=+f.dataset.id; if(cards[id]&&cards[id].col==='issues'){startIssue(id)}else if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
+    case 'Enter': {const f=focused(); if(f){const id=+f.dataset.id; if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
     case 'Escape':
       if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; el?.focus()}
       break;
