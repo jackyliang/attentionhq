@@ -1831,7 +1831,7 @@ fetchBoard().then(()=>{
   const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();
   if(c)c.focus();
 }).catch(e=>showToast('Load failed: '+e.message));
-setInterval(()=>{fetchBoard().catch(()=>{})},15000);
+setInterval(()=>{fetchBoard().catch(()=>{})},5000);
 setInterval(()=>renderDeploys(),10000);
 </script>
 </body>

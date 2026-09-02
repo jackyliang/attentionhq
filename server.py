@@ -32,7 +32,8 @@ BOARD_TOKEN = os.environ.get("BOARD_TOKEN", "")
 REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web,jackyliang/attentionhq").split(",") if r.strip()]
 RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
-DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
+DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "5"))
+DEVIN_POLL_MAX_SECS = int(os.environ.get("DEVIN_POLL_MAX_SECS", "60"))
 GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "60"))
 RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
 # Automation-origin sessions (merged-PR review bots and the like) are background
@@ -619,9 +620,13 @@ async def assemble_board():
 
 # ---------------------------------------------------------------- pollers
 
+def _is_rate_limited(e: Exception) -> bool:
+    return isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+
 async def poll_loop():
     last_gh = 0.0
     last_render = 0.0
+    devin_sleep = DEVIN_POLL_SECS
     while True:
         try:
             if time.time() - last_gh >= GITHUB_POLL_SECS or state["gh_refresh"]:
@@ -646,16 +651,24 @@ async def poll_loop():
                 if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess) or session_prompt(sess):
                     try:
                         await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
+                    except httpx.HTTPStatusError as e:
+                        if _is_rate_limited(e):
+                            raise
                     except httpx.HTTPError:
                         pass
+            devin_sleep = DEVIN_POLL_SECS
         except Exception as e:  # noqa: BLE001
             state["devin_ok"] = False
-            log.warning("devin poll failed: %s", e)
+            if _is_rate_limited(e):
+                devin_sleep = min(devin_sleep * 2, DEVIN_POLL_MAX_SECS)
+                log.warning("devin rate limited (429); backing off to %ss", devin_sleep)
+            else:
+                log.warning("devin poll failed: %s", e)
         try:
             await assemble_board()
         except Exception as e:  # noqa: BLE001
             log.exception("board assembly failed: %s", e)
-        await asyncio.sleep(DEVIN_POLL_SECS)
+        await asyncio.sleep(devin_sleep)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

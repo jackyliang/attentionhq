@@ -10,7 +10,7 @@ description: How to run and test the AttentionHQ session board (FastAPI + static
 - Create the venv if missing: `uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python -e .` (no python3.12 on PATH).
 - `cd /home/ubuntu/repos/attentionhq && DEVIN_API_KEY="$DEVIN_API_KEY" GITHUB_TOKEN="$ATTENTIONHQ_GITHUB_TOKEN" OPENROUTER_API_KEY="$ATTENTIONHQ_OPENROUTER_API_KEY" BOARD_TOKEN=testtoken123 .venv/bin/uvicorn server:app --port 8420`
 - If `ATTENTIONHQ_GITHUB_TOKEN` / `ATTENTIONHQ_OPENROUTER_API_KEY` aren't set in the session (they aren't org secrets), use `GITHUB_TOKEN="$(gh auth token)"` (works against api.github.com) and `OPENROUTER_API_KEY="$OPENROUTER_API_KEY"` (org secret). Without a GitHub token the log shows `github poll failed: Illegal header value b'Bearer '` and PR cards fall back to `ci: unknown`.
-- Open http://localhost:8420, enter the BOARD_TOKEN in the in-app token gate (wrong token shows an inline error; clear with `localStorage.removeItem('board_token')`). First board fetch takes ~15-30s (skeleton cards until then); UI polls every 15s, so wait up to ~30s after mutations for the board to reflect them.
+- Open http://localhost:8420, enter the BOARD_TOKEN in the in-app token gate (wrong token shows an inline error; clear with `localStorage.removeItem('board_token')`). First board fetch takes ~5-20s (skeleton cards until then); server and UI poll every 5s (`DEVIN_POLL_SECS`), so wait up to ~15s after mutations for the board to reflect them.
 
 ## Auth
 - API auth header is `x-board-token: <BOARD_TOKEN>` (NOT `Authorization: Bearer`). Without it /api/* returns 401.
