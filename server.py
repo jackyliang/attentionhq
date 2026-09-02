@@ -35,6 +35,9 @@ RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES"
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
 GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "60"))
 RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
+# Automation-origin sessions (merged-PR review bots and the like) are background
+# chatter, not work the board tracks.
+SHOW_AUTOMATION_SESSIONS = os.environ.get("SHOW_AUTOMATION_SESSIONS", "").lower() in ("1", "true", "yes")
 
 DEVIN_BASE = f"https://api.devin.ai/v3/organizations/{DEVIN_ORG_ID}"
 GH_BASE = "https://api.github.com"
@@ -272,13 +275,19 @@ async def fetch_devin():
     async with devin_client() as dv:
         r = await dv.get("/sessions", params={"limit": 100})
         r.raise_for_status()
-        sessions = [s for s in r.json().get("items", []) if not s.get("is_archived")]
+        sessions = [
+            s for s in r.json().get("items", [])
+            if not s.get("is_archived") and (SHOW_AUTOMATION_SESSIONS or not is_automation_session(s))
+        ]
     state["sessions"] = sessions
     state["devin_ok"] = True
     live = {s["session_id"] for s in sessions}
     for cache in (session_msgs_cache, extract_cache):
         for sid in [sid for sid in cache if sid not in live]:
             del cache[sid]
+
+def is_automation_session(sess: dict) -> bool:
+    return sess.get("origin") == "automation" or bool(sess.get("automation_id"))
 
 def _clean_text(text: str) -> str:
     if text.startswith("SYSTEM:"):
@@ -581,7 +590,7 @@ async def assemble_board():
             "col": col, "tone": tone,
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
-            "pr": {k: pr[k] for k in ("repo", "number", "url", "ci", "review", "mergeable_state")} if pr else None,
+            "pr": {k: pr.get(k) for k in ("repo", "number", "url", "ci", "review", "mergeable_state", "draft", "title", "branch", "created_at")} if pr else None,
             "now": ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text),
             "options": options if col == "needs-you" else [],
             "todos": (extract or {}).get("todos", []),
