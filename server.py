@@ -493,6 +493,12 @@ async def auth_middleware(request: Request, call_next):
 
 # ---------------------------------------------------------------- api
 
+@app.get("/healthz")
+async def healthz():
+    if state["board"] is None:
+        return JSONResponse({"status": "warming"}, status_code=503)
+    return {"status": "ok"}
+
 @app.get("/api/board")
 async def get_board():
     if state["board"] is None:

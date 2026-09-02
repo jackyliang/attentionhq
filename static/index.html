@@ -813,6 +813,7 @@ function renderBoard(){
 
 async function fetchBoard(){
   const data=await api('/api/board');
+  if(data.loading&&cards.length)return; // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
   cards=flat.map(mapCard);
