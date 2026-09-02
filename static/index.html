@@ -350,6 +350,7 @@ aside{
 }
 .panel-title .s{font-size:11px;line-height:14px;color:var(--ds-gray-600);font-family:var(--font-mono)}
 .panel-mode-badge{
+  display:none;
   margin-left:auto;flex:none;
   font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.06em;
   color:var(--ds-gray-900);
@@ -380,7 +381,18 @@ aside{
 .pl-usage .v{margin-left:auto;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
 .pl-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
 .pl-tag{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-900);border:1px solid var(--ds-gray-400);padding:1px 6px}
-.pl-desc{font-size:12px;line-height:18px;color:var(--ds-gray-900);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin-bottom:8px}
+.pl-desc{font-size:12px;line-height:18px;color:var(--ds-gray-900);overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin-bottom:8px;padding-right:6px}
+.pl-desc p{margin:0 0 8px}
+.pl-desc p:last-child{margin-bottom:0}
+.pl-desc h1,.pl-desc h2,.pl-desc h3,.pl-desc h4{font-size:11px;line-height:15px;font-family:var(--font-mono);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ds-gray-1000);margin:12px 0 6px}
+.pl-desc ul{margin:0 0 8px;padding-left:16px}
+.pl-desc li{margin:2px 0}
+.pl-desc code{font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-1000);background:var(--ds-gray-200);border:1px solid var(--ds-gray-300);padding:0 4px}
+.pl-desc pre{margin:0 0 8px;padding:8px 10px;background:var(--ds-gray-100);border:1px solid var(--ds-gray-300);overflow-x:auto}
+.pl-desc pre code{border:none;background:none;padding:0;font-size:11px;line-height:16px}
+.pl-desc strong{color:var(--ds-gray-1000);font-weight:500}
+.pl-desc a,.msg .body a:not(.att-link){color:var(--ds-gray-1000);text-decoration:underline;text-decoration-color:var(--ds-gray-500);text-underline-offset:2px}
+.pl-desc a:hover,.msg .body a:not(.att-link):hover{text-decoration-color:var(--ds-gray-800)}
 
 /* single current-position statement */
 .pl-position{
@@ -483,6 +495,7 @@ aside{
 }
 .pl-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 .pl-link svg{width:12px;height:12px;flex:none}
+.pl-links{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px}
 
 /* ---- Shortcuts overlay ---- */
 #overlay{
@@ -555,7 +568,6 @@ aside{
         <div class="t" id="panel-title">Board</div>
         <div class="s" id="panel-sub">operate the board</div>
       </div>
-      <span class="panel-mode-badge" id="panel-badge">board</span>
       <button class="panel-close" id="panel-close" aria-label="Close panel">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg><kbd>esc</kbd>
       </button>
@@ -865,7 +877,6 @@ const convHead=document.getElementById('conv-head');
 const panelScroll=document.getElementById('panel-scroll');
 const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
-const panelBadge=document.getElementById('panel-badge');
 const composer=document.getElementById('composer');
 let mode='board', openCard=null, openCardKey=null;
 
@@ -877,11 +888,44 @@ function fmtTs(ts){
   if(isNaN(d))return ts;
   return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
+const URL_RE=/https?:\/\/[^\s<>"')\]]+/g;
+function inlineMD(escaped){
+  return linkifyMD(escaped
+    .replace(/`([^`\n]+)`/g,'<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>'));
+}
+function linkifyMD(s){
+  s=s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s.replace(URL_RE,(u,i,str)=>{
+    const before=str.slice(0,i);
+    if(/href="$/.test(before)||/>$/.test(before.trimEnd().slice(-1)))return u;
+    const open=before.lastIndexOf('<a ');const close=before.lastIndexOf('</a>');
+    if(open>close)return u;
+    return `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+  });
+}
+function mdHTML(text){
+  const blocks=escHTML(text.replace(/\r\n/g,'\n')).split(/\n{2,}/);
+  return blocks.map(b=>{
+    const lines=b.split('\n');
+    if(lines.every(l=>/^\s*[-*]\s+/.test(l)||!l.trim()))
+      return '<ul>'+lines.filter(l=>l.trim()).map(l=>`<li>${inlineMD(l.replace(/^\s*[-*]\s+/,''))}</li>`).join('')+'</ul>';
+    const out=[];let para=[];
+    const flush=()=>{if(para.length){out.push(`<p>${para.map(inlineMD).join('<br>')}</p>`);para=[];}};
+    for(const l of lines){
+      const h=l.match(/^(#{1,4})\s+(.*)$/);
+      if(h){flush();out.push(`<h${h[1].length}>${inlineMD(h[2])}</h${h[1].length}>`);}
+      else para.push(l);
+    }
+    flush();
+    return out.join('');
+  }).join('');
+}
 const ATT_RE=/ATTACHMENT:\s*(?:\{"url":"(https?:\/\/[^"]+)"[^}]*\}|"(https?:\/\/[^"]+)")/g;
 function bodyHTML(text){
   const t=(text??'').toString();
   const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]||m[2]);
-  let out=escHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim());
+  let out=linkifyMD(escHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim()));
   for(const u of atts){
     const safe=escHTML(u);
     const name=escHTML(decodeURIComponent(u.split('/').pop().split('?')[0]||'attachment'));
@@ -914,7 +958,7 @@ function todoRow(t,i,proposed){
 
 function issueDescHTML(c){
   const tags=c.labels.length?`<div class="pl-tags">${c.labels.map(l=>`<span class="pl-tag">${escHTML(l)}</span>`).join('')}</div>`:'';
-  const desc=c.body.trim()?`<div class="pl-desc">${escHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
+  const desc=c.body.trim()?`<div class="pl-desc">${mdHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
   const start=`<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`;
   return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}${start}</div>`;
 }
@@ -936,7 +980,7 @@ function linksHTML(c){
   if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR ${escHTML(shortRepo(c.pr.repo))}#${c.pr.number} · CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||escHTML(String(c.pr.review).replace(/_/g,' '))}</a>`);
   if(c.session_url)links.push(`<a class="pl-link" href="${c.session_url}" target="_blank" rel="noopener">${I.logs} Devin session</a>`);
   if(!links.length)return '';
-  return `<div class="pl-links" style="display:flex;flex-direction:column;gap:6px;margin:10px 0 4px">${links.join('')}</div>`;
+  return `<div class="pl-links">${links.join('')}</div>`;
 }
 
 function setBoardMode(){
@@ -944,7 +988,6 @@ function setBoardMode(){
   app.dataset.mode='board';
   panelTitle.textContent='Board';
   panelSub.textContent='operate the board';
-  panelBadge.textContent='board';
   composer.placeholder='Message the board…';
   panelList.innerHTML='';
   convHead.style.display='none';
@@ -997,7 +1040,6 @@ function setCardMode(id){
   if(!c)return;
   mode='card'; openCard=id; openCardKey=c.key;
   app.dataset.mode='card';
-  panelBadge.textContent='card';
   composer.placeholder='Message this session…';
   refreshPanel(c);
   convHead.style.display='flex';
