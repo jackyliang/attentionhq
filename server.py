@@ -595,15 +595,21 @@ async def create_issue(body: IssueIn):
             raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
         data = r.json()
     key = f"{repo}#{data['number']}"
-    recent_issues[key] = (time.time(), issue_from_gh(repo, data))
-    try:
-        await fetch_github()
-    except Exception:  # noqa: BLE001
-        state["issues"][key] = recent_issues[key][1]
+    issue = issue_from_gh(repo, data)
+    recent_issues[key] = (time.time(), issue)
+    state["issues"][key] = issue
     try:
         await assemble_board()
     except Exception:  # noqa: BLE001
         pass
+
+    async def refresh():
+        try:
+            await fetch_github()
+            await assemble_board()
+        except Exception:  # noqa: BLE001
+            pass
+    asyncio.create_task(refresh())
     return {"ok": True, "repo": repo, "number": data["number"], "url": data["html_url"]}
 
 class MergeIn(BaseModel):
