@@ -64,7 +64,12 @@
   --panel-w:400px;
   --header-h:48px;
 }
-*{box-sizing:border-box;margin:0;padding:0;border-radius:0}
+*{box-sizing:border-box;margin:0;padding:0;border-radius:0;scrollbar-width:thin;scrollbar-color:var(--ds-gray-500) transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--ds-gray-500)}
+::-webkit-scrollbar-thumb:hover{background:var(--ds-gray-600)}
+::-webkit-scrollbar-corner{background:transparent}
 html,body{height:100%}
 body{
   background:var(--ds-background-200);
@@ -370,6 +375,12 @@ aside{
 }
 .pl-sect-head .m{margin-left:auto;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .pl-sect-head .m .yn{color:var(--ds-amber-900)}
+.pl-usage{display:flex;align-items:baseline;gap:8px;padding:10px 14px;border-bottom:1px solid var(--ds-gray-400)}
+.pl-usage .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
+.pl-usage .v{margin-left:auto;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.pl-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.pl-tag{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-900);border:1px solid var(--ds-gray-400);padding:1px 6px}
+.pl-desc{font-size:12px;line-height:18px;color:var(--ds-gray-900);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin-bottom:8px}
 
 /* single current-position statement */
 .pl-position{
@@ -666,7 +677,8 @@ function mapCard(c,i){
   return {
     id:i, key:c.id, kind:c.kind, col:c.col, tone:c.tone, title:c.title,
     repo:c.repo, num:c.number, url:c.url,
-    session_id:c.session_id, session_url:c.session_url, pr:c.pr,
+    session_id:c.session_id, session_url:c.session_url, pr:c.pr, acus:c.acus,
+    body:c.body||'', labels:c.labels||[],
     now:c.now?{text:c.now}:null,
     options:(c.options||[]).slice(0,3),
     todos:c.todos||[],
@@ -900,11 +912,16 @@ function todoRow(t,i,proposed){
   </div>`;
 }
 
+function issueDescHTML(c){
+  const tags=c.labels.length?`<div class="pl-tags">${c.labels.map(l=>`<span class="pl-tag">${escHTML(l)}</span>`).join('')}</div>`:'';
+  const desc=c.body.trim()?`<div class="pl-desc">${escHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
+  const start=`<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`;
+  return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}${start}</div>`;
+}
 function checklistHTML(c){
+  if(c.kind==='issue'&&!c.session_id)return issueDescHTML(c);
   if(!c.todos.length){
-    const note=c.kind==='issue'&&!c.session_id
-      ? `<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`
-      : `<div class="pl-proposed-note">${I.logs} Todos appear here once the session transcript is parsed.</div>`;
+    const note=`<div class="pl-proposed-note">${I.logs} Todos appear here once the session transcript is parsed.</div>`;
     return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Todo</span><span class="m">—</span></div>${note}</div>`;
   }
   const k=counts(c);
@@ -936,10 +953,16 @@ function setBoardMode(){
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
+const ACU_USD=2.25;
+function usageHTML(c){
+  if(c.acus==null)return '';
+  const usd=(c.acus*ACU_USD).toFixed(2);
+  return `<div class="pl-usage"><span class="h">On-demand usage</span><span class="v">$${usd} · ${(+c.acus).toFixed(1)} ACUs</span></div>`;
+}
 function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
-  panelList.innerHTML=checklistHTML(c)+linksHTML(c);
+  panelList.innerHTML=checklistHTML(c)+usageHTML(c)+linksHTML(c);
 }
 
 const threadCache={};
