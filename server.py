@@ -87,6 +87,19 @@ def gh_client():
 
 # ---------------------------------------------------------------- github fetch
 
+def issue_from_gh(repo: str, it: dict) -> dict:
+    return {
+        "repo": repo, "number": it["number"], "title": it["title"],
+        "body": it.get("body") or "", "url": it["html_url"],
+        "labels": [l["name"] for l in it.get("labels", [])],
+        "created_at": it["created_at"], "updated_at": it["updated_at"],
+    }
+
+# GitHub's list endpoint lags behind creates; keep issues we just created visible
+# until the listing catches up (or they get closed).
+RECENT_ISSUE_TTL = 300
+recent_issues: dict[str, tuple[float, dict]] = {}
+
 async def fetch_github():
     issues, prs = {}, {}
     async with gh_client() as gh:
@@ -96,12 +109,13 @@ async def fetch_github():
             for it in r.json():
                 if "pull_request" in it:
                     continue
-                issues[f"{repo}#{it['number']}"] = {
-                    "repo": repo, "number": it["number"], "title": it["title"],
-                    "body": it.get("body") or "", "url": it["html_url"],
-                    "labels": [l["name"] for l in it.get("labels", [])],
-                    "created_at": it["created_at"], "updated_at": it["updated_at"],
-                }
+                issues[f"{repo}#{it['number']}"] = issue_from_gh(repo, it)
+            now = time.time()
+            for key, (ts, issue) in list(recent_issues.items()):
+                if now - ts > RECENT_ISSUE_TTL or key in issues:
+                    recent_issues.pop(key, None)
+                elif issue["repo"] == repo:
+                    issues[key] = issue
             r = await gh.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
             r.raise_for_status()
             for pr in r.json():
@@ -399,13 +413,14 @@ async def assemble_board():
             "acus": sess.get("acus_consumed") if sess else None,
             "body": c.get("body", ""),
             "labels": c.get("labels", []),
+            "created_at": c["created_at"],
         })
 
-    order = {"issues": 0, "working": 1, "needs-you": 2, "review": 3, "ready": 4}
-    out.sort(key=lambda c: (order[c["col"]], str(c.get("created_at", ""))))
+    # newest issues first; everything else oldest first
     state["board"] = {
         "columns": [
-            {"id": cid, "cards": [c for c in out if c["col"] == cid]}
+            {"id": cid, "cards": sorted((c for c in out if c["col"] == cid),
+                                        key=lambda c: str(c["created_at"]), reverse=(cid == "issues"))}
             for cid in ("issues", "working", "needs-you", "review", "ready")
         ],
         "devin_ok": state["devin_ok"],
@@ -579,11 +594,22 @@ async def create_issue(body: IssueIn):
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
         data = r.json()
+    key = f"{repo}#{data['number']}"
+    issue = issue_from_gh(repo, data)
+    recent_issues[key] = (time.time(), issue)
+    state["issues"][key] = issue
     try:
-        await fetch_github()
         await assemble_board()
     except Exception:  # noqa: BLE001
         pass
+
+    async def refresh():
+        try:
+            await fetch_github()
+            await assemble_board()
+        except Exception:  # noqa: BLE001
+            pass
+    asyncio.create_task(refresh())
     return {"ok": True, "repo": repo, "number": data["number"], "url": data["html_url"]}
 
 class MergeIn(BaseModel):
