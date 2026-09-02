@@ -1,4 +1,4 @@
-"""AttentionHQ server — FastAPI app serving the board UI and JSON API.
+"""Attention server — FastAPI app serving the board UI and JSON API.
 
 Reads GitHub issues/PRs and Devin sessions, derives Kanban columns, and
 exposes mutations: start session, chat, create issue, merge PR.
