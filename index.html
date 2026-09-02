@@ -980,8 +980,8 @@ function todoRow(t,i,proposed){
 function checklistHTML(c){
   const k=counts(c);
   const head=c.proposed
-    ? `<div class="pl-sect-head"><span class="h">Proposed checklist</span><span class="m">${c.todos.length} steps · not started</span></div>`
-    : `<div class="pl-sect-head"><span class="h">Live checklist</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
+    ? `<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${c.todos.length} steps · not started</span></div>`
+    : `<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
   const pos=c.position?`<div class="pl-position">${I.flag}<span>${c.position}</span></div>`:'';
   const rows=c.todos.map((t,i)=>todoRow(t,i,c.proposed)).join('');
   const note=c.proposed?`<div class="pl-proposed-note">${I.play} Starts running when you start the session — <kbd>E</kbd></div>`:'';
