@@ -694,7 +694,9 @@ def find_card_or_stale(card_id: str) -> dict:
         pass
     if card_id.startswith("session:"):
         return {"id": card_id, "kind": "session", "session_id": card_id[len("session:"):], "repo": None, "number": None}
-    issue = state["issues"].get(card_id) or recent_issues.get(card_id)
+    issue = state["issues"].get(card_id)
+    if not issue and card_id in recent_issues:
+        issue = recent_issues[card_id][1]
     if issue:
         sess = next((s for s in state["sessions"] if session_issue_key(s) == card_id), None)
         return {"id": card_id, "kind": "issue", "session_id": sess["session_id"] if sess else None,
