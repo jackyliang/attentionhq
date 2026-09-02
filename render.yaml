@@ -19,5 +19,7 @@ services:
         value: openai/gpt-5.6-luna:nitro
       - key: BOARD_TOKEN
         sync: false
+      - key: RENDER_API_KEY
+        sync: false
       - key: REPOS
         value: jackyliang/answer-hq,jackyliang/answerhq-web
