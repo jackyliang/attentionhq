@@ -675,13 +675,21 @@ async def archive_card(card_id: str):
     elif card["kind"] != "session":
         dismissed.add(card_id)
         save_dismissed(dismissed)
+    if card["session_id"]:
+        state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     try:
-        if card["session_id"]:
-            await fetch_devin()
         await assemble_board()
     except Exception:  # noqa: BLE001
         pass
-    return {"ok": True, "action": action}
+    if card["session_id"]:
+        async def refresh():
+            try:
+                await fetch_devin()
+                await assemble_board()
+            except Exception:  # noqa: BLE001
+                pass
+        asyncio.create_task(refresh())
+    return {"ok": True, "actions": actions}
 
 class StartIn(BaseModel):
     repo: str

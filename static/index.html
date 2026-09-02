@@ -1199,13 +1199,19 @@ async function archiveCard(id){
   archiving=true;
   const both=close&&c.session_id;
   showToast(both?`Closing ${shortRepo(c.repo)}#${c.num} & archiving session…`:close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
+  if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
+  const snapshot=cards;
+  cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
+  renderBoard();
+  firstCard()?.focus();
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
     showToast(both?`Closed ${shortRepo(c.repo)}#${c.num} & archived session — “${c.title}”`:close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
-    if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
     await fetchBoard();
-    firstCard()?.focus();
-  }catch(e){showToast((close?'Close':'Archive')+' failed: '+e.message)}
+  }catch(e){
+    cards=snapshot; cards.forEach((x,i)=>x.id=i); renderBoard();
+    showToast((close?'Close':'Archive')+' failed: '+e.message);
+  }
   finally{archiving=false}
 }
 panelArchive.addEventListener('click',()=>{if(openCard!=null)archiveCard(openCard)});
