@@ -1125,6 +1125,10 @@ function refreshPanel(c){
 }
 
 const threadCache={};
+function scrollThreadToEnd(){
+  panelScroll.scrollTop=panelScroll.scrollHeight;
+  requestAnimationFrame(()=>{panelScroll.scrollTop=panelScroll.scrollHeight});
+}
 async function loadThread(c){
   if(!c.session_id){
     renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
@@ -1133,7 +1137,7 @@ async function loadThread(c){
   const cached=threadCache[c.key];
   if(cached){
     renderThread(cached.length?cached:[{who:'system',text:'No messages yet.'}]);
-    panelScroll.scrollTop=panelScroll.scrollHeight;
+    scrollThreadToEnd();
   }else{
     renderThread([{who:'system',text:'Loading conversation…'}]);
   }
@@ -1144,7 +1148,7 @@ async function loadThread(c){
     threadCache[c.key]=msgs;
     if(openCardKey===c.key&&changed){
       renderThread(msgs.length?msgs:[{who:'system',text:'No messages yet.'}]);
-      panelScroll.scrollTop=panelScroll.scrollHeight;
+      scrollThreadToEnd();
     }
   }catch(e){
     if(openCardKey===c.key&&!cached)renderThread([{who:'system',text:'Failed to load messages: '+e.message}]);
@@ -1160,7 +1164,7 @@ function setCardMode(id){
   refreshPanel(c);
   convHead.style.display='flex';
   loadThread(c);
-  panelScroll.scrollTop=0;
+  scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
   const el=cardEl(id);
   if(el){el.classList.add('selected');ensureVisible(el)}
