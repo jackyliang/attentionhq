@@ -496,6 +496,25 @@ aside{
   padding:8px 10px;max-width:85%;
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
+.msg.pr{align-items:stretch}
+.prcard{
+  display:flex;flex-direction:column;gap:6px;
+  border:1px solid var(--ds-gray-400);border-left:3px solid var(--ds-purple-700);
+  padding:10px 12px;background:var(--ds-gray-100);max-width:100%;
+}
+.prcard[data-state="merged"]{border-left-color:var(--ds-purple-900)}
+.prcard[data-state="open"]{border-left-color:var(--ds-green-700)}
+.prcard[data-state="closed"]{border-left-color:var(--ds-gray-600)}
+.prcard .head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.prcard .state{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.08em;text-transform:uppercase;flex:none;color:var(--ds-gray-900)}
+.prcard[data-state="merged"] .state{color:var(--ds-purple-900)}
+.prcard[data-state="open"] .state{color:var(--ds-green-900)}
+.prcard .num{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900);flex:none}
+.prcard .title{font-size:13px;line-height:18px;font-weight:500;color:var(--ds-gray-1000);overflow-wrap:anywhere}
+.prcard .repo{font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-700)}
+.prcard .repo b{font-weight:500;color:var(--ds-gray-900)}
+.prcard .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.prcard .actions .pl-link{padding:4px 8px}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
 .msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
@@ -1056,8 +1075,21 @@ function bodyHTML(text){
   }
   return out;
 }
+function prCardHTML(p){
+  const state=p.draft&&p.state==='open'?'draft':p.state;
+  const label={merged:'Merged PR',open:'Opened PR',closed:'Closed PR',draft:'Draft PR'}[state]||'PR';
+  return `<div class="prcard" data-state="${escHTML(p.state)}">
+    <div class="head"><span class="state">${label}</span><span class="num">#${p.number}</span></div>
+    <div class="title">${escHTML(p.title)}</div>
+    <div class="repo">repo <b>${escHTML(shortRepo(p.repo))}</b></div>
+    <div class="actions">
+      <a class="pl-link" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a>
+      <a class="pl-link" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>
+    </div>
+  </div>`;
+}
 function renderThread(msgs){
-  threadEl.innerHTML=msgs.map(m=>`<div class="msg ${m.who}">
+  threadEl.innerHTML=msgs.map(m=>m.who==='pr'?`<div class="msg pr">${prCardHTML(m.pr)}</div>`:`<div class="msg ${m.who}">
     ${m.who==='system'?'':`<div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
     <div class="body">${bodyHTML(m.text)}</div></div>`).join('');
 }
@@ -1160,7 +1192,7 @@ async function loadThread(c){
   try{
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
     const msgs=data.messages||[];
-    const changed=!cached||cached.length!==msgs.length;
+    const changed=!cached||cached.length!==msgs.length||JSON.stringify(cached)!==JSON.stringify(msgs);
     threadCache[c.key]=msgs;
     if(openCardKey===c.key&&changed){
       renderThread(msgs.length?msgs:[{who:'system',text:'No messages yet.'}]);
