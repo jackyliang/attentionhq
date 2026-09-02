@@ -64,7 +64,7 @@
   --panel-w:400px;
   --header-h:48px;
 }
-*{box-sizing:border-box;margin:0;padding:0;border-radius:0;scrollbar-width:thin;scrollbar-color:var(--ds-gray-500) transparent}
+*{box-sizing:border-box;margin:0;padding:0;border-radius:0}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-button{display:none;width:0;height:0}
@@ -498,7 +498,7 @@ aside{
 }
 .pl-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 .pl-link svg{width:12px;height:12px;flex:none}
-.pl-links{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px}
+.pl-links{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px;position:sticky;bottom:0;background:var(--ds-background-100)}
 
 /* ---- Shortcuts overlay ---- */
 #overlay{
