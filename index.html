@@ -266,7 +266,10 @@ main{
   cursor:pointer;
 }
 .card .opt:hover{background:var(--ds-amber-300)}
-.card .opt kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-amber-900);background:transparent;border:1px solid var(--ds-amber-500)}
+.card .opt kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-amber-900);background:transparent;border:1px solid var(--ds-amber-500);display:none}
+.card:is(.selected,:focus) .opt{padding:0 8px 0 3px}
+.card:is(.selected,:focus) .opt kbd{display:inline-flex;align-items:center;justify-content:center}
+.card:not(.selected):not(:focus) .opt{padding:0 8px}
 
 /* spinner for running sessions */
 @keyframes spin{to{transform:rotate(360deg)}}
