@@ -158,7 +158,8 @@ main{
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
 .nx .merge-btn{margin-left:auto;gap:6px;padding-left:4px}
-.merge-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:#fff;background:transparent;border:1px solid var(--ds-green-700)}
+.merge-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:#fff;background:transparent;border:1px solid var(--ds-green-700);visibility:hidden}
+.card:is(.selected,:focus) .merge-btn kbd{visibility:visible}
 .card .start-hint{display:flex;visibility:hidden;align-self:flex-end;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
 .card .start-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
 .col[data-col="issues"] .card:is(.selected,:focus) .start-hint{visibility:visible}
