@@ -595,6 +595,10 @@ aside{
 .prcard .repo b{font-weight:500;color:var(--ds-gray-900)}
 .prcard .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .prcard .actions .pl-link{padding:4px 8px}
+.prcard .actions .merge{color:var(--ds-green-900);border-color:var(--ds-green-700);cursor:pointer}
+.prcard .actions .merge:hover{background:var(--ds-green-100)}
+.prcard .actions .merge.armed{background:var(--ds-green-500);border-color:var(--ds-green-700);color:var(--ds-gray-1000);box-shadow:0 0 0 1px var(--ds-green-700)}
+.prcard .actions .merge.busy{opacity:.6;pointer-events:none}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
 .msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
@@ -1321,6 +1325,7 @@ function prCardHTML(p){
     <div class="actions">
       <a class="pl-link" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a>
       <a class="pl-link" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>
+      ${p.state==='open'&&!p.draft?`<span class="pl-link merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}
     </div>
   </div>`;
 }
@@ -1564,6 +1569,52 @@ async function pickOption(id,i){
     if(openCardKey===c.key)loadThread(c);
   }catch(e){showToast('Send failed: '+e.message)}
 }
+
+/* inline PR card merge: first click arms the button, second click within ARM_MS merges */
+let prArm=null;
+function disarmPrMerge(){
+  if(!prArm)return;
+  clearTimeout(prArm.t);
+  const b=prArm.btn; prArm=null;
+  if(b.isConnected){b.classList.remove('armed');b.innerHTML=`${I.merge} Merge`}
+}
+async function prCardMerge(btn){
+  const [repo,num]=btn.dataset.mergePr.split('#');
+  const number=+num, ref=`${shortRepo(repo)}#${number}`;
+  if(prArm&&prArm.btn===btn){
+    clearTimeout(prArm.t); prArm=null;
+    btn.classList.remove('armed'); btn.classList.add('busy'); btn.innerHTML=`${I.merge} Merging\u2026`;
+    showToast(`Merging ${ref}\u2026`);
+    try{
+      await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo,number})});
+      showToast(`Merged ${ref}`);
+      const c=openCardKey?cards.find(x=>x.key===openCardKey):null;
+      if(c){delete threadCache[c.key];loadThread(c)}
+      await fetchBoard();
+    }catch(e){
+      showToast('Merge failed: '+e.message);
+      if(btn.isConnected){btn.classList.remove('busy');btn.innerHTML=`${I.merge} Merge`}
+    }
+    return;
+  }
+  disarmPrMerge();
+  prArm={btn,t:setTimeout(disarmPrMerge,ARM_MS)};
+  btn.classList.add('armed'); btn.innerHTML=`${I.merge} Confirm merge`;
+  showToast(`Click again to merge ${ref}`);
+}
+threadEl.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-merge-pr]');
+  if(!btn||!threadEl.contains(btn))return;
+  e.preventDefault(); e.stopPropagation();
+  prCardMerge(btn);
+});
+threadEl.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ')return;
+  const btn=e.target.closest('[data-merge-pr]');
+  if(!btn)return;
+  e.preventDefault(); e.stopPropagation();
+  prCardMerge(btn);
+});
 
 async function triggerAction(id){
   const c=cards[id];

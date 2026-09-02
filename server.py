@@ -900,6 +900,7 @@ async def merge_pr(body: MergeIn):
         if r.status_code >= 400:
             detail = r.json().get("message", r.text[:200]) if r.headers.get("content-type", "").startswith("application/json") else r.text[:200]
             raise HTTPException(r.status_code, f"GitHub: {detail}")
+    pr_meta_cache.pop(f"{body.repo}#{body.number}", None)
     try:
         await fetch_github()
         await assemble_board()
