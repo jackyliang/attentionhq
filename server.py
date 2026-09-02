@@ -542,11 +542,17 @@ async def post_message(card_id: str, body: MessageIn):
 
 @app.post("/api/card/{card_id:path}/archive")
 async def archive_card(card_id: str):
-    """Issues-column cards: close the GitHub issue. Anything else: archive the
-    attached Devin session (if any) and drop the card from the board."""
+    """Archive the attached Devin session (if any), close the GitHub issue (if
+    the card is one), and drop the card from the board."""
     card = find_card(card_id)
-    action = "archived"
-    if card["kind"] == "issue" and card["col"] == "issues":
+    actions = []
+    if card["session_id"]:
+        async with devin_client() as dv:
+            r = await dv.post(f"/sessions/{card['session_id']}/archive")
+            if r.status_code >= 400:
+                raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+        actions.append("archived")
+    if card["kind"] == "issue":
         async with gh_client() as gh:
             r = await gh.patch(f"/repos/{card['repo']}/issues/{card['number']}", json={"state": "closed"})
             if r.status_code >= 400:
@@ -554,16 +560,10 @@ async def archive_card(card_id: str):
         recently_closed[card_id] = time.time()
         recent_issues.pop(card_id, None)
         state["issues"].pop(card_id, None)
-        action = "closed"
-    else:
-        if card["session_id"]:
-            async with devin_client() as dv:
-                r = await dv.post(f"/sessions/{card['session_id']}/archive")
-                if r.status_code >= 400:
-                    raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
-        if card["kind"] != "session":
-            dismissed.add(card_id)
-            save_dismissed(dismissed)
+        actions.append("closed")
+    elif card["kind"] != "session":
+        dismissed.add(card_id)
+        save_dismissed(dismissed)
     try:
         if card["session_id"]:
             await fetch_devin()

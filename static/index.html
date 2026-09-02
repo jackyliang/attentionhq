@@ -619,7 +619,7 @@ aside{
         <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
-        <div class="sc">Close issue / archive session <span class="k"><kbd>C</kbd></span></div>
+        <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd></span></div>
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
@@ -753,8 +753,8 @@ function cardHTML(c){
   const foot=`<div class="cfoot">${elapsed||'<span></span>'}${closeHint}</div>`;
   return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${foot}`;
 }
-function isIssueClose(c){return c.kind==='issue'&&c.col==='issues'}
-function archiveLabel(c){return isIssueClose(c)?'Close':'Archive'}
+function isIssueClose(c){return c.kind==='issue'}
+function archiveLabel(c){return !isIssueClose(c)?'Archive':c.session_id?'Close & archive':'Close'}
 
 function wireCard(el){
   el.addEventListener('click',e=>{
@@ -1046,7 +1046,7 @@ function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
   panelList.innerHTML=checklistHTML(c)+usageHTML(c)+linksHTML(c);
-  const lbl=isIssueClose(c)?'Close issue':'Archive';
+  const lbl=!isIssueClose(c)?'Archive':c.session_id?'Close issue & archive':'Close issue';
   panelArchiveLabel.textContent=lbl;
   panelArchive.setAttribute('aria-label',lbl);
   panelArchive.disabled=!!c.pending;
@@ -1148,10 +1148,11 @@ async function archiveCard(id){
   if(!c||c.pending||archiving)return;
   const close=isIssueClose(c);
   archiving=true;
-  showToast(close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
+  const both=close&&c.session_id;
+  showToast(both?`Closing ${shortRepo(c.repo)}#${c.num} & archiving session…`:close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
-    showToast(close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
+    showToast(both?`Closed ${shortRepo(c.repo)}#${c.num} & archived session — “${c.title}”`:close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
     if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
     await fetchBoard();
     firstCard()?.focus();
