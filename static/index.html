@@ -702,6 +702,7 @@ function mapCard(c,i){
     progress_pct:c.progress_pct,
     age:c.age||'',
     proposed:c.kind==='issue'&&!c.session_id,
+    pending:!!c.pending,
     thread:[],
   };
 }
@@ -724,7 +725,7 @@ function progressOf(c){
 }
 
 function cardHTML(c){
-  const ref=c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const ref=c.pending?`<span class="ref">creating\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
   const pct=progressOf(c);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
@@ -855,12 +856,19 @@ function wireAddCard(addBtn){
         addToPlus();
         addBtn.focus();
         if(v){
-          showToast(`Creating issue — “${v}”…`);
+          const pendingKey='pending:'+Date.now();
+          cards.unshift(mapCard({id:pendingKey,kind:'issue',col:'issues',tone:'grey',title:v,pending:true}));
+          cards.forEach((c,i)=>c.id=i);
+          renderBoard();
           try{
             const res=await api('/api/issues',{method:'POST',body:JSON.stringify({title:v})});
             showToast(`Issue created — ${shortRepo(res.repo)}#${res.number}`);
             await fetchBoard();
-          }catch(err){showToast('Create failed: '+err.message)}
+          }catch(err){
+            cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
+            renderBoard();
+            showToast('Create failed: '+err.message);
+          }
         }
       }
       if(e.key==='Escape'){
@@ -1129,7 +1137,7 @@ async function archiveCard(id){
 
 async function startIssue(id){
   const c=cards[id];
-  if(!c||c.col!=='issues')return;
+  if(!c||c.col!=='issues'||c.pending)return;
   showToast(`Starting session — “${c.title}”…`);
   try{
     await api('/api/issue/start',{method:'POST',body:JSON.stringify({repo:c.repo,number:c.num})});
