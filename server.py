@@ -658,7 +658,7 @@ async def _upstream_error(_req, exc: httpx.HTTPError):
 async def archive_card(card_id: str):
     """Archive the attached Devin session (if any), close the GitHub issue (if
     the card is one), and drop the card from the board."""
-    card = find_card(card_id)
+    card = find_card_or_stale(card_id)
     actions = []
     if card["session_id"]:
         async with devin_client() as dv:
@@ -684,6 +684,22 @@ async def archive_card(card_id: str):
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
     asyncio.create_task(_refresh_after_archive(bool(card["session_id"])))
     return {"ok": True, "actions": actions}
+
+def find_card_or_stale(card_id: str) -> dict:
+    """Like find_card, but tolerates a card the client still shows that has
+    already left the server board (e.g. the session went idle between polls)."""
+    try:
+        return find_card(card_id)
+    except HTTPException:
+        pass
+    if card_id.startswith("session:"):
+        return {"id": card_id, "kind": "session", "session_id": card_id[len("session:"):], "repo": None, "number": None}
+    issue = state["issues"].get(card_id) or recent_issues.get(card_id)
+    if issue:
+        sess = next((s for s in state["sessions"] if session_issue_key(s) == card_id), None)
+        return {"id": card_id, "kind": "issue", "session_id": sess["session_id"] if sess else None,
+                "repo": issue["repo"], "number": issue["number"]}
+    raise HTTPException(404, "card not found")
 
 async def _refresh_after_archive(had_session: bool):
     try:
