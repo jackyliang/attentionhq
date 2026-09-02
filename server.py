@@ -178,8 +178,8 @@ def _clean_text(text: str) -> str:
     return text
 
 async def fetch_session_messages(session_id: str) -> list[dict]:
-    cached = session_msgs_cache.get(session_id) or {"msgs": [], "cursor": None}
-    msgs, cursor = list(cached["msgs"]), cached["cursor"]
+    cached = session_msgs_cache.get(session_id) or {"msgs": [], "cursor": None, "seen": set()}
+    msgs, cursor, seen = list(cached["msgs"]), cached["cursor"], set(cached["seen"])
     async with devin_client() as dv:
         for _ in range(20):
             params = {"after": cursor} if cursor else {}
@@ -187,6 +187,12 @@ async def fetch_session_messages(session_id: str) -> list[dict]:
             r.raise_for_status()
             page = r.json()
             for m in page.get("items", []):
+                # The API returns end_cursor=None on the final page, so that page is
+                # re-fetched on every poll; dedupe by event_id to avoid re-appending it.
+                eid = m.get("event_id") or f"{m.get('created_at')}:{m.get('message')}"
+                if eid in seen:
+                    continue
+                seen.add(eid)
                 msgs.append({
                     "who": "user" if m.get("source") == "user" else "devin",
                     "ts": m.get("created_at", ""),
@@ -195,7 +201,7 @@ async def fetch_session_messages(session_id: str) -> list[dict]:
             cursor = page.get("end_cursor") or cursor
             if not page.get("has_next_page"):
                 break
-    session_msgs_cache[session_id] = {"msgs": msgs, "cursor": cursor}
+    session_msgs_cache[session_id] = {"msgs": msgs, "cursor": cursor, "seen": seen}
     return msgs
 
 # ---------------------------------------------------------------- extractor
