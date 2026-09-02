@@ -213,9 +213,9 @@ If the last message is the agent asking the user something or reporting completi
 async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
     if not OPENROUTER_API_KEY or not messages:
         return None
-    key = f"{len(messages)}:{messages[-1]['text'][:80]}"
+    key = f"{len(messages)}:{messages[-1]['ts']}"
     cached = extract_cache.get(session_id)
-    if cached and cached["key"] == key:
+    if cached and (cached["key"] == key or cached.get("count") == len(messages)):
         return cached["data"]
     transcript = "\n".join(f"[{m['who']}] {m['text']}" for m in messages)[-24000:]
     try:
@@ -230,6 +230,7 @@ async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
                         {"role": "user", "content": transcript},
                     ],
                     "response_format": {"type": "json_object"},
+                    "temperature": 0,
                 },
             )
             r.raise_for_status()
@@ -238,7 +239,7 @@ async def extract_session(session_id: str, messages: list[dict]) -> dict | None:
     except Exception as e:  # noqa: BLE001 — extractor is best-effort by design
         log.warning("extractor failed for %s: %s", session_id, e)
         return None
-    extract_cache[session_id] = {"key": key, "data": data}
+    extract_cache[session_id] = {"key": key, "count": len(messages), "data": data}
     return data
 
 # ---------------------------------------------------------------- board assembly

@@ -607,7 +607,7 @@ aside{
         <div class="sc">Open board chat <span class="k"><kbd>C</kbd></span></div>
         <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
-        <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd></span></div>
+        <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
         <div class="sc">Archive card <span class="k"><kbd>X</kbd></span></div>
       </div>
       <div class="sc-group">
@@ -751,6 +751,7 @@ function wireCard(el){
   });
   el.addEventListener('focus',()=>ensureVisible(el));
   el.addEventListener('mouseenter',()=>{
+    if(performance.now()-lastMouseMove>150)return;
     const a=document.activeElement;
     if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
     el.focus();
@@ -1155,6 +1156,8 @@ composer.addEventListener('keydown',e=>{
 
 /* ---- overlay ---- */
 const overlay=document.getElementById('overlay');
+let lastMouseMove=0;
+document.addEventListener('mousemove',()=>{lastMouseMove=performance.now()});
 function toggleOverlay(force){overlay.classList.toggle('open',force)}
 document.getElementById('help-btn').addEventListener('click',()=>toggleOverlay(true));
 overlay.addEventListener('click',e=>{if(e.target===overlay)toggleOverlay(false)});
