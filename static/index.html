@@ -726,7 +726,7 @@ function progressOf(c){
 
 function cardHTML(c){
   const ref=c.pending?`<span class="ref">creating\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
-  const pct=progressOf(c);
+  const pct=Math.max(progressOf(c),c.session_id?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
   const r=5.5,cf=2*Math.PI*r;
