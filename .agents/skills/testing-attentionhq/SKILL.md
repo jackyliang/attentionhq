@@ -22,7 +22,7 @@ description: How to run and test the AttentionHQ session board (FastAPI + static
 - Keyboard: WASD/arrows move selection ring; Enter opens card chat; Esc closes; `?` (send as `shift+slash` via xdotool — `question` may not register) opens shortcuts overlay; N jumps to Needs-you; X archives; E starts a Devin session / merges (COSTS MONEY / MUTATES — don't press against production); C focuses board composer.
 - Clicking a card opens its chat panel directly.
 - The Todo section renders at the very TOP of the card panel scroll area, above a long transcript — scroll/drag the panel scrollbar fully up to see it.
-- The "+" new-issue card is the LAST card in the Issues column (focus a card, press End). Enter opens inline input; Enter submits and creates a REAL GitHub issue in jackyliang/answer-hq.
+- The "+" new-issue card is the FIRST card in the Issues column (focus a card, press Home); new issues appear directly under it (newest first). Enter opens inline input; Enter submits and creates a REAL GitHub issue in jackyliang/answer-hq.
 
 ## Cleanup after tests
 - Close test issues: `curl -X PATCH -H "Authorization: Bearer $ATTENTIONHQ_GITHUB_TOKEN" https://api.github.com/repos/jackyliang/answer-hq/issues/<n> -d '{"state":"closed"}'`

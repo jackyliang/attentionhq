@@ -777,14 +777,6 @@ function renderBoard(){
     el.innerHTML = `<div class="col-head"><span class="name">${col.name}</span><span class="count">${colCards.length}</span></div>
       <div class="col-body"></div>`;
     const body = el.querySelector('.col-body');
-    colCards.forEach(c=>{
-      const b=document.createElement('button');
-      b.className='card'; b.dataset.tone=c.tone; b.dataset.id=c.id; b.dataset.key=c.key;
-      b.setAttribute('aria-label', c.title);
-      b.innerHTML=cardHTML(c);
-      wireCard(b);
-      body.appendChild(b);
-    });
     if(col.id==='issues'){
       const add=document.createElement('button');
       add.className='card add-card'; add.id='add-issue';
@@ -793,6 +785,14 @@ function renderBoard(){
       wireAddCard(add);
       body.appendChild(add);
     }
+    colCards.forEach(c=>{
+      const b=document.createElement('button');
+      b.className='card'; b.dataset.tone=c.tone; b.dataset.id=c.id; b.dataset.key=c.key;
+      b.setAttribute('aria-label', c.title);
+      b.innerHTML=cardHTML(c);
+      wireCard(b);
+      body.appendChild(b);
+    });
     boardEl.appendChild(el);
   });
   const by=id=>cards.filter(c=>c.col===id).length;
@@ -865,8 +865,7 @@ function wireAddCard(addBtn){
       }
       if(e.key==='Escape'){
         addToPlus();
-        const prev=addBtn.previousElementSibling;
-        if(prev)prev.focus(); else addBtn.focus();
+        addBtn.focus();
       }
     });
     inp.addEventListener('blur',()=>{setTimeout(()=>{if(addBtn.classList.contains('editing'))addToPlus()},120)});
