@@ -67,6 +67,7 @@
 *{box-sizing:border-box;margin:0;padding:0;border-radius:0;scrollbar-width:thin;scrollbar-color:var(--ds-gray-500) transparent}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-button{display:none;width:0;height:0}
 ::-webkit-scrollbar-thumb{background:var(--ds-gray-500)}
 ::-webkit-scrollbar-thumb:hover{background:var(--ds-gray-600)}
 ::-webkit-scrollbar-corner{background:transparent}
@@ -121,21 +122,23 @@ header{
 
 /* ---- Board ---- */
 main{
-  overflow:auto;
+  overflow-x:auto;overflow-y:hidden;
+  min-height:0;
   background:var(--ds-background-200);
 }
 .board{
   display:grid;
   grid-template-columns:repeat(5,minmax(216px,1fr));
   width:100vw;
-  min-height:100%;
+  height:100%;
   align-items:stretch;
 }
+#app[data-mode="closed"] main{overflow-x:hidden}
 #app:not([data-mode="closed"]) main{padding-right:var(--panel-w)}
 .col{
   border-right:1px solid var(--ds-gray-400);
   display:flex;flex-direction:column;
-  min-width:0;
+  min-width:0;min-height:0;
 }
 .col:last-child{border-right:none}
 .col-head{
@@ -152,7 +155,7 @@ main{
 .col[data-col="working"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-blue-900)}
 .col[data-col="review"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-purple-900)}
 .col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
-.col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1}
+.col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1;min-height:0;overflow-y:auto}
 .col-empty{font-size:12px;color:var(--ds-gray-600);padding:6px 4px}
 .card.add-card{flex-direction:row}
 .add-card{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px dashed var(--ds-gray-500);background:transparent;cursor:pointer}
@@ -466,7 +469,7 @@ aside{
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
 .msg .body img.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px}
-.msg .body a.att-link{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
+.msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
 .msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 /* board mode: conversation is the primary content, no demotion */
 #app[data-mode="board"] .thread{gap:12px}
@@ -932,14 +935,14 @@ function bodyHTML(text){
     if(/\.(png|jpe?g|gif|webp|svg)$/i.test(u.split('?')[0])){
       out+=`<a href="${safe}" target="_blank" rel="noopener"><img class="att" src="${safe}" alt="${name}" loading="lazy" onerror="this.outerHTML='<span class=&quot;att-name&quot;>'+this.alt+'</span>'"></a>`;
     }else{
-      out+=`<a class="att-link" href="${safe}" target="_blank" rel="noopener">${name}</a>`;
+      out+=`\n<a class="att-link" href="${safe}" target="_blank" rel="noopener">${name}</a>`;
     }
   }
   return out;
 }
 function renderThread(msgs){
   threadEl.innerHTML=msgs.map(m=>`<div class="msg ${m.who}">
-    <div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>
+    ${m.who==='system'?'':`<div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
     <div class="body">${bodyHTML(m.text)}</div></div>`).join('');
 }
 
@@ -959,8 +962,7 @@ function todoRow(t,i,proposed){
 function issueDescHTML(c){
   const tags=c.labels.length?`<div class="pl-tags">${c.labels.map(l=>`<span class="pl-tag">${escHTML(l)}</span>`).join('')}</div>`:'';
   const desc=c.body.trim()?`<div class="pl-desc">${mdHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
-  const start=`<div class="pl-proposed-note">${I.play} No session yet — start one with <kbd>E</kbd></div>`;
-  return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}${start}</div>`;
+  return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}</div>`;
 }
 function checklistHTML(c){
   if(c.kind==='issue'&&!c.session_id)return issueDescHTML(c);
@@ -977,7 +979,7 @@ function checklistHTML(c){
 function linksHTML(c){
   const links=[];
   if(c.url&&c.url!==c.session_url&&c.kind!=='session')links.push(`<a class="pl-link" href="${c.url}" target="_blank" rel="noopener">${I.external} ${c.kind==='pr'?'Pull request':'GitHub issue'}</a>`);
-  if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR ${escHTML(shortRepo(c.pr.repo))}#${c.pr.number} · CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||escHTML(String(c.pr.review).replace(/_/g,' '))}</a>`);
+  if(c.pr&&(!c.url||c.pr.url!==c.url))links.push(`<a class="pl-link" href="${c.pr.url}" target="_blank" rel="noopener">${I.merge} PR #${c.pr.number}</a>`);
   if(c.session_url)links.push(`<a class="pl-link" href="${c.session_url}" target="_blank" rel="noopener">${I.logs} Devin session</a>`);
   if(!links.length)return '';
   return `<div class="pl-links">${links.join('')}</div>`;
@@ -1238,12 +1240,11 @@ document.addEventListener('keydown',e=>{
     case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
     case 'Enter': {const f=focused(); if(f){if(f.id==='add-issue')break; const id=+f.dataset.id; if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
     case 'Escape':
-      if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; el?.focus()}
+      if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; requestAnimationFrame(()=>el?.focus())}
       break;
     case 'c': case 'C': setBoardMode(); composer.focus(); e.preventDefault(); break;
     case '?': toggleOverlay(true); e.preventDefault(); break;
     case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(+f.dataset.id); break}
-    case 'f': case 'F': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)startIssue(+f.dataset.id); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
     case 'x': case 'X': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
     case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)pickOption(+f.dataset.id,+e.key-1); break}
