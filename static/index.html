@@ -115,8 +115,15 @@ header{
 .dot.blue{background:var(--ds-blue-700)}
 .dot.green{background:var(--ds-green-700)}
 .dot.grey{background:var(--ds-gray-500)}
+.dot.red{background:var(--ds-red-700)}
 .hdr-right{margin-left:auto;display:flex;align-items:center;gap:16px}
-.hdr-repo{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900)}
+.hdr-deploys{display:flex;align-items:center;gap:14px;font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900)}
+.hdr-deploys .deploy{display:flex;align-items:center;gap:7px;color:inherit;text-decoration:none;white-space:nowrap}
+.hdr-deploys .deploy:hover .svc{color:var(--ds-gray-1000)}
+.hdr-deploys .deploy .st{color:var(--ds-gray-700)}
+.hdr-deploys .deploy.deploying .st{color:var(--ds-blue-900)}
+.hdr-deploys .deploy.failed .st{color:var(--ds-red-900)}
+.hdr-deploys .muted{color:var(--ds-gray-700)}
 .hdr-help{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ds-gray-900)}
 .hdr-help:hover{color:var(--ds-gray-1000)}
 
@@ -556,7 +563,7 @@ aside{
       <span class="hdr-stat"><span class="dot grey"></span><span class="n" id="stat-idle">4</span> not started</span>
     </div>
     <div class="hdr-right">
-      <span class="hdr-repo">answer-hq · answerhq-web</span>
+      <div class="hdr-deploys" id="hdr-deploys" aria-label="Render deploy status"></div>
       <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts"><kbd>?</kbd> shortcuts</button>
     </div>
   </header>
@@ -819,7 +826,48 @@ async function fetchBoard(){
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
   cards=flat.map(mapCard);
   renderBoard();
+  renderDeploys(data);
   prefetchThreads();
+}
+
+function ago(ts){
+  if(!ts)return '';
+  const s=Math.max(0,(Date.now()-new Date(ts).getTime())/1000);
+  if(s<60)return 'just now';
+  if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+function elapsed(ts){
+  if(!ts)return '';
+  const s=Math.max(0,(Date.now()-new Date(ts).getTime())/1000);
+  return s<60?Math.floor(s)+'s':Math.floor(s/60)+'m';
+}
+
+let lastDeploys=null;
+function renderDeploys(data){
+  const el=document.getElementById('hdr-deploys');
+  if(!el)return;
+  if(data)lastDeploys=data;
+  const d=lastDeploys;
+  if(!d)return;
+  const r=d.render||{};
+  if(!r.configured){el.innerHTML='<span class="muted" title="Set RENDER_API_KEY to show Render deploy status">render · not connected</span>';return}
+  const svcs=d.deploys||[];
+  if(d.loading&&!svcs.length){el.innerHTML='';return}
+  if(!svcs.length){el.innerHTML=r.ok?'<span class="muted">render · no services</span>':'<span class="deploy"><span class="dot amber"></span><span class="muted">render · unreachable</span></span>';return}
+  el.innerHTML=svcs.map(s=>{
+    let dot='grey',st='',tip='';
+    const lc=s.last_deployed_commit,dc=s.deploying_commit;
+    const lastLine=s.last_deployed_at?`Last deployed ${ago(s.last_deployed_at)}${lc?` — ${lc.sha} ${lc.message}`:''}`:'Never deployed';
+    if(s.status==='deploying'){dot='blue pulse';st=`deploying · ${elapsed(s.deploying_since)}`;tip=`Deploying now${dc?`: ${dc.sha} ${dc.message}`:''}\n${lastLine}`}
+    else if(s.status==='failed'){dot='red';st=`failed ${ago(s.failed_at)}`;tip=`Latest deploy failed ${ago(s.failed_at)}\n${lastLine}`}
+    else if(s.status==='live'){dot='green';st=`deployed ${ago(s.last_deployed_at)}`;tip=lastLine}
+    else if(s.status==='canceled'){dot='grey';st=s.last_deployed_at?`deployed ${ago(s.last_deployed_at)}`:'canceled';tip=`Latest deploy canceled\n${lastLine}`}
+    else{st='no deploys';tip=lastLine}
+    return `<a class="deploy ${escHTML(s.status)}" href="${escHTML(s.url)}" target="_blank" rel="noopener" title="${escHTML(tip)}"><span class="dot ${dot}"></span><span class="svc">${escHTML(s.name)}</span><span class="st">${st}</span></a>`;
+  }).join('');
+  if(!r.ok)el.insertAdjacentHTML('beforeend','<span class="muted" title="Render API unreachable — showing last known state">stale</span>');
 }
 
 let prefetching=false;
@@ -1286,6 +1334,7 @@ fetchBoard().then(()=>{
   if(c)c.focus();
 }).catch(e=>showToast('Load failed: '+e.message));
 setInterval(()=>{fetchBoard().catch(()=>{})},15000);
+setInterval(()=>renderDeploys(),10000);
 </script>
 </body>
 </html>

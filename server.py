@@ -28,12 +28,16 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-5.6-luna:nitro")
 BOARD_TOKEN = os.environ.get("BOARD_TOKEN", "")
 REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web").split(",") if r.strip()]
+RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
+RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
 GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "60"))
+RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "30"))
 
 DEVIN_BASE = f"https://api.devin.ai/v3/organizations/{DEVIN_ORG_ID}"
 GH_BASE = "https://api.github.com"
 OR_BASE = "https://openrouter.ai/api/v1"
+RENDER_BASE = "https://api.render.com/v1"
 
 ISSUE_TAG_RE = re.compile(r"issue:([\w.-]+/[\w.-]+)#(\d+)")
 PR_ISSUE_RE = re.compile(r"(?:#|issues/)(\d+)")
@@ -44,9 +48,11 @@ state: dict = {
     "issues": {},      # "owner/repo#n" -> issue dict
     "prs": {},         # "owner/repo#n" -> pr dict (enriched with ci/review)
     "sessions": [],    # devin session list
+    "deploys": [],     # render deploy status per service
     "board": None,     # assembled board payload
     "devin_ok": True,
     "github_ok": True,
+    "render_ok": True,
     "generated_at": 0,
 }
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
@@ -84,6 +90,9 @@ def gh_client():
         },
         timeout=30,
     )
+
+def render_client():
+    return httpx.AsyncClient(base_url=RENDER_BASE, headers={"Authorization": f"Bearer {RENDER_API_KEY}", "Accept": "application/json"}, timeout=30)
 
 # ---------------------------------------------------------------- github fetch
 
@@ -171,6 +180,68 @@ async def fetch_github():
                 }
     state["issues"], state["prs"] = issues, prs
     state["github_ok"] = True
+
+# ---------------------------------------------------------------- render fetch
+
+RENDER_IN_PROGRESS = {"created", "queued", "build_in_progress", "pre_deploy_in_progress", "update_in_progress"}
+RENDER_FAILED = {"build_failed", "pre_deploy_failed", "update_failed"}
+
+def repo_from_url(url: str) -> str:
+    return re.sub(r"^https?://github\.com/", "", url or "").removesuffix(".git").strip("/")
+
+def deploy_commit(d: dict | None) -> dict | None:
+    c = (d or {}).get("commit") or {}
+    if not c:
+        return None
+    lines = (c.get("message") or "").splitlines()
+    return {"sha": (c.get("id") or "")[:7], "message": lines[0] if lines else ""}
+
+def deploy_summary(service: dict, deploys: list[dict]) -> dict:
+    latest = deploys[0] if deploys else None
+    live = next((d for d in deploys if d.get("status") == "live"), None)
+    if latest and latest.get("status") in RENDER_IN_PROGRESS:
+        status = "deploying"
+    elif latest and latest.get("status") in RENDER_FAILED:
+        status = "failed"
+    elif latest and latest.get("status") == "canceled":
+        status = "canceled"
+    elif live:
+        status = "live"
+    else:
+        status = "unknown"
+    return {
+        "id": service["id"], "name": service["name"], "type": service["type"],
+        "repo": repo_from_url(service.get("repo", "")),
+        "url": service.get("dashboardUrl") or f"https://dashboard.render.com/web/{service['id']}",
+        "status": status,
+        "deploying_since": latest.get("createdAt") if status == "deploying" else None,
+        "deploying_commit": deploy_commit(latest) if status == "deploying" else None,
+        "failed_at": (latest.get("updatedAt") or latest.get("createdAt")) if status == "failed" else None,
+        "last_deployed_at": (live.get("finishedAt") or live.get("updatedAt")) if live else None,
+        "last_deployed_commit": deploy_commit(live),
+    }
+
+async def fetch_render():
+    if not RENDER_API_KEY:
+        state["deploys"] = []
+        return
+    out = []
+    async with render_client() as rc:
+        r = await rc.get("/services", params={"limit": 100})
+        r.raise_for_status()
+        services = [x.get("service", x) for x in r.json()]
+        for svc in services:
+            if svc.get("type") not in RENDER_SERVICE_TYPES or svc.get("suspended") == "suspended":
+                continue
+            if repo_from_url(svc.get("repo", "")) not in REPOS:
+                continue
+            d = await rc.get(f"/services/{svc['id']}/deploys", params={"limit": 10})
+            d.raise_for_status()
+            deploys = [x.get("deploy", x) for x in d.json()]
+            out.append(deploy_summary(svc, deploys))
+    out.sort(key=lambda s: (REPOS.index(s["repo"]), s["name"]))
+    state["deploys"] = out
+    state["render_ok"] = True
 
 # ---------------------------------------------------------------- devin fetch
 
@@ -423,6 +494,8 @@ async def assemble_board():
                                         key=lambda c: str(c["created_at"]), reverse=(cid == "issues"))}
             for cid in ("issues", "working", "needs-you", "review", "ready")
         ],
+        "deploys": state["deploys"],
+        "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
         "devin_ok": state["devin_ok"],
         "github_ok": state["github_ok"],
         "generated_at": time.time(),
@@ -433,6 +506,7 @@ async def assemble_board():
 
 async def poll_loop():
     last_gh = 0.0
+    last_render = 0.0
     while True:
         try:
             if time.time() - last_gh >= GITHUB_POLL_SECS:
@@ -441,6 +515,13 @@ async def poll_loop():
         except Exception as e:  # noqa: BLE001
             state["github_ok"] = False
             log.warning("github poll failed: %s", e)
+        try:
+            if time.time() - last_render >= RENDER_POLL_SECS:
+                await fetch_render()
+                last_render = time.time()
+        except Exception as e:  # noqa: BLE001
+            state["render_ok"] = False
+            log.warning("render poll failed: %s", e)
         try:
             await fetch_devin()
             # refresh messages for sessions that appear on the board
@@ -486,7 +567,8 @@ async def auth_middleware(request: Request, call_next):
 async def get_board():
     if state["board"] is None:
         return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
-                "loading": True, "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0}
+                "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
+                "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0}
     return state["board"]
 
 def find_card(card_id: str) -> dict:

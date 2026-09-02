@@ -25,6 +25,8 @@ Open http://localhost:8000. If `BOARD_TOKEN` is set, the UI prompts for it once.
 | `OPENROUTER_MODEL` | Default `openai/gpt-5.6-luna:nitro` |
 | `BOARD_TOKEN` | Shared token gating all `/api` routes |
 | `REPOS` | Comma-separated `owner/repo` list |
+| `RENDER_API_KEY` | Optional — Render API key; header shows deploy status (deploying now / last deployed) for Render services built from `REPOS` |
+| `RENDER_SERVICE_TYPES` | Default `web_service,static_site` — Render service types to show |
 
 ## Deploy
 
