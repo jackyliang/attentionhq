@@ -554,18 +554,33 @@ aside{
 .pl-conv-head .m{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .pl-conv-head .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
 .pl-conv-head .rule{flex:1;height:1px;background:var(--ds-gray-300)}
-.thread{padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px}
-.msg{display:flex;flex-direction:column;gap:3px;max-width:100%;align-items:flex-start}
-.msg .meta{display:flex;align-items:baseline;gap:8px}
-.msg .who{font-size:11px;line-height:14px;font-weight:500;color:var(--ds-gray-900)}
+.thread{padding:10px 14px 14px;display:flex;flex-direction:column;gap:14px}
+.msg{display:flex;flex-direction:column;gap:4px;max-width:100%;align-items:flex-start}
+.msg .meta{display:flex;align-items:center;gap:6px}
+.msg .who{font-size:11px;line-height:14px;font-weight:500;color:var(--ds-gray-900);display:inline-flex;align-items:center;gap:5px}
+.msg .who .av{width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;background:var(--ds-gray-1000);color:var(--ds-background-100);font-size:8px;font-weight:600;flex:none}
+.msg.user .who .av{background:var(--ds-blue-700);color:#fff}
 .msg.user .who{color:var(--ds-gray-1000)}
+.msg .via{font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ds-gray-600);border:1px solid var(--ds-gray-400);padding:0 4px}
 .msg .ts{font-family:var(--font-mono);font-size:10px;color:var(--ds-gray-600)}
 .msg .body{
   font-size:13px;line-height:19px;color:var(--ds-gray-1000);
-  white-space:pre-wrap;
   overflow-wrap:anywhere;word-break:break-word;
   min-width:0;max-width:100%;
 }
+.msg .body p{margin:0}
+.msg .body p + p,.msg .body p + ul,.msg .body p + ol,.msg .body ul + p,.msg .body ol + p,.msg .body pre + p,.msg .body p + pre,.msg .body blockquote + p,.msg .body p + blockquote,.msg .body ul + ul,.msg .body ol + ol,.msg .body ul + ol,.msg .body ol + ul{margin-top:8px}
+.msg .body ul,.msg .body ol{margin:0;padding-left:22px}
+.msg .body li{margin:2px 0}
+.msg .body li::marker{color:var(--ds-gray-700);font-family:var(--font-mono);font-size:11px}
+.msg .body h1,.msg .body h2,.msg .body h3,.msg .body h4{font-size:13px;line-height:19px;font-weight:600;margin:10px 0 2px}
+.msg .body h1:first-child,.msg .body h2:first-child,.msg .body h3:first-child,.msg .body h4:first-child{margin-top:0}
+.msg .body blockquote{margin:0;padding:2px 0 2px 10px;border-left:2px solid var(--ds-gray-500);color:var(--ds-gray-900)}
+.msg .body hr{border:0;border-top:1px solid var(--ds-gray-400);margin:8px 0}
+.msg .body pre{margin:0;padding:8px 10px;background:var(--ds-gray-100);border:1px solid var(--ds-gray-400);overflow:auto;font-family:var(--font-mono);font-size:11.5px;line-height:16px;white-space:pre}
+.msg .body pre code{font-size:inherit;color:var(--ds-gray-1000);background:none;padding:0}
+.msg .body strong{font-weight:600}
+.msg .body del{color:var(--ds-gray-700)}
 .msg.user{align-items:flex-end}
 .msg.user .meta{flex-direction:row-reverse}
 .msg.user .body{
@@ -574,32 +589,57 @@ aside{
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
 .msg.pr{align-items:stretch}
+.msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900);background:var(--ds-gray-200);padding:0 3px}
+.msg .body a{color:var(--ds-blue-900);text-decoration:none}
+.msg .body a:hover{text-decoration:underline}
 .msg.working{flex-direction:row;align-items:center;gap:8px;font-size:13px;line-height:18px;font-weight:500;padding:4px 0}
 .msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-600) 0%,var(--ds-gray-600) 35%,#fff 50%,var(--ds-gray-600) 65%,var(--ds-gray-600) 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer-txt 1.4s ease-in-out infinite}
 @keyframes shimmer-txt{from{background-position:100% 0}to{background-position:-100% 0}}
-.prcard{
-  display:flex;flex-direction:column;gap:6px;
-  border:1px solid var(--ds-gray-400);border-left:3px solid var(--ds-purple-700);
-  padding:10px 12px;background:var(--ds-gray-100);max-width:100%;
+
+/* message action rows: PR cards, test offers, option buttons (mirrors app.devin.ai) */
+.msg .acts{display:flex;flex-direction:column;gap:6px;width:100%;max-width:100%}
+.pr-card{
+  display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:start;
+  width:100%;max-width:420px;padding:9px 10px;
+  background:var(--ds-background-200);border:1px solid var(--ds-gray-400);
+  text-decoration:none;color:inherit;
 }
-.prcard[data-state="merged"]{border-left-color:var(--ds-purple-900)}
-.prcard[data-state="open"]{border-left-color:var(--ds-green-700)}
-.prcard[data-state="closed"]{border-left-color:var(--ds-gray-600)}
-.prcard .head{display:flex;align-items:baseline;gap:8px;min-width:0}
-.prcard .state{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.08em;text-transform:uppercase;flex:none;color:var(--ds-gray-900)}
-.prcard[data-state="merged"] .state{color:var(--ds-purple-900)}
-.prcard[data-state="open"] .state{color:var(--ds-green-900)}
-.prcard .num{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-900);flex:none}
-.prcard .title{font-size:13px;line-height:18px;font-weight:500;color:var(--ds-gray-1000);overflow-wrap:anywhere}
-.prcard .repo{font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-700)}
-.prcard .repo b{font-weight:500;color:var(--ds-gray-900)}
-.prcard .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
-.prcard .actions .pl-link{padding:4px 8px}
-.prcard .actions .merge{color:var(--ds-green-900);border-color:var(--ds-green-700);cursor:pointer}
-.prcard .actions .merge:hover{background:var(--ds-green-100)}
-.prcard .actions .merge.armed{background:var(--ds-green-500);border-color:var(--ds-green-700);color:var(--ds-gray-1000);box-shadow:0 0 0 1px var(--ds-green-700)}
-.prcard .actions .merge.busy{opacity:.6;pointer-events:none}
-.msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900)}
+.pr-card:hover{border-color:var(--ds-gray-500)}
+.pr-card .pr-repo{grid-column:1;display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--ds-gray-700);min-width:0}
+.pr-card .pr-repo svg{flex:none;color:var(--ds-gray-800)}
+.pr-card .pr-repo span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-card .pr-title{grid-column:1;font-size:12.5px;line-height:17px;font-weight:500;color:var(--ds-gray-1000)}
+.pr-card .pr-title a{color:inherit;text-decoration:none}
+.pr-card .pr-title a:hover{text-decoration:underline}
+.pr-card .pr-title .n{color:var(--ds-gray-700);font-weight:400;margin-left:4px}
+.pr-card .act,.msg-btns .act{text-decoration:none}
+.pr-card .pr-state{grid-column:2;grid-row:1/span 2;align-self:center;display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.08em;text-transform:uppercase;padding:3px 6px;border:1px solid var(--ds-gray-500);color:var(--ds-gray-900)}
+.pr-card .pr-state.open{color:var(--ds-green-900);border-color:var(--ds-green-500);background:var(--ds-green-100)}
+.pr-card .pr-state.merged{color:var(--ds-purple-900);border-color:hsla(275,80%,71%,.4);background:hsla(275,80%,40%,.15)}
+.pr-card .pr-state.closed{color:var(--ds-red-900);border-color:hsla(358,100%,69%,.4);background:hsla(358,80%,40%,.15)}
+.pr-card .pr-state.draft{color:var(--ds-gray-800)}
+.pr-card .pr-foot{grid-column:1/span 2;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--ds-gray-700);margin-top:2px}
+.pr-card .pr-foot .ci{display:inline-flex;align-items:center;gap:4px}
+.pr-card .pr-foot .ci.passing{color:var(--ds-green-900)}
+.pr-card .pr-foot .ci.failing{color:var(--ds-red-900)}
+.pr-card .pr-foot .ci.running{color:var(--ds-amber-900)}
+.pr-card .pr-foot .add{color:var(--ds-green-900)}
+.pr-card .pr-foot .del{color:var(--ds-red-900)}
+.pr-card .pr-foot .branch{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.pr-card .pr-btns{grid-column:1/span 2;display:flex;gap:6px;margin-top:4px}
+.pr-card .act{height:24px;font-size:11px;padding:0 8px}
+.pr-card .act.merge{cursor:pointer}
+.pr-card .act.merge.armed{background:var(--ds-green-500);border-color:var(--ds-green-700);color:var(--ds-gray-1000);box-shadow:0 0 0 1px var(--ds-green-700)}
+.pr-card .act.merge.busy{opacity:.6;pointer-events:none}
+.msg-btns{display:flex;flex-wrap:wrap;gap:6px}
+.msg-btns .act{height:26px;font-size:12px;padding:0 10px;cursor:pointer}
+.msg-btns .act.opt-btn{border-color:var(--ds-amber-500);background:var(--ds-amber-100);color:var(--ds-amber-1000)}
+.msg-btns .act.opt-btn:hover{background:var(--ds-amber-300)}
+.msg-btns .act.opt-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-amber-900);background:transparent;border:1px solid var(--ds-amber-500);display:inline-flex;align-items:center;justify-content:center}
+.msg-btns .act[disabled]{opacity:.5;cursor:default}
+.q-block{width:100%;border:1px solid var(--ds-amber-500);background:var(--ds-amber-100);padding:9px 10px;display:flex;flex-direction:column;gap:8px}
+.q-block .q-head{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-amber-900)}
+.q-block .q-text{font-size:12.5px;line-height:17px;color:var(--ds-amber-1000)}
 .msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
 .msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
@@ -1084,7 +1124,7 @@ function renderBoard(){
   set('stat-ready',n('ready')); set('stat-idle',n('issues'));
   if(openCard!=null&&openCardKey!=null){
     const idx=cards.findIndex(c=>c.key===openCardKey);
-    if(idx>=0){openCard=idx; refreshPanel(cards[idx])}
+    if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
     else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
   }
   if(focusKey){
@@ -1175,7 +1215,9 @@ async function prefetchThreads(){
     for(const c of pending){
       try{
         const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-        threadCache[c.key]=data.messages||[];
+        const d={msgs:data.messages||[],status:data.status||null};
+        d.sig=threadSig(d);
+        threadCache[c.key]=d;
       }catch(e){/* warm cache best-effort */}
     }
   }finally{prefetching=false}
@@ -1255,7 +1297,10 @@ const URL_RE=/https?:\/\/[^\s<>"')\]]+/g;
 function inlineMD(escaped){
   return linkifyMD(escaped
     .replace(/`([^`\n]+)`/g,'<code>$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>'));
+    .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
+    .replace(/~~([^~\n]+)~~/g,'<del>$1</del>'));
 }
 function linkifyMD(s){
   s=s.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g,(m,alt,u)=>`<img class="att" src="${attURL(u)}" alt="${alt}" loading="lazy">`);
@@ -1269,22 +1314,61 @@ function linkifyMD(s){
     return `<a href="${attURL(u)}" target="_blank" rel="noopener">${u}</a>${full.slice(u.length)}`;
   });
 }
+const UL_RE=/^\s*[-*+]\s+/, OL_RE=/^\s*(\d+)[.)]\s+/;
+// Block-level markdown for transcripts: fenced code, lists (nested one level by indent),
+// headings, blockquotes, rules, paragraphs. Escaping happens up-front on the raw text.
 function mdHTML(text){
-  const blocks=escHTML(text.replace(/\r\n/g,'\n')).split(/\n{2,}/);
-  return blocks.map(b=>{
-    const lines=b.split('\n');
-    if(lines.every(l=>/^\s*[-*]\s+/.test(l)||!l.trim()))
-      return '<ul>'+lines.filter(l=>l.trim()).map(l=>`<li>${inlineMD(l.replace(/^\s*[-*]\s+/,''))}</li>`).join('')+'</ul>';
-    const out=[];let para=[];
-    const flush=()=>{if(para.length){out.push(`<p>${para.map(inlineMD).join('<br>')}</p>`);para=[];}};
-    for(const l of lines){
-      const h=l.match(/^(#{1,4})\s+(.*)$/);
-      if(h){flush();out.push(`<h${h[1].length}>${inlineMD(h[2])}</h${h[1].length}>`);}
-      else para.push(l);
+  const lines=escHTML((text??'').toString().replace(/\r\n/g,'\n')).split('\n');
+  const out=[];let i=0;
+  const listHTML=(items,ordered,start)=>`<${ordered?`ol${start>1?` start="${start}"`:''}`:'ul'}>${items.map(x=>`<li>${x}</li>`).join('')}</${ordered?'ol':'ul'}>`;
+  while(i<lines.length){
+    let l=lines[i];
+    if(!l.trim()){i++;continue}
+    const fence=l.match(/^\s*(```|~~~)\s*(\w+)?\s*$/);
+    if(fence){
+      const buf=[];i++;
+      while(i<lines.length&&!lines[i].match(new RegExp(`^\\s*${fence[1]}\\s*$`)))buf.push(lines[i++]);
+      i++;
+      out.push(`<pre><code${fence[2]?` class="lang-${fence[2]}"`:''}>${buf.join('\n')}</code></pre>`);
+      continue;
     }
-    flush();
-    return out.join('');
-  }).join('');
+    const h=l.match(/^\s{0,3}(#{1,4})\s+(.*?)\s*#*\s*$/);
+    if(h){out.push(`<h${h[1].length}>${inlineMD(h[2])}</h${h[1].length}>`);i++;continue}
+    if(/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(l)){out.push('<hr>');i++;continue}
+    if(/^\s{0,3}&gt;/.test(l)){
+      const buf=[];
+      while(i<lines.length&&/^\s{0,3}&gt;/.test(lines[i]))buf.push(lines[i++].replace(/^\s{0,3}&gt;\s?/,''));
+      out.push(`<blockquote>${mdHTML_unescaped(buf.join('\n'))}</blockquote>`);
+      continue;
+    }
+    const ol=l.match(OL_RE), ul=!ol&&UL_RE.test(l);
+    if(ol||ul){
+      const ordered=!!ol, start=ordered?+ol[1]:1, items=[];
+      const indent=l.match(/^\s*/)[0].length;
+      while(i<lines.length){
+        const cur=lines[i];
+        const m=ordered?cur.match(OL_RE):(UL_RE.test(cur)?cur.match(UL_RE):null);
+        const curIndent=cur.match(/^\s*/)[0].length;
+        if(m&&curIndent<=indent){
+          items.push(inlineMD(cur.replace(ordered?OL_RE:UL_RE,'')));i++;
+          const sub=[];
+          while(i<lines.length&&lines[i].trim()&&lines[i].match(/^\s*/)[0].length>indent){sub.push(lines[i].slice(Math.min(indent+2,lines[i].match(/^\s*/)[0].length)));i++}
+          if(sub.length)items[items.length-1]+=mdHTML_unescaped(sub.join('\n'));
+        }else break;
+      }
+      out.push(listHTML(items,ordered,start));
+      continue;
+    }
+    const para=[];
+    while(i<lines.length&&lines[i].trim()&&!/^\s*(```|~~~)/.test(lines[i])&&!/^\s{0,3}#{1,4}\s/.test(lines[i])&&!/^\s{0,3}&gt;/.test(lines[i])&&!OL_RE.test(lines[i])&&!UL_RE.test(lines[i]))para.push(lines[i++]);
+    if(para.length)out.push(`<p>${para.map(x=>inlineMD(x.trim())).join('<br>')}</p>`);
+    else i++;
+  }
+  return out.join('');
+}
+// same as mdHTML but for text that is already HTML-escaped (nested blocks)
+function mdHTML_unescaped(escaped){
+  return mdHTML(escaped.replace(/&quot;/g,'"').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&'));
 }
 const ATT_RE=/ATTACHMENT:\s*(?:\{"url":"(https?:\/\/[^"]+)"[^}]*\}|"(https?:\/\/[^"]+)")/g;
 const DEVIN_ATT_RE=/^https:\/\/app\.devin\.ai\/attachments\/([0-9a-f-]+)\/([^/?#]+)/i;
@@ -1293,10 +1377,11 @@ function attURL(u){
   if(!m)return u;
   return `/api/attachment/${m[1]}/${m[2]}${BOARD_TOKEN?`?t=${encodeURIComponent(BOARD_TOKEN)}`:''}`;
 }
+const OFFER_RE=/\[OFFER_TEST_APP\]([\s\S]*?)\[\/OFFER_TEST_APP\]/g;
 function bodyHTML(text){
-  const t=(text??'').toString();
+  const t=(text??'').toString().replace(OFFER_RE,'');
   const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]||m[2]);
-  let out=linkifyMD(escHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim()));
+  let out=mdHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim());
   for(const u of atts){
     const safe=escHTML(attURL(u));
     const name=escHTML(decodeURIComponent(u.split('/').pop().split('?')[0]||'attachment'));
@@ -1311,6 +1396,9 @@ function bodyHTML(text){
   }
   return out;
 }
+const GH_ICON='<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
+const PR_STATE_LABEL={open:'Open',merged:'Merged',closed:'Closed',draft:'Draft'};
+const CI_LABEL={passing:'checks passed',failing:'checks failed',running:'checks running',none:'no checks',unknown:''};
 function tsMs(ts){
   if(!ts)return NaN;
   const n=typeof ts==='number'?ts:(/^\d+(\.\d+)?$/.test(ts)?Number(ts):NaN);
@@ -1319,17 +1407,27 @@ function tsMs(ts){
 }
 function prCardHTML(p){
   const state=p.draft&&p.state==='open'?'draft':p.state;
-  const label={merged:'Merged PR',open:'Opened PR',closed:'Closed PR',draft:'Draft PR'}[state]||'PR';
-  return `<div class="prcard" data-state="${escHTML(p.state)}">
-    <div class="head"><span class="state">${label}</span><span class="num">#${p.number}</span></div>
-    <div class="title">${escHTML(p.title)}</div>
-    <div class="repo">repo <b>${escHTML(shortRepo(p.repo))}</b></div>
-    <div class="actions">
-      <a class="pl-link" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a>
-      <a class="pl-link" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>
-      ${p.state==='open'&&!p.draft?`<span class="pl-link merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}
-    </div>
-  </div>`;
+  const ci=state==='open'||state==='draft'?(CI_LABEL[p.ci]?`<span class="ci ${p.ci}">${p.ci==='passing'?I.check:p.ci==='failing'?I.x:p.ci==='running'?I.spinner:''}${CI_LABEL[p.ci]}</span>`:''):'';
+  const diff=`<span><span class="add">+${p.additions}</span> <span class="del">\u2212${p.deletions}</span></span>`;
+  const canMerge=state==='open';
+  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a><a class="act" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>${canMerge?`<span class="act green merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}</div>`;
+  return `<div class="pr-card" data-state="${escHTML(state)}">
+    <div class="pr-repo">${GH_ICON}<span>${escHTML(p.repo)}</span></div>
+    <span class="pr-state ${state}">${state==='merged'?I.merge:''}${PR_STATE_LABEL[state]||state}</span>
+    <div class="pr-title"><a href="${escHTML(p.url)}" target="_blank" rel="noopener">${escHTML(p.title)}</a><span class="n">#${p.number}</span></div>
+    <div class="pr-foot">${ci}${diff}<span class="branch" title="${escHTML(p.branch)} \u2192 ${escHTML(p.base)}">${escHTML(p.branch)}</span></div>
+    ${btns}</div>`;
+}
+function whoHTML(m){
+  if(m.who==='devin')return `<span class="who"><span class="av">D</span>Devin</span>`;
+  if(m.who==='user'){
+    const origin=(m.origin||'').toLowerCase();
+    const auto=origin==='automation';
+    const name=auto?'Automation':(m.name||'You');
+    const via=origin&&origin!=='web'&&origin!=='automation'?`<span class="via">${escHTML(origin)}</span>`:'';
+    return `<span class="who"><span class="av">${escHTML(name[0].toUpperCase())}</span>${escHTML(name)}</span>${via}`;
+  }
+  return `<span class="who">${WHO[m.who]||m.who}</span>`;
 }
 function workingText(c){
   if(c.now&&c.now.text)return c.now.text;
@@ -1340,15 +1438,49 @@ function workingHTML(c){
   if(!c||c.col!=='working'||c.pending)return '';
   return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(workingText(c))}</span></div>`;
 }
-function renderThread(msgs){
+// ctx: {options:[...], ask, waiting}
+function renderThread(msgs,ctx={}){
   const convMeta=document.getElementById('conv-meta');
   const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
   const last=real.at(-1);
   convMeta.textContent=real.length?`${real.length} · last ${last&&last.ts?ago(tsMs(last.ts)):''}`.replace(/ · last $/,''):'';
-  threadEl.innerHTML=msgs.map(m=>m.who==='pr'?`<div class="msg pr">${prCardHTML(m.pr)}</div>`:`<div class="msg ${m.who}">
-    ${m.who==='system'?'':`<div class="meta"><span class="who">${WHO[m.who]||m.who}</span>${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
-    <div class="body">${bodyHTML(m.text)}</div></div>`).join('')+(mode==='card'?workingHTML(cards[openCard]):'');
+  const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
+  const html=msgs.map(m=>{
+    if(m.who==='pr')return `<div class="msg pr">${prCardHTML(m.pr)}</div>`;
+    const acts=[];
+    const text=(m.text??'').toString();
+    if(m===lastDevin){
+      const offers=[...text.matchAll(OFFER_RE)].map(x=>x[1].trim()).filter(Boolean);
+      if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
+    }
+    return `<div class="msg ${m.who}">
+    ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
+    <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`;
+  });
+  const tail=[];
+  if(ctx.waiting&&(ctx.options||[]).length){
+    tail.push(`<div class="msg devin"><div class="acts"><div class="q-block"><div class="q-head">${I.question} Devin is waiting on you</div>${ctx.ask?`<div class="q-text">${escHTML(ctx.ask)}</div>`:''}<div class="msg-btns">${ctx.options.map((o,i)=>`<button class="act opt-btn" data-opt="${i}"><kbd>${i+1}</kbd>${escHTML(o)}</button>`).join('')}</div></div></div></div>`);
+  }else if(mode==='card'){
+    tail.push(workingHTML(cards[openCard]));
+  }
+  threadEl.innerHTML=html.join('')+tail.join('');
 }
+threadEl.addEventListener('click',async e=>{
+  const t=e.target.closest('button');
+  if(!t||openCard==null)return;
+  const c=cards[openCard];
+  if(!c)return;
+  if(t.dataset.opt!=null){pickOption(openCard,+t.dataset.opt);return}
+  if(t.dataset.offer){
+    t.disabled=true;
+    const text=`Yes — go ahead: ${t.dataset.offer}`;
+    try{
+      await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text})});
+      showToast(`Sent “${text}”`);
+      loadThread(c);
+    }catch(err){t.disabled=false;showToast('Send failed: '+err.message)}
+  }
+});
 
 function todoRow(t,i,proposed){
   const stateCls=t.state==='done'?'done':(t.state==='active'?'active':'');
@@ -1447,7 +1579,18 @@ function refreshPanel(c){
   panelHide.disabled=!!c.pending;
 }
 
-const threadCache={};
+const threadCache={}; // card key -> {msgs, status, sig}
+function threadSig(d){
+  return JSON.stringify([d.msgs||[],d.status||null]);
+}
+function threadCtx(c,d){
+  const st=d.status||{};
+  return {
+    options:c.options||[],
+    ask:c.col==='needs-you'&&c.now?c.now.text:null,
+    waiting:!!st.waiting,
+  };
+}
 let stickToEnd=true;
 function atThreadEnd(){return panelScroll.scrollHeight-panelScroll.scrollTop-panelScroll.clientHeight<24}
 function scrollThreadToEnd(){
@@ -1461,26 +1604,29 @@ threadRO.observe(threadEl);
 threadRO.observe(panelScroll);
 threadEl.addEventListener('load',()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight},true);
 threadEl.addEventListener('loadedmetadata',()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight},true);
-async function loadThread(c){
+// quiet: background refresh — re-render only if something changed and don't yank the scroll position
+async function loadThread(c,quiet=false){
   if(!c.session_id){
     renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
     return;
   }
   const cached=threadCache[c.key];
   if(cached){
-    renderThread(cached.length?cached:[{who:'system',text:'No messages yet.'}]);
-    scrollThreadToEnd();
+    renderThread(cached.msgs.length?cached.msgs:[{who:'system',text:'No messages yet.'}],threadCtx(c,cached));
+    if(!quiet)scrollThreadToEnd();
   }else{
     renderThread([{who:'system',text:'Loading conversation…'}]);
   }
   try{
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-    const msgs=data.messages||[];
-    const changed=!cached||cached.length!==msgs.length||JSON.stringify(cached)!==JSON.stringify(msgs);
-    threadCache[c.key]=msgs;
+    const d={msgs:data.messages||[],status:data.status||null};
+    d.sig=threadSig(d);
+    const changed=!cached||cached.sig!==d.sig;
+    threadCache[c.key]=d;
     if(openCardKey===c.key&&changed){
-      renderThread(msgs.length?msgs:[{who:'system',text:'No messages yet.'}]);
-      scrollThreadToEnd();
+      const keep=quiet&&!atThreadEnd();
+      renderThread(d.msgs.length?d.msgs:[{who:'system',text:'No messages yet.'}],threadCtx(c,d));
+      if(!keep)scrollThreadToEnd();
     }
   }catch(e){
     if(openCardKey===c.key&&!cached)renderThread([{who:'system',text:'Failed to load messages: '+e.message}]);
@@ -1709,9 +1855,11 @@ async function sendMsg(){
   const c=cards[openCard];
   if(!c.session_id){showToast('This card has no session yet — press E to start one');return}
   composer.value='';
-  const th=threadCache[c.key]||(threadCache[c.key]=[]);
-  th.push({who:'user',ts:new Date().toISOString(),text:v});
-  renderThread(th);
+  const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
+  th.msgs.push({who:'user',ts:new Date().toISOString(),text:v});
+  th.status={...(th.status||{}),waiting:false,state:'running'};
+  th.sig=threadSig(th);
+  renderThread(th.msgs,threadCtx(c,th));
   scrollThreadToEnd();
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v})});

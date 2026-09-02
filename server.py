@@ -127,6 +127,29 @@ recent_issues: dict[str, tuple[float, dict]] = {}
 # ...and hide issues we just closed until the listing stops returning them.
 recently_closed: dict[str, float] = {}
 
+async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
+    try:
+        c = await gh.get(f"/repos/{repo}/commits/{sha}/check-runs", params={"per_page": 100})
+        c.raise_for_status()
+        runs = c.json().get("check_runs", [])
+        if not runs:
+            return "none"
+        if any(x["conclusion"] in ("failure", "timed_out", "cancelled") for x in runs if x["conclusion"]):
+            return "failing"
+        if all(x["status"] == "completed" for x in runs):
+            return "passing"
+        return "running"
+    except httpx.HTTPError:
+        try:
+            s = await gh.get(f"/repos/{repo}/commits/{sha}/status")
+            s.raise_for_status()
+            combined = s.json()
+            if not combined.get("statuses"):
+                return "none"
+            return {"success": "passing", "failure": "failing", "pending": "running"}.get(combined.get("state"), "unknown")
+        except httpx.HTTPError:
+            return "unknown"
+
 async def fetch_github():
     issues, prs = {}, {}
     async with gh_client() as gh:
@@ -160,29 +183,7 @@ async def fetch_github():
                     detail = d.json()
                 except httpx.HTTPError:
                     pass
-                ci = "unknown"
-                try:
-                    c = await gh.get(f"/repos/{repo}/commits/{pr['head']['sha']}/check-runs", params={"per_page": 100})
-                    c.raise_for_status()
-                    runs = c.json().get("check_runs", [])
-                    if not runs:
-                        ci = "none"
-                    elif any(x["conclusion"] in ("failure", "timed_out", "cancelled") for x in runs if x["conclusion"]):
-                        ci = "failing"
-                    elif all(x["status"] == "completed" for x in runs):
-                        ci = "passing"
-                    else:
-                        ci = "running"
-                except httpx.HTTPError:
-                    try:
-                        s = await gh.get(f"/repos/{repo}/commits/{pr['head']['sha']}/status")
-                        s.raise_for_status()
-                        combined = s.json()
-                        ci = {"success": "passing", "failure": "failing", "pending": "running"}.get(combined.get("state"), "unknown")
-                        if not combined.get("statuses"):
-                            ci = "none"
-                    except httpx.HTTPError:
-                        pass
+                ci = await commit_ci(gh, repo, pr["head"]["sha"])
                 review = "none"
                 try:
                     rv = await gh.get(f"/repos/{repo}/pulls/{pr['number']}/reviews", params={"per_page": 100})
@@ -318,6 +319,8 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
                     "who": "user" if m.get("source") == "user" else "devin",
                     "ts": m.get("created_at", ""),
                     "text": _clean_text(m.get("message") or ""),
+                    "origin": m.get("origin") or None,
+                    "name": m.get("username") or None,
                 })
             # the final page carries no end_cursor, so it is re-read on the next
             # call; `seen` keeps those items from being appended twice
@@ -701,29 +704,45 @@ def find_card(card_id: str) -> dict:
                 return c
     raise HTTPException(404, "card not found")
 
+PR_META_EMPTY = {"branch": "", "base": "", "additions": 0, "deletions": 0, "changed_files": 0,
+                 "ci": "none", "review": "none", "mergeable_state": "unknown"}
+
 async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
-    """Title/state/created_at for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
+    """Title/state/CI/diff stats for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
     key = f"{repo}#{number}"
     hit = pr_meta_cache.get(key)
     if hit and (hit["data"]["state"] != "open" or time.time() - hit["at"] < PR_META_TTL):
         return hit["data"]
     tracked = state["prs"].get(key)
-    if tracked:
-        data = {"title": tracked["title"], "state": "open", "draft": tracked["draft"], "created": _epoch(tracked["created_at"])}
-    else:
-        try:
-            async with gh_client() as gh:
-                r = await gh.get(f"/repos/{repo}/pulls/{number}")
-                r.raise_for_status()
-                p = r.json()
+    try:
+        async with gh_client() as gh:
+            r = await gh.get(f"/repos/{repo}/pulls/{number}")
+            r.raise_for_status()
+            p = r.json()
+            merged = bool(p.get("merged"))
+            pr_state = "merged" if merged else (p.get("state") or "open")
             data = {
                 "title": p.get("title") or f"PR #{number}",
-                "state": "merged" if p.get("merged") else (p.get("state") or "open"),
+                "state": pr_state,
                 "draft": bool(p.get("draft")),
                 "created": _epoch(p.get("created_at")),
+                "branch": p.get("head", {}).get("ref", ""),
+                "base": p.get("base", {}).get("ref", ""),
+                "additions": p.get("additions", 0),
+                "deletions": p.get("deletions", 0),
+                "changed_files": p.get("changed_files", 0),
+                "mergeable_state": p.get("mergeable_state", "unknown"),
+                "review": tracked["review"] if tracked else "none",
+                "ci": (tracked["ci"] if tracked else await commit_ci(gh, repo, p["head"]["sha"])) if pr_state == "open" else "none",
             }
-        except httpx.HTTPError:
-            return hit["data"] if hit else {"title": f"PR #{number}", "state": fallback_state, "draft": False, "created": 0}
+    except httpx.HTTPError:
+        if hit:
+            return hit["data"]
+        if tracked:
+            return {**PR_META_EMPTY, "title": tracked["title"], "state": "open", "draft": tracked["draft"],
+                    "created": _epoch(tracked["created_at"]), "branch": tracked["branch"],
+                    "ci": tracked["ci"], "review": tracked["review"], "mergeable_state": tracked["mergeable_state"]}
+        return {**PR_META_EMPTY, "title": f"PR #{number}", "state": fallback_state, "draft": False, "created": 0}
     pr_meta_cache[key] = {"at": time.time(), "data": data}
     return data
 
@@ -746,8 +765,9 @@ async def with_pr_cards(sess: dict, msgs: list[dict]) -> list[dict]:
             "text": "",
             "pr": {
                 "repo": p["repo"], "number": p["number"], "url": p["url"],
-                "title": meta["title"], "state": meta["state"], "draft": meta["draft"],
                 "review_url": f"https://app.devin.ai/review/{p['repo']}/pull/{p['number']}",
+                **{k: meta[k] for k in ("title", "state", "draft", "branch", "base", "additions", "deletions",
+                                         "changed_files", "ci", "review", "mergeable_state")},
             },
         }))
     out = list(msgs)
@@ -759,10 +779,17 @@ async def with_pr_cards(sess: dict, msgs: list[dict]) -> list[dict]:
 async def get_messages(card_id: str):
     card = find_card(card_id)
     if not card["session_id"]:
-        return {"messages": []}
+        return {"messages": [], "status": None}
     msgs = await fetch_session_messages(card["session_id"])
     sess = next((s for s in state["sessions"] if s["session_id"] == card["session_id"]), None)
-    return {"messages": await with_pr_cards(sess, msgs) if sess else msgs}
+    return {
+        "messages": await with_pr_cards(sess, msgs) if sess else msgs,
+        "status": {
+            "state": session_status(sess),
+            "detail": (sess.get("status_detail") or "").lower(),
+            "waiting": session_needs_user(sess),
+        } if sess else None,
+    }
 
 @app.get("/api/attachment/{uuid}/{name}")
 async def get_attachment(uuid: str, name: str):
