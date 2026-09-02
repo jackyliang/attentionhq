@@ -718,6 +718,16 @@ async def archive_card(card_id: str):
     asyncio.create_task(_refresh_after_archive(bool(card["session_id"])))
     return {"ok": True, "actions": actions}
 
+@app.post("/api/card/{card_id:path}/hide")
+async def hide_card(card_id: str):
+    """Drop the card from the board without touching the Devin session or the
+    GitHub issue."""
+    dismissed.add(card_id)
+    save_dismissed(dismissed)
+    for col in (state["board"] or {"columns": []})["columns"]:
+        col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
+    return {"ok": True, "actions": ["hidden"]}
+
 def find_card_or_stale(card_id: str) -> dict:
     """Like find_card, but tolerates a card the client still shows that has
     already left the server board (e.g. the session went idle between polls)."""
