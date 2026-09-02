@@ -592,9 +592,8 @@ aside{
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900);background:var(--ds-gray-200);padding:0 3px}
 .msg .body a{color:var(--ds-blue-900);text-decoration:none}
 .msg .body a:hover{text-decoration:underline}
-.msg.working{flex-direction:row;align-items:center;gap:8px;font-size:13px;line-height:18px;font-weight:500;padding:4px 0}
-.msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-600) 0%,var(--ds-gray-600) 35%,#fff 50%,var(--ds-gray-600) 65%,var(--ds-gray-600) 100%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer-txt 1.4s ease-in-out infinite}
-@keyframes shimmer-txt{from{background-position:100% 0}to{background-position:-100% 0}}
+.msg.working{flex-direction:row;align-items:center;gap:8px;font-size:12px;line-height:17px;padding:2px 0}
+.msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1s linear infinite}
 
 /* message action rows: PR cards, test offers, option buttons (mirrors app.devin.ai) */
 .msg .acts{display:flex;flex-direction:column;gap:6px;width:100%;max-width:100%}
