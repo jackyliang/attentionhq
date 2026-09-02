@@ -1110,7 +1110,7 @@ function setBoardMode(){
   panelList.innerHTML='';
   convHead.style.display='none';
   renderThread(boardThread);
-  panelScroll.scrollTop=panelScroll.scrollHeight;
+  scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
@@ -1132,10 +1132,19 @@ function refreshPanel(c){
 }
 
 const threadCache={};
+let stickToEnd=true;
+function atThreadEnd(){return panelScroll.scrollHeight-panelScroll.scrollTop-panelScroll.clientHeight<24}
 function scrollThreadToEnd(){
+  stickToEnd=true;
   panelScroll.scrollTop=panelScroll.scrollHeight;
-  requestAnimationFrame(()=>{panelScroll.scrollTop=panelScroll.scrollHeight});
+  requestAnimationFrame(()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight});
 }
+panelScroll.addEventListener('scroll',()=>{stickToEnd=atThreadEnd()});
+const threadRO=new ResizeObserver(()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight});
+threadRO.observe(threadEl);
+threadRO.observe(panelScroll);
+threadEl.addEventListener('load',()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight},true);
+threadEl.addEventListener('loadedmetadata',()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight},true);
 async function loadThread(c){
   if(!c.session_id){
     renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
@@ -1291,7 +1300,7 @@ async function sendMsg(){
     boardThread.push({who:'user',ts:'',text:v});
     boardThread.push({who:'board',ts:'',text:'Board chat is local-only in v1. Open a card to message its Devin session.'});
     renderThread(boardThread);
-    panelScroll.scrollTop=panelScroll.scrollHeight;
+    scrollThreadToEnd();
     composer.value='';
     return;
   }
@@ -1301,7 +1310,7 @@ async function sendMsg(){
   const th=threadCache[c.key]||(threadCache[c.key]=[]);
   th.push({who:'user',ts:new Date().toISOString(),text:v});
   renderThread(th);
-  panelScroll.scrollTop=panelScroll.scrollHeight;
+  scrollThreadToEnd();
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v})});
   }catch(e){showToast('Send failed: '+e.message)}
