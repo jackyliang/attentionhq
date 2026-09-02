@@ -1109,11 +1109,18 @@ function colCards(col){return [...col.querySelectorAll('.card')]}
 function focused(){const a=document.activeElement;return a&&a.classList&&a.classList.contains('card')?a:null}
 function firstCard(){return document.querySelector('.card')}
 
+function syncPanel(){
+  if(mode!=='card')return;
+  const f=focused();
+  if(!f||f.dataset.id==null)return;
+  const id=+f.dataset.id;
+  if(id!==openCard)setCardMode(id);
+  f.focus();
+}
 function move(dx,dy){
-  if(mode==='card'){setBoardMode(); mode='closed'; app.dataset.mode='closed'; openCard=null;}
   const cur=focused()||firstCard();
   if(!cur){return}
-  if(!focused()){cur.focus();return}
+  if(!focused()){cur.focus();syncPanel();return}
   const col=cur.closest('.col');
   const cols=allCols();
   if(dy!==0){
@@ -1121,6 +1128,7 @@ function move(dx,dy){
     const i=list.indexOf(cur);
     const next=list[Math.min(Math.max(i+dy,0),list.length-1)];
     next.focus();
+    syncPanel();
   }else if(dx!==0){
     const ci=cols.indexOf(col);
     let ni=ci+dx;
@@ -1128,7 +1136,7 @@ function move(dx,dy){
       const list=colCards(cols[ni]);
       if(list.length){ 
         const i=Math.min(colCards(col).indexOf(cur),list.length-1);
-        list[i].focus(); return;
+        list[i].focus(); syncPanel(); return;
       }
       ni+=dx;
     }
