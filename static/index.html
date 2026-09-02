@@ -177,9 +177,13 @@ main{
 .nx .merge-btn{margin-left:auto;gap:6px;padding-left:4px}
 .merge-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:#fff;background:transparent;border:1px solid var(--ds-green-700);visibility:hidden}
 .card:is(.selected,:focus) .merge-btn kbd{visibility:visible}
-.card .start-hint{display:flex;visibility:hidden;align-self:flex-end;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
-.card .start-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
+.card .start-hint,.card .close-hint{display:flex;visibility:hidden;align-self:flex-end;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.card .start-hint kbd,.card .close-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
+.card .close-hint:hover{color:var(--ds-gray-1000)}
+.card .close-hint:hover kbd{color:var(--ds-gray-1000);border-color:var(--ds-gray-600)}
+.card:is(.selected,:focus) .close-hint{visibility:visible}
 .col[data-col="issues"] .card:is(.selected,:focus) .start-hint{visibility:visible}
+.card .hints{display:flex;align-items:center;gap:10px}
 .card .cfoot{display:flex;align-items:center;justify-content:space-between;margin:-1px 0 -3px;min-height:14px}
 .card .ref{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .card .elapsed{align-self:flex-end;margin:-3px 0 -4px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
@@ -353,6 +357,10 @@ aside{
 }
 .panel-close:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 .panel-close kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-600);background:transparent;border:1px solid var(--ds-gray-400)}
+.panel-archive{display:none;margin-left:auto;padding:0 6px;font-size:11px;line-height:14px}
+#app[data-mode="card"] .panel-archive{display:inline-flex}
+#app[data-mode="card"] .panel-archive+.panel-close{margin-left:0}
+.panel-close{margin-left:auto}
 .panel-title{min-width:0}
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
@@ -578,6 +586,9 @@ aside{
         <div class="t" id="panel-title">Board</div>
         <div class="s" id="panel-sub">operate the board</div>
       </div>
+      <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Archive</span><kbd>C</kbd>
+      </button>
       <button class="panel-close" id="panel-close" aria-label="Close panel">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg><kbd>esc</kbd>
       </button>
@@ -611,11 +622,11 @@ aside{
         <h3>Cards</h3>
         <div class="sc">Open selected card <span class="k"><kbd>Enter</kbd></span></div>
         <div class="sc">Close card / board chat / panel <span class="k"><kbd>Esc</kbd></span></div>
-        <div class="sc">Open board chat <span class="k"><kbd>C</kbd></span></div>
+        <div class="sc">Open board chat <span class="k"><kbd>B</kbd></span></div>
         <div class="sc">Trigger card action <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue <span class="k"><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
-        <div class="sc">Archive card <span class="k"><kbd>X</kbd></span></div>
+        <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd></span></div>
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
@@ -737,21 +748,26 @@ function cardHTML(c){
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${ref}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div>`;
+  const closeHint=c.pending?'':`<span class="close-hint" role="button" tabindex="-1"><kbd>C</kbd><span>${archiveLabel(c).toLowerCase()}</span></span>`;
+  if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${ref}<div class="hints">${closeHint}<div class="start-hint"><kbd>E</kbd><span>start</span></div></div></div>`;
   const working=c.col==='working';
   const prStatus=c.pr?`CI ${c.pr.ci} · ${REVIEW_LABEL[c.pr.review]||('review '+String(c.pr.review).replace(/_/g,' '))}`:null;
   const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'?prStatus:null));
   const line=txt?`<div class="nx${you?' you':''}">${ring}<span>${escHTML(txt)}</span></div>`:`<div class="nx solo">${ring}${c.col==='ready'?`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span>`:''}</div>`;
   const mergeRow=c.col==='ready'&&txt?`<div class="nx solo"><span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Merge</span></div>`:'';
-  const elapsed=working&&c.age?`<span class="elapsed">${escHTML(c.age)}</span>`:'';
+  const elapsed=working&&c.age?`<span class="elapsed" style="align-self:auto;margin:0">${escHTML(c.age)}</span>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
-  return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${elapsed}`;
+  const foot=`<div class="cfoot">${elapsed||'<span></span>'}${closeHint}</div>`;
+  return `<div class="title">${escHTML(c.title)}</div>${line}${mergeRow}${opts}${foot}`;
 }
+function isIssueClose(c){return c.kind==='issue'}
+function archiveLabel(c){return !isIssueClose(c)?'Archive':c.session_id?'Close & archive':'Close'}
 
 function wireCard(el){
   el.addEventListener('click',e=>{
     const opt=e.target.closest('.opt');
     if(opt){pickOption(+el.dataset.id,[...el.querySelectorAll('.opt')].indexOf(opt));e.stopPropagation();return}
+    if(e.target.closest('.close-hint')){archiveCard(+el.dataset.id);e.stopPropagation();return}
     const act=e.target.closest('.act');
     if(act){triggerAction(+el.dataset.id);e.stopPropagation();return}
     setCardMode(+el.dataset.id);
@@ -938,6 +954,8 @@ const panelScroll=document.getElementById('panel-scroll');
 const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
 const composer=document.getElementById('composer');
+const panelArchive=document.getElementById('panel-archive');
+const panelArchiveLabel=document.getElementById('panel-archive-label');
 let mode='board', openCard=null, openCardKey=null;
 
 const WHO={user:'You', devin:'Devin', board:'Board', system:'—'};
@@ -1077,6 +1095,10 @@ function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.textContent=columns.find(x=>x.id===c.col).name.toLowerCase();
   panelList.innerHTML=checklistHTML(c)+usageHTML(c)+linksHTML(c);
+  const lbl=!isIssueClose(c)?'Archive':c.session_id?'Close issue & archive':'Close issue';
+  panelArchiveLabel.textContent=lbl;
+  panelArchive.setAttribute('aria-label',lbl);
+  panelArchive.disabled=!!c.pending;
 }
 
 const threadCache={};
@@ -1169,18 +1191,24 @@ async function triggerAction(id){
   }
 }
 
+let archiving=false;
 async function archiveCard(id){
   const c=cards[id];
-  if(!c)return;
-  showToast(`Archiving “${c.title}”…`);
+  if(!c||c.pending||archiving)return;
+  const close=isIssueClose(c);
+  archiving=true;
+  const both=close&&c.session_id;
+  showToast(both?`Closing ${shortRepo(c.repo)}#${c.num} & archiving session…`:close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
-    showToast(`Archived — “${c.title}”`);
+    showToast(both?`Closed ${shortRepo(c.repo)}#${c.num} & archived session — “${c.title}”`:close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
     if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
     await fetchBoard();
     firstCard()?.focus();
-  }catch(e){showToast('Archive failed: '+e.message)}
+  }catch(e){showToast((close?'Close':'Archive')+' failed: '+e.message)}
+  finally{archiving=false}
 }
+panelArchive.addEventListener('click',()=>{if(openCard!=null)archiveCard(openCard)});
 
 async function startIssue(id){
   const c=cards[id];
@@ -1313,11 +1341,11 @@ document.addEventListener('keydown',e=>{
     case 'Escape':
       if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; requestAnimationFrame(()=>el?.focus())}
       break;
-    case 'c': case 'C': setBoardMode(); composer.focus(); e.preventDefault(); break;
+    case 'b': case 'B': setBoardMode(); composer.focus(); e.preventDefault(); break;
     case '?': toggleOverlay(true); e.preventDefault(); break;
     case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(+f.dataset.id); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
-    case 'x': case 'X': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
+    case 'c': case 'C': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
     case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)pickOption(+f.dataset.id,+e.key-1); break}
   }
 });
