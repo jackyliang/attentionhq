@@ -598,7 +598,7 @@ aside{
     <div class="sheet-body">
       <div class="sc-group">
         <h3>Navigate</h3>
-        <div class="sc">Move between cards (panel closed) <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
+        <div class="sc">Move between cards <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
         <div class="sc">Move between columns <span class="k"><kbd>A</kbd><kbd>D</kbd></span></div>
         <div class="sc">First / last card in column <span class="k"><kbd>Home</kbd><kbd>End</kbd></span></div>
         <h3>Cards</h3>
@@ -612,8 +612,6 @@ aside{
       </div>
       <div class="sc-group">
         <h3>Panel</h3>
-        <div class="sc">Scroll conversation <span class="k"><kbd>W</kbd><kbd>S</kbd></span></div>
-        <div class="sc">Top / bottom of conversation <span class="k"><kbd>Home</kbd><kbd>End</kbd></span></div>
         <div class="sc">Focus composer <span class="k"><kbd>⏎</kbd></span></div>
         <div class="sc">Send message <span class="k"><kbd>⏎</kbd></span></div>
         <div class="sc">Leave composer <span class="k"><kbd>Esc</kbd></span></div>
@@ -1254,10 +1252,6 @@ document.addEventListener('keydown',e=>{
   if(overlay.classList.contains('open')){
     if(e.key==='Escape'||e.key==='?'){toggleOverlay(false);e.preventDefault()}
     return;
-  }
-  if(mode!=='closed'){
-    const step=e.key==='Home'?-1e9:e.key==='End'?1e9:/^(ArrowUp|w|W)$/.test(e.key)?-96:/^(ArrowDown|s|S)$/.test(e.key)?96:0;
-    if(step){panelScroll.scrollBy({top:step});e.preventDefault();return}
   }
   switch(e.key){
     case 'ArrowUp': case 'w': case 'W': move(0,-1); e.preventDefault(); break;
