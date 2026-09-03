@@ -1984,7 +1984,7 @@ function panelSubHTML(c){
   const stTxt=c.pending?'sending to devin':c.filing&&!c.repo?'filing':st;
   return `<span class="dot ${tone}${c.col==='working'||c.pending||c.filing?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
 }
-function canRename(c){return !!c&&!c.pending&&(c.kind==='issue'||c.kind==='pr')&&!!c.repo}
+function canRename(c){return !!c&&!c.pending&&(((c.kind==='issue'||c.kind==='pr')&&!!c.repo)||(c.kind==='session'&&!!c.session_id&&!c.filing))}
 function refreshPanel(c){
   if(!titleEdit){
     panelTitle.textContent=c.title;
