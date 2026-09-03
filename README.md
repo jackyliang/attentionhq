@@ -14,6 +14,10 @@ set -a; source .env; set +a
 
 Open http://localhost:8000. If `BOARD_TOKEN` is set, the UI prompts for it once.
 
+## Boards
+
+Boards are managed in the UI (the `+` and settings tiles in the left rail, or `/settings`) and stored in Postgres (`DATABASE_URL`) or `boards.json`. Each board is a named set of repos at `/b/<slug>`; `/` shows everything. Sessions with no repo yet show on every board until Devin opens a PR or you pin them.
+
 ## Environment
 
 | Var | Purpose |
@@ -24,7 +28,8 @@ Open http://localhost:8000. If `BOARD_TOKEN` is set, the UI prompts for it once.
 | `OPENROUTER_API_KEY` | Optional — powers todos/activity/ask extraction |
 | `OPENROUTER_MODEL` | Default `openai/gpt-5.6-luna:nitro` |
 | `BOARD_TOKEN` | Shared token gating all `/api` routes |
-| `REPOS` | Comma-separated `owner/repo` list |
+| `DATABASE_URL` | Optional — Postgres for boards + hidden cards; falls back to JSON files |
+| `REPOS` | Only seeds the first board when none exist yet; boards are edited in the UI after that |
 | `RENDER_API_KEY` | Optional — Render API key; header shows deploy status (deploying now / last deployed) for every non-suspended Render service in the workspace |
 | `RENDER_SERVICE_TYPES` | Default `web_service,static_site` — Render service types to show |
 

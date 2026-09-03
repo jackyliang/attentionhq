@@ -32,6 +32,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-5.6-luna:nitro")
 BOARD_TOKEN = os.environ.get("BOARD_TOKEN", "")
+# Only used to seed the first board when none are stored yet; boards are managed in the UI.
 REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web,jackyliang/attentionhq").split(",") if r.strip()]
 RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
@@ -59,6 +60,10 @@ PR_ISSUE_RE = re.compile(r"(?:#|issues/)(\d+)")
 PROMPT_TAG_RE = re.compile(r"^prompt:([0-9a-f]{12})$")
 PROMPT_MODE_TAG_RE = re.compile(r"^prompt-mode:(file|work)$")
 PROMPT_MARK_RE = re.compile(r"\s*<!--\s*attention:prompt:([0-9a-f]{12})\s*-->")
+# Sessions started from a board's prompt box are tagged board:<id>.
+BOARD_TAG_RE = re.compile(r"^board:([a-z0-9-]+)$")
+REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+ALL_BOARD = "all"
 
 # ---------------------------------------------------------------- state
 
@@ -73,12 +78,148 @@ state: dict = {
     "render_ok": True,
     "generated_at": 0,
     "gh_refresh": False,  # pull GitHub on the next tick instead of waiting out the interval
+    "boards": [],      # [{id, name, repos: [...], sessions: [...pinned session ids]}]
 }
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
+BOARDS_FILE = os.environ.get("BOARDS_FILE", "boards.json")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 def _db():
     return psycopg.connect(DATABASE_URL, connect_timeout=10)
+
+# ---------------------------------------------------------------- boards
+
+BOARDS_DDL = (
+    """CREATE TABLE IF NOT EXISTS boards (
+        id text PRIMARY KEY,
+        account_id text NOT NULL DEFAULT '',
+        name text NOT NULL,
+        position integer NOT NULL DEFAULT 0,
+        created_at timestamptz DEFAULT now())""",
+    """CREATE TABLE IF NOT EXISTS board_repos (
+        board_id text REFERENCES boards(id) ON DELETE CASCADE,
+        repo text NOT NULL,
+        position integer NOT NULL DEFAULT 0,
+        PRIMARY KEY (board_id, repo))""",
+    """CREATE TABLE IF NOT EXISTS board_sessions (
+        board_id text REFERENCES boards(id) ON DELETE CASCADE,
+        session_id text PRIMARY KEY)""",
+)
+
+def load_boards() -> list[dict] | None:
+    """Stored boards, or None when storage is unreachable."""
+    if DATABASE_URL:
+        try:
+            with _db() as conn:
+                for ddl in BOARDS_DDL:
+                    conn.execute(ddl)
+                boards = {r[0]: {"id": r[0], "name": r[1], "repos": [], "sessions": []}
+                          for r in conn.execute("SELECT id, name FROM boards ORDER BY position, created_at")}
+                for bid, repo in conn.execute("SELECT board_id, repo FROM board_repos ORDER BY position"):
+                    boards[bid]["repos"].append(repo)
+                for bid, sid in conn.execute("SELECT board_id, session_id FROM board_sessions"):
+                    boards[bid]["sessions"].append(sid)
+                return list(boards.values())
+        except psycopg.Error:
+            log.warning("could not load boards from db", exc_info=True)
+            return None
+    try:
+        with open(BOARDS_FILE) as f:
+            data = json.load(f)
+        return [{"id": b["id"], "name": b["name"], "repos": list(b.get("repos", [])), "sessions": list(b.get("sessions", []))} for b in data]
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError, KeyError, TypeError):
+        log.warning("could not read %s", BOARDS_FILE, exc_info=True)
+        return None
+
+def _save_boards_file():
+    try:
+        with open(BOARDS_FILE, "w") as f:
+            json.dump(state["boards"], f, indent=1)
+    except OSError:
+        log.warning("could not persist boards")
+
+def persist_board(board: dict):
+    if not DATABASE_URL:
+        _save_boards_file()
+        return
+    position = next((i for i, b in enumerate(state["boards"]) if b["id"] == board["id"]), len(state["boards"]))
+    try:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO boards (id, name, position) VALUES (%s, %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, position = EXCLUDED.position",
+                (board["id"], board["name"], position),
+            )
+            conn.execute("DELETE FROM board_repos WHERE board_id = %s", (board["id"],))
+            for i, repo in enumerate(board["repos"]):
+                conn.execute("INSERT INTO board_repos (board_id, repo, position) VALUES (%s, %s, %s)", (board["id"], repo, i))
+            conn.execute("DELETE FROM board_sessions WHERE board_id = %s", (board["id"],))
+            for sid in board["sessions"]:
+                conn.execute(
+                    "INSERT INTO board_sessions (board_id, session_id) VALUES (%s, %s) "
+                    "ON CONFLICT (session_id) DO UPDATE SET board_id = EXCLUDED.board_id",
+                    (board["id"], sid),
+                )
+    except psycopg.Error:
+        log.warning("could not persist board %s to db", board["id"], exc_info=True)
+
+def persist_board_delete(board_id: str):
+    if not DATABASE_URL:
+        _save_boards_file()
+        return
+    try:
+        with _db() as conn:
+            conn.execute("DELETE FROM boards WHERE id = %s", (board_id,))
+    except psycopg.Error:
+        log.warning("could not delete board %s from db", board_id, exc_info=True)
+
+def init_boards():
+    boards = load_boards()
+    if boards is None:
+        # storage unreachable: keep today's repos visible without writing anything back
+        state["boards"] = [{"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}] if REPOS else []
+        return
+    state["boards"] = boards
+    if not boards and REPOS:
+        seed = {"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}
+        state["boards"].append(seed)
+        persist_board(seed)
+        log.info("seeded board %s from REPOS", seed["id"])
+
+def tracked_repos() -> list[str]:
+    out: list[str] = []
+    for b in state["boards"]:
+        for r in b["repos"]:
+            if r not in out:
+                out.append(r)
+    return out
+
+def board_by_id(board_id: str) -> dict | None:
+    return next((b for b in state["boards"] if b["id"] == board_id), None)
+
+def public_board(b: dict) -> dict:
+    return {"id": b["id"], "name": b["name"], "repos": list(b["repos"])}
+
+def slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "board"
+    base, n = slug, 2
+    while slug == ALL_BOARD or board_by_id(slug):
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+def clean_repos(repos: list[str]) -> list[str]:
+    out: list[str] = []
+    for r in repos:
+        r = r.strip().strip("/")
+        r = re.sub(r"^https?://github\.com/", "", r).removesuffix(".git")
+        if not REPO_RE.match(r):
+            raise HTTPException(400, f"not a repo: {r!r} (expected owner/repo)")
+        if r not in out:
+            out.append(r)
+    return out
 
 def load_dismissed() -> set:
     if DATABASE_URL:
@@ -112,6 +253,7 @@ def save_dismissed(d: set):
         log.warning("could not persist dismissed list")
 
 dismissed: set = load_dismissed()
+init_boards()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -218,8 +360,12 @@ async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
 async def fetch_github():
     issues, prs = {}, {}
     gh = gh_client()
-    for repo in REPOS:
+    for repo in tracked_repos():
         r = await gh.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
+        if r.status_code in (404, 451):
+            # a mistyped or inaccessible repo on some board must not blank the whole board
+            log.warning("repo %s not readable (%s); skipping", repo, r.status_code)
+            continue
         r.raise_for_status()
         now = time.time()
         for key, ts in list(recently_closed.items()):
@@ -545,6 +691,18 @@ def session_needs_user(sess: dict) -> bool:
 def session_pr_urls(sess: dict) -> list[str]:
     return [p["pr_url"] for p in sess.get("pull_requests") or [] if p.get("pr_url")]
 
+def session_board(sess: dict) -> str | None:
+    """Board a session was pinned to (explicitly, or via the board tag it was started with)."""
+    sid = sess["session_id"]
+    for b in state["boards"]:
+        if sid in b["sessions"]:
+            return b["id"]
+    for tag in sess.get("tags") or []:
+        m = BOARD_TAG_RE.match(tag)
+        if m and board_by_id(m.group(1)):
+            return m.group(1)
+    return None
+
 GH_PR_URL_RE = re.compile(r"github\.com/([^/]+/[^/]+)/pull/(\d+)")
 
 def session_prs(sess: dict) -> list[dict]:
@@ -618,6 +776,7 @@ async def assemble_board():
                 }
 
     out = []
+    tracked = set(tracked_repos())
     for c in cards.values():
         if c["id"] in dismissed:
             continue
@@ -626,6 +785,10 @@ async def assemble_board():
         pr = c["prs"][0] if c["prs"] else None
         extract = None
         s_prs = session_prs(sess) if sess else []
+        # repos this card belongs to: its own, plus any the session opened PRs in
+        repos = [c["repo"]] if c["repo"] else []
+        repos += [p["repo"] for p in s_prs if p["repo"] not in repos]
+        pin = session_board(sess) if sess and not c["repo"] else None
         if sess:
             sid = sess["session_id"]
             msgs = (session_msgs_cache.get(sid) or {}).get("msgs") or []
@@ -699,6 +862,11 @@ async def assemble_board():
             "body": c.get("body", ""),
             "labels": c.get("labels", []),
             "created_at": c["created_at"],
+            "repos": repos,
+            "pin": pin,
+            # no tracked repo and no pin: shown on every board until the user pins it
+            # or Devin opens a PR that places it
+            "unassigned": not pin and not (set(repos) & tracked),
         })
 
     # newest issues first; everything else oldest first
@@ -715,6 +883,36 @@ async def assemble_board():
         "generated_at": time.time(),
     }
     state["generated_at"] = time.time()
+
+def card_on_board(card: dict, board: dict | None) -> bool:
+    if board is None:
+        return True
+    if card["pin"]:
+        return card["pin"] == board["id"]
+    return card["unassigned"] or bool(set(card["repos"]) & set(board["repos"]))
+
+def board_view(board_id: str | None) -> dict:
+    """The assembled board narrowed to one board's repos (None / "all" = everything)."""
+    board = None
+    if board_id and board_id != ALL_BOARD:
+        board = board_by_id(board_id)
+        if board is None:
+            raise HTTPException(404, "board not found")
+    boards = [public_board(b) for b in state["boards"]]
+    current = public_board(board) if board else {"id": ALL_BOARD, "name": "All", "repos": tracked_repos()}
+    full = state["board"]
+    if full is None:
+        return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
+                "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
+                "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0,
+                "board": current, "boards": boards}
+    return {
+        **full,
+        "columns": [{"id": col["id"], "cards": [c for c in col["cards"] if card_on_board(c, board)]} for col in full["columns"]],
+        "deploys": [d for d in full["deploys"] if board is None or d["repo"] in board["repos"]],
+        "board": current,
+        "boards": boards,
+    }
 
 # ---------------------------------------------------------------- pollers
 
@@ -809,12 +1007,114 @@ async def healthz():
     return {"status": "ok"}
 
 @app.get("/api/board")
-async def get_board():
-    if state["board"] is None:
-        return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
-                "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
-                "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0}
-    return state["board"]
+async def get_board(board: str | None = None):
+    return board_view(board)
+
+# ---------------------------------------------------------------- boards api
+
+class BoardIn(BaseModel):
+    name: str
+    repos: list[str] = []
+
+class PinIn(BaseModel):
+    board: str | None = None
+
+def _boards_payload() -> dict:
+    return {"boards": [public_board(b) for b in state["boards"]]}
+
+async def _refresh_after_board_change():
+    try:
+        await fetch_github()
+        await assemble_board()
+    except Exception as e:  # noqa: BLE001
+        log.warning("refresh after board change failed: %s", e)
+
+@app.get("/api/boards")
+async def list_boards():
+    return _boards_payload()
+
+@app.post("/api/boards")
+async def create_board(body: BoardIn):
+    name = " ".join(body.name.split())
+    if not name:
+        raise HTTPException(400, "name required")
+    board = {"id": slugify(name), "name": name, "repos": clean_repos(body.repos), "sessions": []}
+    state["boards"].append(board)
+    persist_board(board)
+    asyncio.create_task(_refresh_after_board_change())
+    return {**_boards_payload(), "board": public_board(board)}
+
+@app.put("/api/boards/{board_id}")
+async def update_board(board_id: str, body: BoardIn):
+    board = board_by_id(board_id)
+    if board is None:
+        raise HTTPException(404, "board not found")
+    name = " ".join(body.name.split())
+    if not name:
+        raise HTTPException(400, "name required")
+    board["name"], board["repos"] = name, clean_repos(body.repos)
+    persist_board(board)
+    asyncio.create_task(_refresh_after_board_change())
+    return {**_boards_payload(), "board": public_board(board)}
+
+@app.delete("/api/boards/{board_id}")
+async def delete_board(board_id: str):
+    board = board_by_id(board_id)
+    if board is None:
+        raise HTTPException(404, "board not found")
+    state["boards"].remove(board)
+    persist_board_delete(board_id)
+    asyncio.create_task(_refresh_after_board_change())
+    return _boards_payload()
+
+_repos_cache: dict = {"at": 0.0, "repos": []}
+
+@app.get("/api/repos")
+async def list_repos():
+    """Repos the GitHub token can see, for the board editor's picker."""
+    if time.time() - _repos_cache["at"] > 300:
+        found: list[str] = []
+        if GITHUB_TOKEN:
+            gh = gh_client()
+            try:
+                for page in range(1, 4):
+                    r = await gh.get("/user/repos", params={"per_page": 100, "page": page, "sort": "pushed"})
+                    r.raise_for_status()
+                    items = r.json()
+                    found += [x["full_name"] for x in items if x.get("full_name")]
+                    if len(items) < 100:
+                        break
+            except httpx.HTTPError as e:
+                log.warning("could not list repos: %s", e)
+        _repos_cache.update(at=time.time(), repos=found)
+    repos = list(_repos_cache["repos"])
+    repos += [r for r in tracked_repos() if r not in repos]
+    return {"repos": repos}
+
+@app.post("/api/card/{card_id:path}/pin")
+async def pin_card(card_id: str, body: PinIn):
+    card = find_card(card_id)
+    if not card["session_id"]:
+        raise HTTPException(400, "only session cards can be pinned")
+    target = None
+    if body.board and body.board != ALL_BOARD:
+        target = board_by_id(body.board)
+        if target is None:
+            raise HTTPException(404, "board not found")
+    sid = card["session_id"]
+    changed = []
+    for b in state["boards"]:
+        if sid in b["sessions"] and b is not target:
+            b["sessions"].remove(sid)
+            changed.append(b)
+    if target and sid not in target["sessions"]:
+        target["sessions"].append(sid)
+        changed.append(target)
+    for b in changed:
+        persist_board(b)
+    if state["board"] is not None:
+        await assemble_board()
+    return {"ok": True, "board": target["id"] if target else None}
 
 def find_card(card_id: str) -> dict:
     board = state["board"] or {"columns": []}
@@ -1079,6 +1379,7 @@ class PromptIn(BaseModel):
     prompt: str
     start: bool = False
     attachments: list[str] = []
+    board: str | None = None
 
 @app.post("/api/prompt")
 async def prompt_devin(body: PromptIn):
@@ -1091,12 +1392,22 @@ async def prompt_devin(body: PromptIn):
     text = text or "(see attached files)"
     pid = uuid.uuid4().hex[:12]
     mode = "work" if body.start else "file"
-    repos = "\n".join(f"- {r}" for r in REPOS)
+    board = None
+    if body.board and body.board != ALL_BOARD:
+        board = board_by_id(body.board)
+        if board is None:
+            raise HTTPException(404, "board not found")
+    repo_list = board["repos"] if board else tracked_repos()
+    if not repo_list:
+        raise HTTPException(400, "this board has no repos yet")
+    repos = "\n".join(f"- {r}" for r in repo_list)
+    pick = (f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+            if len(repo_list) > 1 else f"1. The repository is {repo_list[0]}.\n")
     prompt = (
         "A user typed this task into their Attention board's new-issue box:\n\n"
         f"\"\"\"\n{text}\n\"\"\"\n\n"
         "Turn it into a GitHub issue:\n"
-        f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+        + pick +
         "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
         "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
         "questions; make reasonable assumptions and note them in the issue.\n"
@@ -1109,7 +1420,8 @@ async def prompt_devin(body: PromptIn):
     )
     title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
     dv = devin_client()
-    payload = {"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title}
+    tags = [f"prompt:{pid}", f"prompt-mode:{mode}"] + ([f"board:{board['id']}"] if board else [])
+    payload = {"prompt": prompt, "tags": tags, "title": title}
     if atts:
         payload["attachment_urls"] = atts
     r = await dv.post("/sessions", json=payload)
@@ -1130,7 +1442,9 @@ class IssueIn(BaseModel):
 
 @app.post("/api/issues")
 async def create_issue(body: IssueIn):
-    repo = body.repo or REPOS[0]
+    repo = body.repo or next(iter(tracked_repos()), None)
+    if not repo:
+        raise HTTPException(400, "no repos on any board")
     gh = gh_client()
     r = await gh.post(f"/repos/{repo}/issues", json={"title": body.title, "body": body.body})
     if r.status_code >= 400:
@@ -1177,6 +1491,15 @@ async def merge_pr(body: MergeIn):
 
 @app.get("/")
 async def index():
+    return FileResponse("static/index.html")
+
+# Board and settings URLs are client-side routes on the same page.
+@app.get("/b/{board_id}")
+async def board_page(board_id: str):
+    return FileResponse("static/index.html")
+
+@app.get("/settings")
+async def settings_page():
     return FileResponse("static/index.html")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
