@@ -1231,8 +1231,9 @@ async function prefetchThreads(){
     const pending=cards.filter(c=>c.session_id&&!threadCache[c.key]);
     for(const c of pending){
       try{
+        const reqAt=Date.now();
         const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-        threadCache[c.key]=mergeThread(threadCache[c.key],data);
+        threadCache[c.key]=mergeThread(threadCache[c.key],data,reqAt);
       }catch(e){/* warm cache best-effort */}
     }
   }finally{prefetching=false}
@@ -1630,23 +1631,26 @@ function threadMsgs(d){
 // thread when we sent, whose text starts with what we sent (or, for attachment-only sends, carries
 // the same attachment URLs)
 function echoes(p,m){
-  if(m.who!=='user'||p.seen.has(msgId(m)))return false;
+  if(m.who!=='user'||(p.seen&&p.seen.has(msgId(m))))return false;
   const t=(m.text||'').trim();
   return p.match?t.startsWith(p.match):p.atts.every(u=>t.includes(u));
 }
-function reconcilePending(cached,msgs){
+// reqAt: when the server request was issued. A send made before the thread ever loaded has no
+// baseline (seen=null); a response requested before that send *is* its baseline, not an echo.
+function reconcilePending(cached,msgs,reqAt){
   const now=Date.now(),used=new Set();
   return (cached?.pending||[]).filter(p=>{
     if(now-p.at>=PENDING_MAX_MS)return false;
+    if(!p.seen&&reqAt<p.at){p.seen=new Set(msgs.filter(m=>m.who==='user').map(msgId));return true}
     const m=msgs.find(m=>!used.has(m)&&echoes(p,m));
     if(m)used.add(m);
     return !m;
   });
 }
 // server thread data + whatever optimistic state landed in the cache while the request was in flight
-function mergeThread(cur,data){
+function mergeThread(cur,data,reqAt){
   const msgs=data.messages||[];
-  const d={msgs,status:data.status||null,pending:reconcilePending(cur,msgs),sentAt:cur?.sentAt||null};
+  const d={msgs,status:data.status||null,pending:reconcilePending(cur,msgs,reqAt),sentAt:cur?.sentAt||null,loaded:true};
   if(d.sentAt&&msgs.some(m=>m.who==='devin'&&tsMs(m.ts)>d.sentAt))d.sentAt=null;
   d.sig=threadSig(d);
   return d;
@@ -1691,10 +1695,10 @@ async function loadThread(c,quiet=false){
     renderThread([{who:'system',text:'Loading conversation…'}]);
   }
   try{
+    const reqAt=Date.now();
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-    const msgs=data.messages||[];
     const cur=threadCache[c.key]; // re-read: a send may have landed while the request was in flight
-    const d=mergeThread(cur,data);
+    const d=mergeThread(cur,data,reqAt);
     const changed=!cur||cur.sig!==d.sig;
     threadCache[c.key]=d;
     if(openCardKey===c.key&&changed){
@@ -2022,8 +2026,9 @@ async function sendMsg(){
 // says Devin is on it until a reply lands
 async function sendToSession(c,text,attachments=[]){
   const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
+  const loaded=!!th.loaded;
   const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),atts:attachments,
-    seen:new Set(th.msgs.filter(m=>m.who==='user').map(msgId)),
+    seen:loaded?new Set(th.msgs.filter(m=>m.who==='user').map(msgId)):null,
     text:[text,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')};
   (th.pending||(th.pending=[])).push(p);
   th.sentAt=p.at;
