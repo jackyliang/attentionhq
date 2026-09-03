@@ -1490,7 +1490,7 @@ function prCardHTML(p){
   const ci=state==='open'||state==='draft'?(CI_LABEL[p.ci]?`<span class="ci ${p.ci}">${p.ci==='passing'?I.check:p.ci==='failing'?I.x:p.ci==='running'?I.spinner:''}${CI_LABEL[p.ci]}</span>`:''):'';
   const diff=`<span><span class="add">+${p.additions}</span> <span class="del">\u2212${p.deletions}</span></span>`;
   const canMerge=state==='open';
-  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a><a class="act" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>${canMerge?`<span class="act green merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}</div>`;
+  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a>${canMerge?`<span class="act green merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}</div>`;
   return `<div class="pr-card" data-state="${escHTML(state)}">
     <div class="pr-repo">${GH_ICON}<span>${escHTML(p.repo)}</span></div>
     <span class="pr-state ${state}">${state==='merged'?I.merge:''}${PR_STATE_LABEL[state]||state}</span>
