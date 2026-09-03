@@ -227,11 +227,11 @@ def init_boards():
         state["boards"] = [{"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}] if REPOS else []
         log.warning("board storage unreachable; showing REPOS read-only until it is back")
 
-def reload_boards() -> bool:
-    """Retry the boot-time load; True once the in-memory boards are authoritative."""
+async def reload_boards() -> bool:
+    """Retry the boot-time load (blocking I/O off the loop); True once the in-memory boards are authoritative."""
     if boards_loaded:
         return True
-    if not _adopt_boards(load_boards()):
+    if not await asyncio.to_thread(lambda: _adopt_boards(load_boards())):
         return False
     # cards fetched for the stand-in must not survive into the real boards as "unassigned"
     prune_untracked_cards()
@@ -1438,7 +1438,7 @@ async def poll_loop():
         if not boards_loaded:
             try:
                 async with _boards_lock:
-                    if await asyncio.to_thread(reload_boards):
+                    if await reload_boards():
                         log.info("board storage is back; loaded %d boards", len(state["boards"]))
             except Exception as e:  # noqa: BLE001
                 log.warning("board reload failed: %s", e)
@@ -1645,7 +1645,7 @@ async def _store(fn, *args):
 async def _writable_boards():
     """Refuse writes while boards are the boot-time stand-in; re-read storage first so a
     recovered database is reconciled before anything is upserted over it."""
-    if not await asyncio.to_thread(reload_boards):
+    if not await reload_boards():
         raise HTTPException(503, "board storage unavailable; boards are read-only until it is back")
 
 @app.get("/api/boards")
