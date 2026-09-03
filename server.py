@@ -284,6 +284,41 @@ def save_dismissed(d: set):
 
 dismissed: set = load_dismissed()
 init_boards()
+
+# Titles the user gave standalone session cards. The Devin API has no rename
+# call, so these live on the board only and shadow the session's own title.
+SESSION_TITLES_FILE = os.environ.get("SESSION_TITLES_FILE", "session_titles.json")
+
+def load_session_titles() -> dict[str, str]:
+    if DATABASE_URL:
+        try:
+            with _db() as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS session_titles (session_id text PRIMARY KEY, title text NOT NULL, updated_at timestamptz DEFAULT now())")
+                return {r[0]: r[1] for r in conn.execute("SELECT session_id, title FROM session_titles")}
+        except psycopg.Error:
+            log.warning("could not load session titles from db", exc_info=True)
+            return {}
+    try:
+        with open(SESSION_TITLES_FILE) as f:
+            return {str(k): str(v) for k, v in json.load(f).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+def save_session_titles(titles: dict[str, str], session_id: str):
+    """Durably store titles[session_id]; raises on failure so the caller can roll back."""
+    if DATABASE_URL:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO session_titles (session_id, title) VALUES (%s, %s) "
+                "ON CONFLICT (session_id) DO UPDATE SET title = EXCLUDED.title, updated_at = now()",
+                (session_id, titles[session_id]),
+            )
+        return
+    with open(SESSION_TITLES_FILE, "w") as f:
+        json.dump(titles, f, indent=1, sort_keys=True)
+
+session_titles: dict[str, str] = load_session_titles()
+session_titles_lock = asyncio.Lock()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -849,6 +884,8 @@ async def fetch_devin():
                 provisional_titles.pop(s["session_id"], None)
             else:
                 s["title"] = provisional_titles[s["session_id"]][1]
+        if s["session_id"] in session_titles:
+            s["title"] = session_titles[s["session_id"]]
     for sid, (ts, _) in list(provisional_titles.items()):
         if now - ts > RECENT_SESSION_TTL and sid not in live:
             provisional_titles.pop(sid, None)
@@ -1924,7 +1961,8 @@ class EditIn(BaseModel):
 @app.post("/api/card/{card_id:path}/edit")
 async def edit_card(card_id: str, body: EditIn):
     """Edit the title and/or body of the GitHub issue or PR behind a card.
-    Standalone session cards have no GitHub object to edit."""
+    Standalone session cards have no GitHub object; their title is stored on
+    the board and shadows the Devin session's own title."""
     patch: dict = {}
     if body.title is not None:
         title = " ".join(body.title.split())
@@ -1934,8 +1972,39 @@ async def edit_card(card_id: str, body: EditIn):
             raise HTTPException(400, "title too long")
         patch["title"] = title
     card = find_card(card_id)
+    if card["kind"] == "session" and card.get("session_id"):
+        if body.body is not None:
+            raise HTTPException(400, "session cards have no description to edit")
+        if "title" not in patch:
+            raise HTTPException(400, "nothing to change")
+        sid = card["session_id"]
+        async with session_titles_lock:
+            titles = dict(session_titles)
+            titles[sid] = patch["title"]
+            try:
+                await asyncio.to_thread(save_session_titles, titles, sid)
+            except (psycopg.Error, OSError) as e:
+                log.warning("could not persist session title", exc_info=True)
+                raise HTTPException(500, f"could not save title: {e.__class__.__name__}")
+            session_titles[sid] = patch["title"]
+        for s in state["sessions"]:
+            if s["session_id"] == sid:
+                s["title"] = patch["title"]
+        if sid in recent_sessions:
+            recent_sessions[sid][1]["title"] = patch["title"]
+        for col in (state["board"] or {"columns": []})["columns"]:
+            for c in col["cards"]:
+                if c["id"] == card_id:
+                    c["title"] = patch["title"]
+        global board_gen
+        board_gen += 1
+        try:
+            await assemble_board()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, **patch}
     if card["kind"] not in ("issue", "pr") or not card["repo"]:
-        raise HTTPException(400, "only issue and PR cards can be edited")
+        raise HTTPException(400, "only issue, PR and session cards can be edited")
     key = f"{card['repo']}#{card['number']}"
     issue = state["issues"].get(key) or recent_issues.get(key, (0, None))[1] if card["kind"] == "issue" else None
     if body.body is not None:
@@ -1968,7 +2037,6 @@ async def edit_card(card_id: str, body: EditIn):
         for c in col["cards"]:
             if c["id"] == card_id:
                 c.update({k: v for k, v in shown.items() if k in c})
-    global board_gen
     board_gen += 1
     try:
         await assemble_board()

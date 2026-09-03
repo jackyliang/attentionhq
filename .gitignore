@@ -4,3 +4,4 @@ __pycache__/
 .env
 dismissed.json
 boards.json
+session_titles.json
