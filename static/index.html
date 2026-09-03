@@ -1115,7 +1115,7 @@ async function fetchBoard(){
   let data;
   try{data=await api('/api/board')}catch(e){fetchFailed=true;renderSync();throw e}
   fetchFailed=false;
-  if(data.loading&&cards.length){renderSync();return} // fresh instance still warming up; keep the last board
+  if(data.loading&&cards.length){renderSync('busy');return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
   cards=flat.map(mapCard);
