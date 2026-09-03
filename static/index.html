@@ -1208,7 +1208,6 @@ function renderBoard(){
     else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
   }
   restoreScroll(scroll);
-  flipPlay(flipPrev);
   restoringFocus=true;
   if(focusKey){
     const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`)||spotCard(focusSpot);
@@ -1218,6 +1217,7 @@ function renderBoard(){
     const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
   restoringFocus=false;
+  flipPlay(flipPrev); // after focus restore so moveRing reads the settled rect, not the first FLIP keyframe
 }
 
 let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false;
