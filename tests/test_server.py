@@ -408,10 +408,41 @@ def test_reconcile_stops_at_reserve_mid_run(monkeypatch):
         return httpx.Response(200, json=[{"number": 1, "title": "p", "html_url": "u", "head": {"ref": "b", "sha": "s"}, "created_at": "2026-01-01T00:00:00Z"}])
 
     async def run():
+        server._background_sync.set(True)
         async with make_gh(handler) as gh:
             await server.fetch_github_repo(gh, "acme/one")
 
     with pytest.raises(server.RateLimited):
         asyncio.run(run())
-    # the two listings ran; no per-PR detail/CI/review reads were spent below the reserve
-    assert calls == ["/repos/acme/one/issues", "/repos/acme/one/pulls"]
+    # the first response dropped us under the reserve; nothing else was spent
+    assert calls == ["/repos/acme/one/issues"]
+
+
+def test_user_requests_are_not_budget_gated():
+    server.state["github_rate"].update(remaining=1, reset=int(time.time()) + 600)
+
+    async def run():
+        async with make_gh(lambda req: httpx.Response(200, json={"ok": 1})) as gh:
+            return await server.gh_get(gh, "/repos/acme/one/pulls/1")
+
+    assert asyncio.run(run()) == {"ok": 1}
+
+
+def test_fetch_github_is_serialized(monkeypatch):
+    active = {"n": 0, "max": 0}
+
+    async def fake_repo(gh, repo):
+        active["n"] += 1
+        active["max"] = max(active["max"], active["n"])
+        await asyncio.sleep(0.01)
+        active["n"] -= 1
+        return {}, {}
+
+    monkeypatch.setattr(server, "fetch_github_repo", fake_repo)
+    monkeypatch.setattr(server, "gh_client", lambda: None)
+
+    async def run():
+        await asyncio.gather(server.fetch_github(), server.fetch_github())
+
+    asyncio.run(run())
+    assert active["max"] == 1

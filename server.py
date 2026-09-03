@@ -15,6 +15,7 @@ import os
 import re
 import time
 import uuid
+import contextvars
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -286,8 +287,14 @@ def _is_rate_limited(e: Exception) -> bool:
     # secondary limits with 403/429 + Retry-After.
     return r.status_code == 429 or (r.status_code == 403 and (r.headers.get("x-ratelimit-remaining") == "0" or "retry-after" in r.headers))
 
+# set while a background sync (reconcile / webhook re-read) runs so every read it
+# makes stops at the reserve; user-triggered requests are never budget-gated
+_background_sync: contextvars.ContextVar[bool] = contextvars.ContextVar("gh_background", default=False)
+
 async def gh_get(gh: httpx.AsyncClient, path: str, params: dict | None = None):
     """GET a GitHub resource with If-None-Match; returns the parsed body."""
+    if _background_sync.get():
+        _check_budget()
     key = _etag_key(path, params)
     hit = etag_cache.get(key)
     headers = {"If-None-Match": hit["etag"]} if hit else {}
@@ -390,9 +397,9 @@ def _check_budget() -> None:
 
 # keys apply_webhook touched; a reconcile that started before the webhook must not undo it
 _webhook_touched: set[str] = set()
+_reconcile_lock = asyncio.Lock()
 
 async def fetch_github_repo(gh: httpx.AsyncClient, repo: str) -> tuple[dict, dict]:
-    _check_budget()
     issues, prs = {}, {}
     now = time.time()
     for it in await gh_get(gh, f"/repos/{repo}/issues", {"state": "open", "per_page": 100}):
@@ -408,13 +415,21 @@ async def fetch_github_repo(gh: httpx.AsyncClient, repo: str) -> tuple[dict, dic
         elif issue["repo"] == repo:
             issues[key] = issue
     for pr in await gh_get(gh, f"/repos/{repo}/pulls", {"state": "open", "per_page": 100}):
-        _check_budget()
         prs[f"{repo}#{pr['number']}"] = await enrich_pr(gh, repo, pr)
     return issues, prs
 
 async def fetch_github():
     """Full reconciliation of every tracked repo. Webhooks keep the board current
-    between runs; this catches deliveries that were missed."""
+    between runs; this catches deliveries that were missed. Serialized: two
+    overlapping runs would each clear the other's webhook protection."""
+    async with _reconcile_lock:
+        tok = _background_sync.set(True)
+        try:
+            await _fetch_github_locked()
+        finally:
+            _background_sync.reset(tok)
+
+async def _fetch_github_locked():
     _check_budget()
     gh = gh_client()
     now = time.time()
@@ -451,19 +466,23 @@ async def refresh_pr(repo: str, number: int):
     """Re-read one PR (details, CI, reviews) after a webhook said it changed."""
     gh = gh_client()
     key = f"{repo}#{number}"
+    tok = _background_sync.set(True)
     try:
-        pr = await gh_get(gh, f"/repos/{repo}/pulls/{number}")
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+        try:
+            pr = await gh_get(gh, f"/repos/{repo}/pulls/{number}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                state["prs"].pop(key, None)
+                return
+            raise
+        if pr.get("state") != "open":
             state["prs"].pop(key, None)
+            pr_meta_cache.pop(key, None)
             return
-        raise
-    if pr.get("state") != "open":
-        state["prs"].pop(key, None)
+        state["prs"][key] = await enrich_pr(gh, repo, pr)
         pr_meta_cache.pop(key, None)
-        return
-    state["prs"][key] = await enrich_pr(gh, repo, pr)
-    pr_meta_cache.pop(key, None)
+    finally:
+        _background_sync.reset(tok)
 
 # ---------------------------------------------------------------- github webhook
 
