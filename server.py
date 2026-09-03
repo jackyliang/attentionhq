@@ -163,7 +163,7 @@ recent_replies: dict[str, float] = {}
 
 def _devin_replied_since(session_id: str, ts: float) -> bool:
     msgs = (session_msgs_cache.get(session_id) or {}).get("msgs") or []
-    return any(m["who"] == "devin" and _epoch(m.get("ts")) > ts for m in msgs)
+    return any(m["who"] == "devin" and _epoch_f(m.get("ts")) > ts for m in msgs)
 
 def mark_running(sess: dict):
     """A message we just sent means Devin is (about to be) working on it again."""
@@ -413,6 +413,11 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
             cursor = page.get("end_cursor") or cursor
             if not page.get("has_next_page"):
                 break
+    # post_message may have echoed a message while this poll was in flight; keep it
+    live = (session_msgs_cache.get(session_id) or {}).get("msgs") or []
+    for m in live:
+        if m.get("local") and m not in msgs and not _has_real_user_msg(msgs, m["text"], m["local"]):
+            msgs.append(m)
     _expire_local_echoes(msgs)
     session_msgs_cache[session_id] = {
         "msgs": msgs, "cursor": cursor, "seen": seen,
@@ -430,16 +435,26 @@ def _drop_local_echo(msgs: list[dict], text: str):
             del msgs[i]
             return
 
+def _has_real_user_msg(msgs: list[dict], text: str, since: float) -> bool:
+    """True if Devin's list already holds this user message (sent within the last minute)."""
+    return any(
+        m["who"] == "user" and not m.get("local") and m["text"].strip() == _clean_text(text).strip()
+        and _epoch_f(m.get("ts")) >= since - 60
+        for m in msgs
+    )
+
 def _expire_local_echoes(msgs: list[dict]):
     now = time.time()
     msgs[:] = [m for m in msgs if not (m.get("local") and now - m["local"] > LOCAL_ECHO_TTL)]
 
 def echo_user_message(session_id: str, text: str):
     cached = session_msgs_cache.setdefault(session_id, {"msgs": [], "cursor": None, "seen": set()})
-    cached["msgs"].append({
-        "who": "user", "ts": datetime.now(timezone.utc).isoformat(), "text": text,
-        "origin": "web", "name": None, "local": time.time(),
-    })
+    now = time.time()
+    if not _has_real_user_msg(cached["msgs"], text, now):  # a poll may already have it
+        cached["msgs"].append({
+            "who": "user", "ts": datetime.now(timezone.utc).isoformat(), "text": text,
+            "origin": "web", "name": None, "local": now,
+        })
     cached["updated_at"] = None
     recent_replies[session_id] = time.time()
     for s in state["sessions"]:
@@ -520,6 +535,14 @@ async def extract_session(session_id: str, messages: list[dict], context: str = 
     return data
 
 # ---------------------------------------------------------------- board assembly
+
+def _epoch_f(ts: str | int | float | None) -> float:
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    try:
+        return datetime.fromisoformat((ts or "").replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
 
 def _epoch(ts: str | int | float | None) -> int:
     if isinstance(ts, (int, float)):
