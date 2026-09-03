@@ -164,7 +164,11 @@ header{
 .hdr-deploys .deploy .st{color:var(--ds-gray-700);text-align:right}
 .hdr-deploys .deploy.deploying .st{color:var(--ds-blue-900)}
 .hdr-deploys .deploy.failed .st{color:var(--ds-red-900)}
-.hdr-deploys .deploy .sub{grid-column:2/-1;font-size:11px;color:var(--ds-gray-600);overflow:hidden;text-overflow:ellipsis;max-width:340px;margin-top:2px}
+.hdr-deploys .deploy .sub{grid-column:2/-1;font-size:11px;color:var(--ds-gray-600);overflow:hidden;max-width:340px;margin-top:2px}
+.hdr-deploys .deploy .sub .sub-t{display:inline-block;white-space:nowrap}
+.hdr-deploys .deploy .sub.clipped .sub-t{animation:subscroll var(--dur,8s) linear infinite alternate}
+@keyframes subscroll{0%,15%{transform:translateX(0)}85%,100%{transform:translateX(var(--shift,0px))}}
+@media (prefers-reduced-motion:reduce){.hdr-deploys .deploy .sub.clipped .sub-t{animation:none}}
 .hdr-deploys .muted{color:var(--ds-gray-700);padding:6px 12px;display:block}
 .hdr-help{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ds-gray-900)}
 .hdr-help:hover{color:var(--ds-gray-1000)}
@@ -1752,17 +1756,30 @@ function renderDeploys(data){
   const rows=svcs.map(s=>{
     let dot='grey',st='',sub='';
     const lc=s.last_deployed_commit,dc=s.deploying_commit;
-    const lastLine=s.last_deployed_at?`last deployed ${ago(s.last_deployed_at)}${lc?` · ${lc.sha} ${lc.message}`:''}`:'never deployed';
-    if(s.status==='deploying'){dot='blue pulse';st=`deploying · ${elapsed(s.deploying_since)}`;sub=dc?`${dc.sha} ${dc.message}`:lastLine}
+    const lastLine=s.last_deployed_at?`last deployed ${ago(s.last_deployed_at)}${lc?` · ${lc.message}`:''}`:'never deployed';
+    if(s.status==='deploying'){dot='blue pulse';st=`deploying · ${elapsed(s.deploying_since)}`;sub=dc?dc.message:lastLine}
     else if(s.status==='failed'){dot='red';st=`failed ${ago(s.failed_at)}`;sub=lastLine}
-    else if(s.status==='live'){dot='green';st=`deployed ${ago(s.last_deployed_at)}`;sub=lc?`${lc.sha} ${lc.message}`:''}
+    else if(s.status==='live'){dot='green';st=`deployed ${ago(s.last_deployed_at)}`;sub=lc?lc.message:''}
     else if(s.status==='canceled'){dot='grey';st=s.last_deployed_at?`deployed ${ago(s.last_deployed_at)}`:'canceled';sub=`latest deploy canceled · ${lastLine}`}
     else{st='no deploys';sub=lastLine}
-    return `<a class="deploy ${escHTML(s.status)}" href="${escHTML(s.url)}" target="_blank" rel="noopener"><span class="dot ${dot}"></span><span class="svc">${escHTML(s.name)}</span><span class="st">${st}</span>${sub?`<span class="sub" title="${escHTML(sub)}">${escHTML(sub)}</span>`:''}</a>`;
+    return `<a class="deploy ${escHTML(s.status)}" href="${escHTML(s.url)}" target="_blank" rel="noopener"><span class="dot ${dot}"></span><span class="svc">${escHTML(s.name)}</span><span class="st">${st}</span>${sub?`<span class="sub" title="${escHTML(sub)}"><span class="sub-t">${escHTML(sub)}</span></span>`:''}</a>`;
   }).join('');
   const tip=aggLabel||(agg==='live'?`all ${svcs.length} live`:'render deploys');
   el.innerHTML=`<button class="trigger ${agg}" aria-label="Render deploys: ${escHTML(tip)}" aria-haspopup="true"><span class="dot ${aggDot}"></span></button>`+
     `<div class="card ${agg}" role="dialog" aria-label="Render deploy status"><div class="hd"><span>render · ${svcs.length} services</span><span>${r.ok?escHTML(tip):'stale'}</span></div>${rows}</div>`;
+  if(el.matches(':hover,:focus-within'))fitDeploySubs();
+}
+function fitDeploySubs(){
+  document.querySelectorAll('#hdr-deploys .deploy .sub').forEach(sb=>{
+    const t=sb.querySelector('.sub-t');if(!t)return;
+    const over=t.scrollWidth-sb.clientWidth;
+    sb.classList.toggle('clipped',over>0);
+    if(over>0){t.style.setProperty('--shift',`-${over}px`);t.style.setProperty('--dur',`${Math.max(3,over/35)}s`)}
+  });
+}
+{
+  const hd=document.getElementById('hdr-deploys');
+  if(hd){hd.addEventListener('mouseenter',fitDeploySubs);hd.addEventListener('focusin',fitDeploySubs)}
 }
 
 let prefetching=false;
