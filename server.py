@@ -7,6 +7,8 @@ exposes mutations: start session, chat, create issue, merge PR.
 import asyncio
 import ctypes
 import ctypes.util
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -37,8 +39,14 @@ RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "5"))
 DEVIN_POLL_MAX_SECS = int(os.environ.get("DEVIN_POLL_MAX_SECS", "60"))
-GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "20"))
-GITHUB_POLL_MAX_SECS = int(os.environ.get("GITHUB_POLL_MAX_SECS", "300"))
+# GitHub pushes changes to /api/github/webhook when a secret is configured; the
+# poll then only reconciles missed deliveries, so it runs far less often.
+GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "300" if GITHUB_WEBHOOK_SECRET else "20"))
+GITHUB_POLL_MAX_SECS = int(os.environ.get("GITHUB_POLL_MAX_SECS", "3600"))
+# Extra request budget the poll keeps in reserve so user actions (merge, edit,
+# create) never hit the primary limit.
+GITHUB_RATE_RESERVE = int(os.environ.get("GITHUB_RATE_RESERVE", "200"))
 RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
 # The sessions list is newest-first, 100 per page; keep paging until sessions are older than this.
 DEVIN_LOOKBACK_DAYS = float(os.environ.get("DEVIN_LOOKBACK_DAYS", "14"))
@@ -73,7 +81,18 @@ state: dict = {
     "render_ok": True,
     "generated_at": 0,
     "gh_refresh": False,  # pull GitHub on the next tick instead of waiting out the interval
+    "github_rate": {"limit": None, "remaining": None, "reset": None, "retry_at": None},
+    "github_synced_at": 0,
+    "devin_synced_at": 0,
+    "webhook": {"configured": bool(GITHUB_WEBHOOK_SECRET), "last_at": 0, "count": 0},
 }
+# Set by webhooks and user actions to cut the poll loop's sleep short.
+wake = asyncio.Event()
+
+def request_refresh(github: bool = True):
+    if github:
+        state["gh_refresh"] = True
+    wake.set()
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
@@ -222,11 +241,77 @@ def remember_session(data: dict, tags: list[str], title: str) -> dict:
     recent_sessions[sid] = (time.time(), sess)
     return sess
 
+# Conditional requests: GitHub answers an unchanged resource with 304, which does
+# not count against the rate limit. Cache body + ETag per URL and always revalidate.
+ETAG_TTL = 3600
+etag_cache: dict[str, dict] = {}  # url -> {"etag": str, "data": Any, "at": epoch}
+
+def _etag_key(path: str, params: dict | None) -> str:
+    return path + ("?" + "&".join(f"{k}={v}" for k, v in sorted((params or {}).items())) if params else "")
+
+def note_rate_limit(headers) -> None:
+    rate = state["github_rate"]
+    try:
+        if "x-ratelimit-limit" in headers:
+            rate["limit"] = int(headers["x-ratelimit-limit"])
+        if "x-ratelimit-remaining" in headers:
+            rate["remaining"] = int(headers["x-ratelimit-remaining"])
+        if "x-ratelimit-reset" in headers:
+            rate["reset"] = int(headers["x-ratelimit-reset"])
+    except ValueError:
+        pass
+
+class RateLimited(Exception):
+    """GitHub (or Devin) asked us to stop; `retry_at` is when to try again."""
+    def __init__(self, retry_at: float, response: httpx.Response | None = None):
+        super().__init__(f"rate limited until {int(retry_at)}")
+        self.retry_at = retry_at
+        self.response = response
+
+def _retry_at(r: httpx.Response, default_secs: float = 60) -> float:
+    now = time.time()
+    if r.headers.get("retry-after", "").isdigit():
+        return now + int(r.headers["retry-after"])
+    if r.headers.get("x-ratelimit-remaining") == "0" and r.headers.get("x-ratelimit-reset", "").isdigit():
+        return max(now + 5, int(r.headers["x-ratelimit-reset"]) + 1)
+    return now + default_secs
+
+def _is_rate_limited(e: Exception) -> bool:
+    if isinstance(e, RateLimited):
+        return True
+    if not isinstance(e, httpx.HTTPStatusError):
+        return False
+    r = e.response
+    # GitHub signals primary-limit exhaustion with 403 + X-RateLimit-Remaining: 0,
+    # secondary limits with 403/429 + Retry-After.
+    return r.status_code == 429 or (r.status_code == 403 and (r.headers.get("x-ratelimit-remaining") == "0" or "retry-after" in r.headers))
+
+async def gh_get(gh: httpx.AsyncClient, path: str, params: dict | None = None):
+    """GET a GitHub resource with If-None-Match; returns the parsed body."""
+    key = _etag_key(path, params)
+    hit = etag_cache.get(key)
+    headers = {"If-None-Match": hit["etag"]} if hit else {}
+    r = await gh.get(path, params=params, headers=headers)
+    note_rate_limit(r.headers)
+    if r.status_code == 304 and hit:
+        hit["at"] = time.time()
+        return hit["data"]
+    if r.status_code in (403, 429) and _is_rate_limited(httpx.HTTPStatusError("rate limited", request=r.request, response=r)):
+        raise RateLimited(_retry_at(r), r)
+    r.raise_for_status()
+    data = r.json()
+    if r.headers.get("etag"):
+        etag_cache[key] = {"etag": r.headers["etag"], "data": data, "at": time.time()}
+    return data
+
+def prune_etag_cache():
+    cutoff = time.time() - ETAG_TTL
+    for k in [k for k, v in etag_cache.items() if v["at"] < cutoff]:
+        del etag_cache[k]
+
 async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
     try:
-        c = await gh.get(f"/repos/{repo}/commits/{sha}/check-runs", params={"per_page": 100})
-        c.raise_for_status()
-        runs = c.json().get("check_runs", [])
+        runs = (await gh_get(gh, f"/repos/{repo}/commits/{sha}/check-runs", {"per_page": 100})).get("check_runs", [])
         if not runs:
             return "none"
         if any(x["conclusion"] in ("failure", "timed_out", "cancelled") for x in runs if x["conclusion"]):
@@ -234,72 +319,222 @@ async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
         if all(x["status"] == "completed" for x in runs):
             return "passing"
         return "running"
+    except RateLimited:
+        raise
     except httpx.HTTPError:
         try:
-            s = await gh.get(f"/repos/{repo}/commits/{sha}/status")
-            s.raise_for_status()
-            combined = s.json()
+            combined = await gh_get(gh, f"/repos/{repo}/commits/{sha}/status")
             if not combined.get("statuses"):
                 return "none"
             return {"success": "passing", "failure": "failing", "pending": "running"}.get(combined.get("state"), "unknown")
+        except RateLimited:
+            raise
         except httpx.HTTPError:
             return "unknown"
 
-async def fetch_github():
+def review_state(reviews: list[dict]) -> str:
+    # latest review per reviewer wins; a re-approval clears an earlier request for changes
+    latest: dict[str, str] = {}
+    for x in reviews:
+        st = x.get("state") or ""
+        if st in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+            latest[(x.get("user") or {}).get("login") or str(x.get("id"))] = st
+    states = set(latest.values())
+    if "CHANGES_REQUESTED" in states:
+        return "changes_requested"
+    if "APPROVED" in states:
+        return "approved"
+    return "none"
+
+async def enrich_pr(gh: httpx.AsyncClient, repo: str, pr: dict) -> dict:
+    """Board PR record from a list/webhook PR object plus its CI and review state."""
+    key = f"{repo}#{pr['number']}"
+    prev = state["prs"].get(key) or {}
+    mergeable_state = pr.get("mergeable_state")
+    if mergeable_state is None or mergeable_state == "unknown":
+        try:
+            mergeable_state = (await gh_get(gh, f"/repos/{repo}/pulls/{pr['number']}")).get("mergeable_state", "unknown")
+        except RateLimited:
+            raise
+        except httpx.HTTPError:
+            mergeable_state = prev.get("mergeable_state", "unknown")
+    try:
+        ci = await commit_ci(gh, repo, pr["head"]["sha"])
+    except RateLimited:
+        raise
+    if ci == "unknown" and prev.get("ci"):
+        ci = prev["ci"]
+    try:
+        review = review_state(await gh_get(gh, f"/repos/{repo}/pulls/{pr['number']}/reviews", {"per_page": 100}))
+    except RateLimited:
+        raise
+    except httpx.HTTPError:
+        review = prev.get("review", "none")
+    return {
+        "repo": repo, "number": pr["number"], "title": pr["title"],
+        "body": pr.get("body") or "", "url": pr["html_url"],
+        "branch": pr["head"]["ref"], "head_sha": pr["head"]["sha"], "created_at": pr["created_at"],
+        "ci": ci, "review": review,
+        "mergeable_state": mergeable_state or "unknown",
+        "draft": pr.get("draft", False),
+    }
+
+def _budget_exhausted() -> bool:
+    rate = state["github_rate"]
+    return rate["remaining"] is not None and rate["remaining"] < GITHUB_RATE_RESERVE and (rate["reset"] or 0) > time.time()
+
+async def fetch_github_repo(gh: httpx.AsyncClient, repo: str) -> tuple[dict, dict]:
     issues, prs = {}, {}
+    now = time.time()
+    for it in await gh_get(gh, f"/repos/{repo}/issues", {"state": "open", "per_page": 100}):
+        if "pull_request" in it:
+            continue
+        key = f"{repo}#{it['number']}"
+        if key in recently_closed:
+            continue
+        issues[key] = issue_from_gh(repo, it)
+    for key, (ts, issue) in list(recent_issues.items()):
+        if now - ts > RECENT_ISSUE_TTL or key in issues:
+            recent_issues.pop(key, None)
+        elif issue["repo"] == repo:
+            issues[key] = issue
+    for pr in await gh_get(gh, f"/repos/{repo}/pulls", {"state": "open", "per_page": 100}):
+        prs[f"{repo}#{pr['number']}"] = await enrich_pr(gh, repo, pr)
+    return issues, prs
+
+async def fetch_github():
+    """Full reconciliation of every tracked repo. Webhooks keep the board current
+    between runs; this catches deliveries that were missed."""
+    if _budget_exhausted():
+        raise RateLimited(state["github_rate"]["reset"] + 1)
     gh = gh_client()
+    now = time.time()
+    for key, ts in list(recently_closed.items()):
+        if now - ts > RECENT_ISSUE_TTL:
+            recently_closed.pop(key, None)
+    issues, prs = dict(state["issues"]), dict(state["prs"])
+    failed = None
     for repo in REPOS:
-        r = await gh.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
-        r.raise_for_status()
-        now = time.time()
-        for key, ts in list(recently_closed.items()):
-            if now - ts > RECENT_ISSUE_TTL:
-                recently_closed.pop(key, None)
-        for it in r.json():
-            if "pull_request" in it:
-                continue
-            key = f"{repo}#{it['number']}"
-            if key in recently_closed:
-                continue
-            issues[key] = issue_from_gh(repo, it)
-        for key, (ts, issue) in list(recent_issues.items()):
-            if now - ts > RECENT_ISSUE_TTL or key in issues:
+        try:
+            ri, rp = await fetch_github_repo(gh, repo)
+        except RateLimited:
+            raise
+        except Exception as e:  # noqa: BLE001 — one repo failing must not blank the others
+            failed = e
+            log.warning("github fetch failed for %s: %s", repo, e)
+            continue
+        for store, fresh in ((issues, ri), (prs, rp)):
+            for k in [k for k in store if k.startswith(f"{repo}#")]:
+                del store[k]
+            store.update(fresh)
+    state["issues"], state["prs"] = issues, prs
+    prune_etag_cache()
+    if failed is not None:
+        raise failed
+    state["github_ok"] = True
+    state["github_synced_at"] = time.time()
+
+async def refresh_pr(repo: str, number: int):
+    """Re-read one PR (details, CI, reviews) after a webhook said it changed."""
+    gh = gh_client()
+    key = f"{repo}#{number}"
+    try:
+        pr = await gh_get(gh, f"/repos/{repo}/pulls/{number}")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            state["prs"].pop(key, None)
+            return
+        raise
+    if pr.get("state") != "open":
+        state["prs"].pop(key, None)
+        pr_meta_cache.pop(key, None)
+        return
+    state["prs"][key] = await enrich_pr(gh, repo, pr)
+    pr_meta_cache.pop(key, None)
+
+# ---------------------------------------------------------------- github webhook
+
+def verify_webhook_signature(secret: str, body: bytes, signature: str | None) -> bool:
+    if not secret or not signature or not signature.startswith("sha256="):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+WEBHOOK_PR_EVENTS = {"pull_request", "pull_request_review", "pull_request_review_comment", "check_run", "check_suite", "status", "workflow_run"}
+
+def apply_webhook(event: str, payload: dict) -> set[tuple[str, int]]:
+    """Fold what the payload already tells us into state and return the PRs that
+    need a targeted re-read (CI/reviews/mergeability aren't in the payload)."""
+    repo = (payload.get("repository") or {}).get("full_name") or ""
+    if repo not in REPOS:
+        return set()
+    dirty: set[tuple[str, int]] = set()
+    if event == "issues":
+        it = payload.get("issue") or {}
+        if not it.get("number"):
+            return set()
+        key = f"{repo}#{it['number']}"
+        if it.get("state") == "open" and "pull_request" not in it:
+            if key not in recently_closed:
+                state["issues"][key] = issue_from_gh(repo, it)
                 recent_issues.pop(key, None)
-            elif issue["repo"] == repo:
-                issues[key] = issue
-        r = await gh.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
-        r.raise_for_status()
-        for pr in r.json():
-            key = f"{repo}#{pr['number']}"
-            detail = {}
-            try:
-                d = await gh.get(f"/repos/{repo}/pulls/{pr['number']}")
-                d.raise_for_status()
-                detail = d.json()
-            except httpx.HTTPError:
-                pass
-            ci = await commit_ci(gh, repo, pr["head"]["sha"])
-            review = "none"
-            try:
-                rv = await gh.get(f"/repos/{repo}/pulls/{pr['number']}/reviews", params={"per_page": 100})
-                rv.raise_for_status()
-                states = [x["state"] for x in rv.json()]
-                if "CHANGES_REQUESTED" in states:
-                    review = "changes_requested"
-                elif "APPROVED" in states:
-                    review = "approved"
-            except httpx.HTTPError:
-                pass
-            prs[key] = {
+        else:
+            state["issues"].pop(key, None)
+            recent_issues.pop(key, None)
+    elif event == "pull_request":
+        pr = payload.get("pull_request") or {}
+        if not pr.get("number"):
+            return set()
+        key = f"{repo}#{pr['number']}"
+        if pr.get("state") == "open":
+            prev = state["prs"].get(key) or {}
+            state["prs"][key] = {
                 "repo": repo, "number": pr["number"], "title": pr["title"],
                 "body": pr.get("body") or "", "url": pr["html_url"],
-                "branch": pr["head"]["ref"], "created_at": pr["created_at"],
-                "ci": ci, "review": review,
-                "mergeable_state": detail.get("mergeable_state", "unknown"),
+                "branch": pr["head"]["ref"], "head_sha": pr["head"]["sha"], "created_at": pr["created_at"],
+                "ci": prev.get("ci", "unknown") if prev.get("head_sha") == pr["head"]["sha"] else "unknown",
+                "review": prev.get("review", "none"),
+                "mergeable_state": pr.get("mergeable_state") or prev.get("mergeable_state", "unknown"),
                 "draft": pr.get("draft", False),
             }
-    state["issues"], state["prs"] = issues, prs
-    state["github_ok"] = True
+            dirty.add((repo, pr["number"]))
+        else:
+            state["prs"].pop(key, None)
+        pr_meta_cache.pop(key, None)
+    elif event in ("pull_request_review", "pull_request_review_comment"):
+        pr = payload.get("pull_request") or {}
+        if pr.get("number"):
+            dirty.add((repo, pr["number"]))
+    elif event in ("check_run", "check_suite", "workflow_run"):
+        obj = payload.get(event) or {}
+        for pr in obj.get("pull_requests") or []:
+            if pr.get("number"):
+                dirty.add((repo, pr["number"]))
+        sha = obj.get("head_sha")
+        if sha:
+            for p in state["prs"].values():
+                if p["repo"] == repo and p.get("head_sha") == sha:
+                    dirty.add((repo, p["number"]))
+    elif event == "status":
+        sha = payload.get("sha")
+        for p in state["prs"].values():
+            if p["repo"] == repo and p.get("head_sha") == sha:
+                dirty.add((repo, p["number"]))
+    return dirty
+
+async def _after_webhook(dirty: set[tuple[str, int]]):
+    try:
+        for repo, number in dirty:
+            try:
+                await refresh_pr(repo, number)
+            except RateLimited as e:
+                state["github_rate"]["retry_at"] = e.retry_at
+                break
+            except httpx.HTTPError as e:
+                log.warning("webhook refresh of %s#%s failed: %s", repo, number, e)
+        await assemble_board()
+    except Exception:  # noqa: BLE001
+        log.warning("post-webhook refresh failed", exc_info=True)
 
 # ---------------------------------------------------------------- render fetch
 
@@ -709,7 +944,8 @@ async def assemble_board():
         if prompt and not ik:
             ik = by_prompt.get(prompt[0])
             if not ik and (st not in ACTIVE_STATUSES or session_needs_user(sess)) and time.time() - _epoch(sess.get("created_at")) < 1800:
-                state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
+                if time.time() - state["github_synced_at"] > 30:
+                    request_refresh()  # Devin just filed the issue; pick it up now
             # a file-only session is done once the issue exists; don't keep it on the card
             if prompt[1] == "file" and (ik or (st not in ACTIVE_STATUSES and not session_pr_urls(sess))):
                 continue
@@ -840,35 +1076,43 @@ async def assemble_board():
         "generated_at": time.time(),
     }
     state["generated_at"] = time.time()
+    state["board"]["sync"] = sync_status()
+    _note_board_changed(state["board"])
 
 # ---------------------------------------------------------------- pollers
 
-def _is_rate_limited(e: Exception) -> bool:
-    if not isinstance(e, httpx.HTTPStatusError):
-        return False
-    r = e.response
-    # GitHub signals primary-limit exhaustion with 403 + X-RateLimit-Remaining: 0
-    return r.status_code == 429 or (r.status_code == 403 and r.headers.get("x-ratelimit-remaining") == "0")
+def _backoff_until(e: Exception, current: float, max_secs: float) -> float:
+    """Sleep target after a rate-limit error: what the server said, else doubled."""
+    if isinstance(e, RateLimited):
+        return min(e.retry_at, time.time() + max_secs)
+    if isinstance(e, httpx.HTTPStatusError):
+        return min(_retry_at(e.response, current * 2), time.time() + max_secs)
+    return time.time() + min(current * 2, max_secs)
 
 async def poll_loop():
     last_gh = 0.0
     last_render = 0.0
     devin_sleep = DEVIN_POLL_SECS
-    gh_every = GITHUB_POLL_SECS
+    gh_next = 0.0
+    gh_sleep = float(GITHUB_POLL_SECS)
     while True:
         try:
-            if time.time() - last_gh >= gh_every or state["gh_refresh"]:
+            if time.time() >= gh_next or (state["gh_refresh"] and time.time() >= (state["github_rate"]["retry_at"] or 0)):
                 state["gh_refresh"] = False
                 await fetch_github()
                 last_gh = time.time()
-                gh_every = GITHUB_POLL_SECS
+                gh_sleep = float(GITHUB_POLL_SECS)
+                gh_next = last_gh + gh_sleep
+                state["github_rate"]["retry_at"] = None
         except Exception as e:  # noqa: BLE001
             state["github_ok"] = False
-            last_gh = time.time()
             if _is_rate_limited(e):
-                gh_every = min(gh_every * 2, GITHUB_POLL_MAX_SECS)
-                log.warning("github rate limited; backing off to %ss", gh_every)
+                gh_next = _backoff_until(e, gh_sleep, GITHUB_POLL_MAX_SECS)
+                gh_sleep = min(gh_sleep * 2, GITHUB_POLL_MAX_SECS)
+                state["github_rate"]["retry_at"] = gh_next
+                log.warning("github rate limited; next attempt in %ds", gh_next - time.time())
             else:
+                gh_next = time.time() + gh_sleep
                 log.warning("github poll failed: %s", e)
         try:
             if time.time() - last_render >= RENDER_POLL_SECS:
@@ -877,6 +1121,7 @@ async def poll_loop():
         except Exception as e:  # noqa: BLE001
             state["render_ok"] = False
             log.warning("render poll failed: %s", e)
+        devin_next = time.time() + devin_sleep
         try:
             await fetch_devin()
             # refresh messages for sessions that appear on the board
@@ -890,11 +1135,14 @@ async def poll_loop():
                     except httpx.HTTPError:
                         pass
             devin_sleep = DEVIN_POLL_SECS
+            devin_next = time.time() + devin_sleep
+            state["devin_synced_at"] = time.time()
         except Exception as e:  # noqa: BLE001
             state["devin_ok"] = False
             if _is_rate_limited(e):
+                devin_next = _backoff_until(e, devin_sleep, DEVIN_POLL_MAX_SECS)
                 devin_sleep = min(devin_sleep * 2, DEVIN_POLL_MAX_SECS)
-                log.warning("devin rate limited (429); backing off to %ss", devin_sleep)
+                log.warning("devin rate limited (429); next attempt in %ds", devin_next - time.time())
             else:
                 log.warning("devin poll failed: %s", e)
         try:
@@ -902,7 +1150,71 @@ async def poll_loop():
         except Exception as e:  # noqa: BLE001
             log.exception("board assembly failed: %s", e)
         release_free_memory()
-        await asyncio.sleep(devin_sleep)
+        # sleep until the next Devin tick, unless a webhook / user action wakes us
+        wake.clear()
+        try:
+            await asyncio.wait_for(wake.wait(), timeout=max(0.5, devin_next - time.time()))
+        except asyncio.TimeoutError:
+            pass
+
+# ---------------------------------------------------------------- live updates
+
+# Every connected browser holds a queue; assemble_board() drops a notice in each
+# when the board content changes, so clients re-fetch instantly instead of polling.
+subscribers: set[asyncio.Queue] = set()
+board_version = 0
+_board_digest = ""
+SSE_HEARTBEAT_SECS = 15
+
+def sync_status() -> dict:
+    now = time.time()
+    rate = state["github_rate"]
+    return {
+        "generated_at": state["generated_at"],
+        "version": board_version,
+        "devin_ok": state["devin_ok"],
+        "github_ok": state["github_ok"],
+        "devin_synced_at": state["devin_synced_at"],
+        "github_synced_at": state["github_synced_at"],
+        "github_rate": {**rate, "retry_in": max(0, int(rate["retry_at"] - now)) if rate["retry_at"] else None},
+        "webhook": dict(state["webhook"]),
+    }
+
+def publish(kind: str):
+    payload = {"type": kind, **sync_status()}
+    for q in list(subscribers):
+        if q.full():
+            try:
+                q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        q.put_nowait(payload)
+
+def _note_board_changed(board: dict):
+    global board_version, _board_digest
+    digest = hashlib.sha1(json.dumps({k: v for k, v in board.items() if k not in ("generated_at", "sync")}, sort_keys=True, default=str).encode()).hexdigest()
+    if digest != _board_digest:
+        _board_digest = digest
+        board_version += 1
+        publish("board")
+    else:
+        publish("sync")
+
+async def sse_events(request: Request):
+    q: asyncio.Queue = asyncio.Queue(maxsize=8)
+    subscribers.add(q)
+    try:
+        yield f"event: hello\ndata: {json.dumps({'type': 'hello', **sync_status()})}\n\n"
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                item = await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_SECS)
+                yield f"event: {item['type']}\ndata: {json.dumps(item)}\n\n"
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+    finally:
+        subscribers.discard(q)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -917,9 +1229,9 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/") and BOARD_TOKEN:
+    if request.url.path.startswith("/api/") and BOARD_TOKEN and request.url.path != "/api/github/webhook":
         token = request.headers.get("x-board-token")
-        if token is None and request.url.path.startswith("/api/attachment/"):
+        if token is None and request.url.path.startswith(("/api/attachment/", "/api/events")):
             token = request.query_params.get("t")
         if token != BOARD_TOKEN:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -938,8 +1250,50 @@ async def get_board():
     if state["board"] is None:
         return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
                 "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
-                "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0}
+                "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0, "sync": sync_status()}
+    state["board"]["sync"] = sync_status()
     return state["board"]
+
+@app.get("/api/events")
+async def events(request: Request):
+    """Server-sent events: `board` when the board content changed, `sync` after
+    every poll cycle, `hello` on connect. Clients re-fetch /api/board on `board`."""
+    return StreamingResponse(sse_events(request), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.post("/api/refresh")
+async def refresh_now():
+    """Pull GitHub and Devin on the next tick instead of waiting out the interval."""
+    rate = state["github_rate"]
+    if rate["retry_at"] and rate["retry_at"] > time.time():
+        request_refresh(github=False)
+        return {"ok": True, "github": "rate_limited", "retry_in": int(rate["retry_at"] - time.time())}
+    request_refresh()
+    return {"ok": True, "github": "scheduled"}
+
+@app.post("/api/github/webhook")
+async def github_webhook(request: Request):
+    """GitHub → board push. Verified with X-Hub-Signature-256 (GITHUB_WEBHOOK_SECRET),
+    not the board token, since GitHub is the caller."""
+    if not GITHUB_WEBHOOK_SECRET:
+        raise HTTPException(404, "webhooks not configured")
+    body = await request.body()
+    if not verify_webhook_signature(GITHUB_WEBHOOK_SECRET, body, request.headers.get("x-hub-signature-256")):
+        raise HTTPException(401, "bad signature")
+    event = request.headers.get("x-github-event", "")
+    try:
+        payload = json.loads(body or b"{}")
+    except ValueError:
+        raise HTTPException(400, "bad json")
+    state["webhook"]["last_at"] = time.time()
+    state["webhook"]["count"] += 1
+    if event == "ping":
+        return {"ok": True, "pong": True}
+    dirty = apply_webhook(event, payload)
+    handled = event in WEBHOOK_PR_EVENTS or event == "issues"
+    if handled:
+        asyncio.create_task(_after_webhook(dirty))
+    return {"ok": True, "handled": handled, "refresh": [f"{r}#{n}" for r, n in sorted(dirty)]}
 
 def find_card(card_id: str) -> dict:
     board = state["board"] or {"columns": []}
@@ -961,9 +1315,7 @@ async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
     tracked = state["prs"].get(key)
     try:
         gh = gh_client()
-        r = await gh.get(f"/repos/{repo}/pulls/{number}")
-        r.raise_for_status()
-        p = r.json()
+        p = await gh_get(gh, f"/repos/{repo}/pulls/{number}")
         merged = bool(p.get("merged"))
         pr_state = "merged" if merged else (p.get("state") or "open")
         data = {
@@ -980,7 +1332,7 @@ async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
             "review": tracked["review"] if tracked else "none",
             "ci": (tracked["ci"] if tracked else await commit_ci(gh, repo, p["head"]["sha"])) if pr_state == "open" else "none",
         }
-    except httpx.HTTPError:
+    except (httpx.HTTPError, RateLimited):
         if hit:
             return hit["data"]
         if tracked:
@@ -1246,6 +1598,8 @@ async def hide_card(card_id: str):
     await asyncio.to_thread(save_dismissed, dismissed)
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
+    if state["board"]:
+        _note_board_changed(state["board"])
     return {"ok": True, "actions": ["hidden"]}
 
 def find_card_or_stale(card_id: str) -> dict:

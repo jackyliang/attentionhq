@@ -140,6 +140,22 @@ header{
 .hdr-sync.busy .dot{background:var(--ds-blue-700);animation:pulse 1.2s ease-in-out infinite}
 .hdr-sync.err{color:var(--ds-red-900)}
 .hdr-sync.err .dot{background:var(--ds-red-700)}
+.hdr-sync.warn{color:var(--ds-amber-900)}
+.hdr-sync.warn .dot{background:var(--ds-amber-700)}
+.hdr-sync.live .dot{background:var(--ds-green-700)}
+.hdr-sync{position:relative;cursor:default}
+.hdr-sync .card{
+  display:none;position:absolute;top:100%;right:0;z-index:6;min-width:260px;
+  background:var(--ds-background-100);border:1px solid var(--ds-gray-400);
+  box-shadow:0 8px 24px rgba(0,0,0,.4);padding:6px 0;color:var(--ds-gray-900);font-size:12px;white-space:nowrap
+}
+.hdr-sync:hover .card{display:block}
+.hdr-sync .card .hd{padding:4px 12px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-600);border-bottom:1px solid var(--ds-gray-300)}
+.hdr-sync .card .row{display:flex;justify-content:space-between;gap:16px;padding:5px 12px}
+.hdr-sync .card .row span:last-child{color:var(--ds-gray-700)}
+.hdr-sync .card .row.bad span:last-child{color:var(--ds-red-900)}
+.hdr-sync .card .row.warn span:last-child{color:var(--ds-amber-900)}
+.hdr-sync .card .ft{padding:6px 12px 2px;font-size:11px;color:var(--ds-gray-600);border-top:1px solid var(--ds-gray-300)}
 
 /* ---- Board ---- */
 main{
@@ -773,7 +789,7 @@ aside{
       <span class="variant">live</span>
     </div>
     <div class="hdr-right">
-      <span class="hdr-sync" id="hdr-sync" aria-live="polite"><span class="dot grey"></span><span id="hdr-sync-txt">loading…</span></span>
+      <span class="hdr-sync" id="hdr-sync" aria-live="polite"><span class="dot grey"></span><span id="hdr-sync-txt">loading…</span><div class="card" id="hdr-sync-card"></div></span>
       <div class="hdr-deploys" id="hdr-deploys" aria-label="Render deploy status"></div>
       <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts"><kbd>?</kbd> shortcuts</button>
     </div>
@@ -842,6 +858,7 @@ aside{
         <h3>General</h3>
         <div class="sc">Shortcut reference <span class="k"><kbd>?</kbd></span></div>
         <div class="sc">Jump to “Needs you” <span class="k"><kbd>N</kbd></span></div>
+        <div class="sc">Refresh GitHub + Devin now <span class="k"><kbd>R</kbd></span></div>
       </div>
     </div>
   </div>
@@ -937,6 +954,7 @@ gateForm.addEventListener('submit',e=>{
   gate.classList.remove('open');
   const res=gateForm._resolve; gateForm._resolve=null; gateWait=null;
   if(res)res();
+  if(typeof connectEvents==='function'){esRetry=1000;connectEvents()}
 });
 gateInput.addEventListener('input',()=>gateForm.classList.remove('err'));
 
@@ -1249,21 +1267,92 @@ function renderBoard(force=false){
   flipCards(before,focusEl);
 }
 
-let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false;
-const syncEl=document.getElementById('hdr-sync'),syncTxt=document.getElementById('hdr-sync-txt');
+let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false,syncInfo=null,liveOn=false;
+const syncEl=document.getElementById('hdr-sync'),syncTxt=document.getElementById('hdr-sync-txt'),syncCard=document.getElementById('hdr-sync-card');
 function agoS(ts){
   const s=Math.floor(Math.max(0,(Date.now()-ts)/1000));
   return s<60?`${s}s ago`:ago(ts);
 }
+function inS(sec){return sec<90?`${sec}s`:`${Math.ceil(sec/60)}m`}
+// GitHub said stop until `retry_at`; the header shows the countdown instead of a bare "unreachable"
+function ghRetryIn(){
+  const r=syncInfo&&syncInfo.github_rate;
+  if(!r||!r.retry_at)return 0;
+  return Math.max(0,Math.ceil(r.retry_at-Date.now()/1000));
+}
+function renderSyncCard(){
+  const s=syncInfo; if(!s){syncCard.innerHTML='';return}
+  const r=s.github_rate||{};
+  const retry=ghRetryIn();
+  const row=(k,v,cls='')=>`<div class="row ${cls}"><span>${k}</span><span>${v}</span></div>`;
+  const ghState=retry?`rate limited \u00b7 retry in ${inS(retry)}`:(s.github_ok===false?'unreachable':(s.github_synced_at?`synced ${agoS(s.github_synced_at*1000)}`:'\u2014'));
+  const dvState=s.devin_ok===false?'unreachable':(s.devin_synced_at?`synced ${agoS(s.devin_synced_at*1000)}`:'\u2014');
+  const quota=r.remaining!=null?`${r.remaining}${r.limit?' / '+r.limit:''}${r.reset?' \u00b7 resets in '+inS(Math.max(0,Math.ceil(r.reset-Date.now()/1000))):''}`:'\u2014';
+  const wh=s.webhook||{};
+  const whState=!wh.configured?'not configured \u00b7 polling':(wh.last_at?`${wh.count} received \u00b7 last ${agoS(wh.last_at*1000)}`:'waiting for first delivery');
+  syncCard.innerHTML=`<div class="hd">Sync</div>`
+    +row('Live updates',liveOn?'connected':'reconnecting\u2026 (polling)',liveOn?'':'warn')
+    +row('GitHub',ghState,retry?'warn':(s.github_ok===false?'bad':''))
+    +row('GitHub webhooks',whState,wh.configured?'':'warn')
+    +row('GitHub API quota',quota,r.remaining!=null&&r.remaining<200?'warn':'')
+    +row('Devin',dvState,s.devin_ok===false?'bad':'')
+    +`<div class="ft"><kbd>R</kbd> refresh now</div>`;
+}
 function renderSync(state){
+  renderSyncCard();
+  const live=liveOn?' live':'';
   if(state==='busy'){syncEl.className='hdr-sync busy';syncTxt.textContent=lastSync?'syncing\u2026':'loading board\u2026';return}
   if(fetchFailed){syncEl.className='hdr-sync err';syncTxt.textContent=lastSync?`sync failed \u00b7 last ${agoS(lastSync)}`:'load failed';return}
   if(!lastSync){syncEl.className='hdr-sync';syncTxt.textContent='';return}
+  const retry=ghRetryIn();
+  if(retry){syncEl.className='hdr-sync warn';syncTxt.textContent=`github rate limited \u00b7 retry in ${inS(retry)} \u00b7 data ${agoS(dataAt||lastSync)}`;return}
   if(upstreamDown.length){syncEl.className='hdr-sync err';syncTxt.textContent=`${upstreamDown.join(' + ')} unreachable \u00b7 data ${agoS(dataAt||lastSync)}`;return}
-  syncEl.className='hdr-sync';
+  syncEl.className='hdr-sync'+live;
   syncTxt.textContent=`data ${agoS(dataAt||lastSync)}`;
 }
 setInterval(()=>{if(lastSync&&!syncEl.classList.contains('busy'))renderSync()},1000);
+function applySyncInfo(s){
+  if(!s)return;
+  syncInfo=s;
+  if(s.generated_at)dataAt=s.generated_at*1000;
+  upstreamDown=[s.devin_ok===false&&'devin',s.github_ok===false&&'github'].filter(Boolean);
+}
+
+/* live updates: the server pushes `board` when the board changed and `sync` after
+   every poll; polling is only the fallback while the stream is down */
+let es=null,esRetry=1000,lastVersion=-1,fallbackTimer=null;
+function setFallbackPoll(ms){
+  clearInterval(fallbackTimer);
+  fallbackTimer=setInterval(()=>{fetchBoard().catch(()=>{})},ms);
+}
+function connectEvents(){
+  if(!('EventSource' in window)){setFallbackPoll(5000);return}
+  if(es){es.close();es=null}
+  const src=new EventSource('/api/events?t='+encodeURIComponent(BOARD_TOKEN));
+  es=src;
+  const onSync=e=>{
+    let d; try{d=JSON.parse(e.data)}catch(err){return}
+    applySyncInfo(d);
+    if(d.version!=null&&d.version!==lastVersion){lastVersion=d.version;fetchBoard().catch(()=>{})}
+    else renderSync();
+  };
+  src.addEventListener('hello',e=>{liveOn=true;esRetry=1000;setFallbackPoll(30000);onSync(e)});
+  src.addEventListener('board',onSync);
+  src.addEventListener('sync',onSync);
+  src.onerror=()=>{
+    src.close(); if(es===src)es=null;
+    liveOn=false; setFallbackPoll(5000); renderSync();
+    setTimeout(connectEvents,esRetry); esRetry=Math.min(esRetry*2,30000);
+  };
+}
+async function refreshNow(){
+  renderSync('busy');
+  try{
+    const r=await api('/api/refresh',{method:'POST',body:'{}'});
+    showToast(r.github==='rate_limited'?`GitHub rate limited \u00b7 retry in ${inS(r.retry_in)} \u00b7 refreshing Devin`:'Refreshing GitHub + Devin\u2026');
+    setTimeout(()=>fetchBoard().catch(()=>{}),1500);
+  }catch(e){showToast('Refresh failed: '+e.message);renderSync()}
+}
 // cards was replaced by a fresh board: re-point openCard at the same key and refresh its panel/thread
 function syncOpenCard(typing=false){
   if(openCard==null||openCardKey==null)return;
@@ -1289,6 +1378,8 @@ async function fetchBoard(){
   lastSync=Date.now();
   dataAt=data.generated_at?data.generated_at*1000:lastSync;
   upstreamDown=[data.devin_ok===false&&'devin',data.github_ok===false&&'github'].filter(Boolean);
+  applySyncInfo(data.sync);
+  if(data.sync&&data.sync.version!=null)lastVersion=data.sync.version;
   renderSync();
   renderBoard();
   renderDeploys(data);
@@ -2446,6 +2537,7 @@ document.addEventListener('keydown',e=>{
     case '?': toggleOverlay(true); e.preventDefault(); break;
     case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(idOf(f)); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
+    case 'r': case 'R': refreshNow(); e.preventDefault(); break;
     case 'Backspace': case 'Delete': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(idOf(f)); e.preventDefault(); break}
     case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(idOf(f)); e.preventDefault(); break}
     case '1': case '2': case '3': case '4': case '5': {
@@ -2463,7 +2555,8 @@ fetchBoard().then(()=>{
   const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();
   if(c)c.focus();
 }).catch(e=>showToast('Load failed: '+e.message));
-setInterval(()=>{fetchBoard().catch(()=>{})},5000);
+setFallbackPoll(5000);
+connectEvents();
 setInterval(()=>renderDeploys(),10000);
 </script>
 </body>
