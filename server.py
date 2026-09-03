@@ -202,13 +202,16 @@ def persist_board_delete(board_id: str):
     except psycopg.Error as e:
         raise BoardStoreError("database write failed") from e
 
-def init_boards():
-    boards = load_boards()
+# False while storage was unreachable at boot: state["boards"] is then a display-only
+# stand-in and must never be written back over boards we couldn't read.
+boards_loaded = False
+
+def _adopt_boards(boards: list[dict] | None) -> bool:
+    global boards_loaded
     if boards is None:
-        # storage unreachable: keep today's repos visible without writing anything back
-        state["boards"] = [{"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}] if REPOS else []
-        return
+        return False
     state["boards"] = boards
+    boards_loaded = True
     if not boards and REPOS:
         seed = {"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}
         state["boards"].append(seed)
@@ -217,6 +220,16 @@ def init_boards():
             log.info("seeded board %s from REPOS", seed["id"])
         except BoardStoreError:
             log.warning("could not persist seeded board; it will be re-seeded next boot", exc_info=True)
+    return True
+
+def init_boards():
+    if not _adopt_boards(load_boards()):
+        state["boards"] = [{"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}] if REPOS else []
+        log.warning("board storage unreachable; showing REPOS read-only until it is back")
+
+def reload_boards() -> bool:
+    """Retry the boot-time load; True once the in-memory boards are authoritative."""
+    return boards_loaded or _adopt_boards(load_boards())
 
 def tracked_repos() -> list[str]:
     out: list[str] = []
@@ -627,7 +640,15 @@ async def _fetch_github_locked():
         if now - ts > RECENT_ISSUE_TTL:
             recently_closed.pop(key, None)
     failed = None
-    for repo in tracked_repos():
+    tracked = tracked_repos()
+    # repos that left every board: drop their cards now (a failed fetch below keeps last-known data only for tracked repos)
+    for name in ("issues", "prs"):
+        stale = [k for k in state[name] if k.rsplit("#", 1)[0] not in tracked]
+        if stale:
+            state[name] = {k: v for k, v in state[name].items() if k not in stale}
+            for k in stale:
+                pr_meta_cache.pop(k, None)
+    for repo in tracked:
         prefix = f"{repo}#"
         _webhook_touched.difference_update({k for k in _webhook_touched if k.startswith(prefix)})
         try:
@@ -1404,6 +1425,15 @@ async def poll_loop():
     gh_next = 0.0
     gh_sleep = float(GITHUB_POLL_SECS)
     while True:
+        if not boards_loaded:
+            try:
+                async with _boards_lock:
+                    back = await asyncio.to_thread(reload_boards)
+                if back:
+                    log.info("board storage is back; loaded %d boards", len(state["boards"]))
+                    state["gh_refresh"] = True
+            except Exception as e:  # noqa: BLE001
+                log.warning("board reload failed: %s", e)
         try:
             now = time.time()
             if (now >= gh_next or state["gh_refresh"]) and now >= (state["github_rate"]["retry_at"] or 0):
@@ -1604,6 +1634,12 @@ async def _store(fn, *args):
         log.warning("board storage failed: %s", e, exc_info=True)
         raise HTTPException(503, f"could not save boards: {e}") from e
 
+async def _writable_boards():
+    """Refuse writes while boards are the boot-time stand-in; re-read storage first so a
+    recovered database is reconciled before anything is upserted over it."""
+    if not await asyncio.to_thread(reload_boards):
+        raise HTTPException(503, "board storage unavailable; boards are read-only until it is back")
+
 @app.get("/api/boards")
 async def list_boards():
     return _boards_payload()
@@ -1615,6 +1651,7 @@ async def create_board(body: BoardIn):
         raise HTTPException(400, "name required")
     repos = clean_repos(body.repos)
     async with _boards_lock:
+        await _writable_boards()
         board = {"id": slugify(name), "name": name, "repos": repos, "sessions": []}
         state["boards"].append(board)
         try:
@@ -1632,6 +1669,7 @@ async def update_board(board_id: str, body: BoardIn):
         raise HTTPException(400, "name required")
     repos = clean_repos(body.repos)
     async with _boards_lock:
+        await _writable_boards()
         board = board_by_id(board_id)
         if board is None:
             raise HTTPException(404, "board not found")
@@ -1648,6 +1686,7 @@ async def update_board(board_id: str, body: BoardIn):
 @app.delete("/api/boards/{board_id}")
 async def delete_board(board_id: str):
     async with _boards_lock:
+        await _writable_boards()
         board = board_by_id(board_id)
         if board is None:
             raise HTTPException(404, "board not found")
@@ -1692,6 +1731,7 @@ async def pin_card(card_id: str, body: PinIn):
         raise HTTPException(400, "only session cards can be pinned")
     sid = card["session_id"]
     async with _boards_lock:
+        await _writable_boards()
         target = None
         if body.board and body.board != ALL_BOARD:
             target = board_by_id(body.board)
