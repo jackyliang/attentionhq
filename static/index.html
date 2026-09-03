@@ -1163,7 +1163,7 @@ function flipCards(before,focusEl){
       el.style.transformOrigin='0 0';
       el.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE}).onfinish=()=>{el.classList.remove('flip');el.style.transformOrigin=''};
     }
-    if(el===focusEl){ringTo(from,true);requestAnimationFrame(()=>{if(ringTarget===el)ringTo(to,false,dur)})}
+    if(el===focusEl){ringFlightUntil=performance.now()+dur+50;ringTo(from,true);requestAnimationFrame(()=>{if(ringTarget===el)ringTo(to,false,dur)})}
   });
   before.forEach((old,key)=>{
     if(seen.has(key))return;
@@ -2112,7 +2112,7 @@ selring.id='selring';
 selring.innerHTML='<i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i>';
 document.body.appendChild(selring);
 const ringBars={t:selring.children[0],b:selring.children[1],l:selring.children[2],r:selring.children[3]};
-let ringTarget=null,pointerNav=false;
+let ringTarget=null,pointerNav=false,ringFlightUntil=0;
 document.addEventListener('pointermove',()=>{pointerNav=true},{passive:true,capture:true});
 document.addEventListener('keydown',()=>{pointerNav=false},{capture:true});
 /* Position the ring around a client rect using transform-only edge bars.
@@ -2132,6 +2132,8 @@ function ringTo(r,instant,dur){
 function moveRing(el,instant){
   if(!el){selring.style.opacity=0;ringTarget=null;return}
   ringTarget=el;
+  // scroll/resize snaps fired by the re-render itself must not interrupt a FLIP ring flight
+  if(instant&&performance.now()<ringFlightUntil)return;
   ringTo(el.getBoundingClientRect(),instant);
 }
 
