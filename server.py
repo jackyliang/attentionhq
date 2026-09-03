@@ -116,6 +116,7 @@ BOARDS_DDL = (
         name text NOT NULL,
         position integer NOT NULL DEFAULT 0,
         created_at timestamptz DEFAULT now())""",
+    "ALTER TABLE boards ADD COLUMN IF NOT EXISTS color text NOT NULL DEFAULT ''",
     """CREATE TABLE IF NOT EXISTS board_repos (
         board_id text REFERENCES boards(id) ON DELETE CASCADE,
         repo text NOT NULL,
@@ -133,8 +134,8 @@ def load_boards() -> list[dict] | None:
             with _db() as conn:
                 for ddl in BOARDS_DDL:
                     conn.execute(ddl)
-                boards = {r[0]: {"id": r[0], "name": r[1], "repos": [], "sessions": []}
-                          for r in conn.execute("SELECT id, name FROM boards ORDER BY position, created_at")}
+                boards = {r[0]: {"id": r[0], "name": r[1], "color": r[2], "repos": [], "sessions": []}
+                          for r in conn.execute("SELECT id, name, color FROM boards ORDER BY position, created_at")}
                 for bid, repo in conn.execute("SELECT board_id, repo FROM board_repos ORDER BY position"):
                     boards[bid]["repos"].append(repo)
                 for bid, sid in conn.execute("SELECT board_id, session_id FROM board_sessions"):
@@ -146,7 +147,7 @@ def load_boards() -> list[dict] | None:
     try:
         with open(BOARDS_FILE) as f:
             data = json.load(f)
-        return [{"id": b["id"], "name": b["name"], "repos": list(b.get("repos", [])), "sessions": list(b.get("sessions", []))} for b in data]
+        return [{"id": b["id"], "name": b["name"], "color": b.get("color", ""), "repos": list(b.get("repos", [])), "sessions": list(b.get("sessions", []))} for b in data]
     except FileNotFoundError:
         return []
     except (OSError, ValueError, KeyError, TypeError):
@@ -175,9 +176,9 @@ def persist_boards(*boards: dict):
             for board in boards:
                 position = next((i for i, b in enumerate(state["boards"]) if b["id"] == board["id"]), len(state["boards"]))
                 conn.execute(
-                    "INSERT INTO boards (id, name, position) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, position = EXCLUDED.position",
-                    (board["id"], board["name"], position),
+                    "INSERT INTO boards (id, name, color, position) VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, color = EXCLUDED.color, position = EXCLUDED.position",
+                    (board["id"], board["name"], board.get("color", ""), position),
                 )
                 conn.execute("DELETE FROM board_repos WHERE board_id = %s", (board["id"],))
                 for i, repo in enumerate(board["repos"]):
@@ -260,7 +261,15 @@ def board_by_id(board_id: str) -> dict | None:
     return next((b for b in state["boards"] if b["id"] == board_id), None)
 
 def public_board(b: dict) -> dict:
-    return {"id": b["id"], "name": b["name"], "repos": list(b["repos"])}
+    return {"id": b["id"], "name": b["name"], "color": b.get("color", ""), "repos": list(b["repos"])}
+
+# Swatch keys the UI knows how to paint; "" is the neutral default.
+BOARD_COLORS = ("red", "orange", "amber", "lime", "green", "teal", "cyan", "blue", "indigo", "purple", "pink", "rose")
+
+def clean_color(color: str) -> str:
+    if color and color not in BOARD_COLORS:
+        raise HTTPException(400, f"unknown color {color!r}")
+    return color
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "board"
@@ -1611,6 +1620,7 @@ async def get_board(board: str | None = None):
 class BoardIn(BaseModel):
     name: str
     repos: list[str] = []
+    color: str = ""
 
 class PinIn(BaseModel):
     board: str | None = None
@@ -1657,10 +1667,10 @@ async def create_board(body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    repos = clean_repos(body.repos)
+    repos, color = clean_repos(body.repos), clean_color(body.color)
     async with _boards_lock:
         await _writable_boards()
-        board = {"id": slugify(name), "name": name, "repos": repos, "sessions": []}
+        board = {"id": slugify(name), "name": name, "color": color, "repos": repos, "sessions": []}
         state["boards"].append(board)
         try:
             await _store(persist_boards, board)
@@ -1675,18 +1685,18 @@ async def update_board(board_id: str, body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    repos = clean_repos(body.repos)
+    repos, color = clean_repos(body.repos), clean_color(body.color)
     async with _boards_lock:
         await _writable_boards()
         board = board_by_id(board_id)
         if board is None:
             raise HTTPException(404, "board not found")
-        prev = (board["name"], board["repos"])
-        board["name"], board["repos"] = name, repos
+        prev = (board["name"], board["repos"], board.get("color", ""))
+        board["name"], board["repos"], board["color"] = name, repos, color
         try:
             await _store(persist_boards, board)
         except HTTPException:
-            board["name"], board["repos"] = prev
+            board["name"], board["repos"], board["color"] = prev
             raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}

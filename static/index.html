@@ -64,6 +64,20 @@
   --panel-w:400px;
   --header-h:48px;
   --rail-w:56px;
+
+  /* board swatches: same hues as the status colors, ~half the saturation so they read as labels, not states */
+  --bc-red:hsl(358 42% 62%);
+  --bc-orange:hsl(22 48% 60%);
+  --bc-amber:hsl(40 48% 57%);
+  --bc-lime:hsl(80 32% 54%);
+  --bc-green:hsl(135 30% 54%);
+  --bc-teal:hsl(170 34% 51%);
+  --bc-cyan:hsl(196 44% 58%);
+  --bc-blue:hsl(215 52% 64%);
+  --bc-indigo:hsl(240 42% 68%);
+  --bc-purple:hsl(272 38% 66%);
+  --bc-pink:hsl(320 38% 66%);
+  --bc-rose:hsl(345 42% 66%);
 }
 *{box-sizing:border-box;margin:0;padding:0;border-radius:0}
 ::-webkit-scrollbar{width:6px;height:6px}
@@ -120,6 +134,8 @@ svg{display:block;flex:none}
 }
 .tile:hover,.tile:focus-visible{color:var(--ds-gray-1000);border-color:var(--ds-gray-500);outline:none}
 .slot.active .tile{color:var(--ds-gray-1000);background:var(--ds-gray-300);border-color:var(--ds-gray-500)}
+.tile[style*="--c"],.mini[style*="--c"]{color:var(--c);border-color:color-mix(in srgb,var(--c) 35%,var(--ds-gray-400))}
+.tile[style*="--c"]:hover,.slot.active .tile[style*="--c"],.brow.active .mini[style*="--c"]{color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--ds-gray-100));border-color:color-mix(in srgb,var(--c) 60%,var(--ds-gray-500))}
 .tile.plus{background:transparent;border-style:dashed;border-color:var(--ds-gray-500);color:var(--ds-gray-600)}
 .tile.plus:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-600)}
 .tile.icon{background:transparent;border-color:transparent;color:var(--ds-gray-700)}
@@ -137,7 +153,6 @@ header{
 .brand{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;letter-spacing:-.01em}
 .brand svg{color:var(--ds-gray-1000)}
 .crumb{display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;letter-spacing:-.01em;min-width:0}
-.crumb svg{color:var(--ds-gray-600)}
 .crumb .b{font-weight:600;color:var(--ds-gray-1000);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #app[data-view="settings"] .hdr-sync,#app[data-view="settings"] .hdr-deploys{display:none}
 .dot{width:7px;height:7px;flex:none}
@@ -236,6 +251,12 @@ main{
 .inp:focus,.inp:focus-within{border-color:var(--ds-gray-500);box-shadow:var(--ds-focus-border)}
 .inp::placeholder{color:var(--ds-gray-600)}
 .inp.mono{font-family:var(--font-mono);font-size:12px}
+.swatches{display:flex;flex-wrap:wrap;gap:6px}
+.sw{width:22px;height:22px;border:1px solid var(--ds-gray-400);background:var(--c,transparent);position:relative}
+.sw.none{background:transparent}
+.sw.none::after{content:"";position:absolute;inset:4px;border:1px solid var(--ds-gray-500)}
+.sw:hover{border-color:var(--ds-gray-600)}
+.sw.on{border-color:var(--ds-gray-1000);box-shadow:inset 0 0 0 2px var(--ds-background-100)}
 .inp svg{color:var(--ds-gray-600)}
 .inp input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:inherit;font:inherit}
 .inp input::placeholder{color:var(--ds-gray-600)}
@@ -907,7 +928,6 @@ aside{
 
   <header>
     <div class="crumb" id="crumb">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/><path d="M6.5 2v12M11 2v12"/></svg>
       <span class="b" id="crumb-name">Attention</span>
     </div>
     <div class="hdr-right">
@@ -931,6 +951,10 @@ aside{
         <div class="fld">
           <span class="l">Name</span>
           <input class="inp" id="ed-name" type="text" placeholder="Board name" autocomplete="off">
+        </div>
+        <div class="fld">
+          <span class="l">Color</span>
+          <div class="swatches" id="ed-colors" role="radiogroup" aria-label="Board color"></div>
         </div>
         <div class="fld">
           <span class="l">Repos</span>
@@ -1214,12 +1238,14 @@ function initials(name){
   const w=name.trim().split(/\s+/).filter(Boolean);
   return (w.length>1?w[0][0]+w[1][0]:name.slice(0,2)).toUpperCase();
 }
+const BOARD_COLORS=['red','orange','amber','lime','green','teal','cyan','blue','indigo','purple','pink','rose'];
+function tint(c){return BOARD_COLORS.includes(c)?` style="--c:var(--bc-${c})"`:''}
 const railBoards=document.getElementById('rail-boards');
 const crumbName=document.getElementById('crumb-name');
 function renderRail(){
   const slots=[{id:null,name:'All'},...boards].map(b=>{
     const active=view==='board'&&(b.id||null)===boardId;
-    return `<div class="slot${active?' active':''}"><button class="tile" data-board="${escHTML(b.id||'')}" title="${escHTML(b.name)}" aria-label="${escHTML(b.name)}">${escHTML(initials(b.name))}</button></div>`;
+    return `<div class="slot${active?' active':''}"><button class="tile"${tint(b.color)} data-board="${escHTML(b.id||'')}" title="${escHTML(b.name)}" aria-label="${escHTML(b.name)}">${escHTML(initials(b.name))}</button></div>`;
   });
   slots.push(`<div class="slot"><button class="tile plus" id="rail-new" title="New board" aria-label="New board"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12M2 8h12"/></svg></button></div>`);
   railBoards.innerHTML=slots.join('');
@@ -1249,8 +1275,8 @@ function cycleBoard(d){
 }
 
 /* ---- boards settings: list on the left, one editor on the right ---- */
-const ed={name:document.getElementById('ed-name'),search:document.getElementById('ed-search'),repos:document.getElementById('ed-repos'),manual:document.getElementById('ed-manual'),save:document.getElementById('ed-save'),cancel:document.getElementById('ed-cancel'),del:document.getElementById('ed-delete')};
-let editing=null, edRepos=[], knownRepos=[], repoListAt=0, delArmed=0, returnBoard=null;
+const ed={name:document.getElementById('ed-name'),colors:document.getElementById('ed-colors'),search:document.getElementById('ed-search'),repos:document.getElementById('ed-repos'),manual:document.getElementById('ed-manual'),save:document.getElementById('ed-save'),cancel:document.getElementById('ed-cancel'),del:document.getElementById('ed-delete')};
+let editing=null, edRepos=[], edColor='', knownRepos=[], repoListAt=0, delArmed=0, returnBoard=null;
 function openSettings(which){
   if(view!=='settings'){
     returnBoard=boardId;
@@ -1273,9 +1299,10 @@ async function loadRepoList(){
 }
 function editBoard(id){
   editing=id; delArmed=0;
-  const b=id==='new'?{name:'',repos:[]}:boards.find(x=>x.id===id);
+  const b=id==='new'?{name:'',repos:[],color:''}:boards.find(x=>x.id===id);
   if(!b){editBoard('new');return}
-  ed.name.value=b.name; edRepos=[...b.repos]; ed.search.value=''; ed.manual.value='';
+  ed.name.value=b.name; edRepos=[...b.repos]; edColor=b.color||''; ed.search.value=''; ed.manual.value='';
+  renderSwatches();
   ed.del.hidden=id==='new'; ed.del.textContent='Delete board'; ed.del.classList.remove('armed');
   ed.save.textContent=id==='new'?'Create':'Save';
   renderBoardList(); renderRepoList();
@@ -1285,13 +1312,17 @@ function renderBoardList(){
   const rows=document.getElementById('blist-rows');
   rows.innerHTML=[
     `<button class="brow locked" tabindex="-1"><span class="mini">AL</span><span class="t">All</span></button>`,
-    ...boards.map(b=>`<button class="brow${editing===b.id?' active':''}" data-edit="${escHTML(b.id)}"><span class="mini">${escHTML(initials(b.name))}</span><span class="t">${escHTML(b.name)}</span></button>`),
+    ...boards.map(b=>`<button class="brow${editing===b.id?' active':''}" data-edit="${escHTML(b.id)}"><span class="mini"${tint(b.color)}>${escHTML(initials(b.name))}</span><span class="t">${escHTML(b.name)}</span></button>`),
     `<button class="brow badd${editing==='new'?' active':''}" data-edit="new"><span class="mini">+</span><span class="t">New board</span></button>`,
   ].join('');
 }
 document.getElementById('blist-rows').addEventListener('click',e=>{
   const r=e.target.closest('[data-edit]'); if(r)editBoard(r.dataset.edit);
 });
+function renderSwatches(){
+  ed.colors.innerHTML=['',...BOARD_COLORS].map(c=>`<button type="button" class="sw${c?'':' none'}${edColor===c?' on':''}"${tint(c)} data-color="${c}" role="radio" aria-checked="${edColor===c}" title="${c||'None'}" aria-label="${c||'No color'}"></button>`).join('');
+}
+ed.colors.addEventListener('click',e=>{const b=e.target.closest('[data-color]'); if(b){edColor=b.dataset.color; renderSwatches()}});
 function renderRepoList(){
   const q=ed.search.value.trim().toLowerCase();
   const all=[...edRepos,...knownRepos.filter(r=>!edRepos.includes(r))];
@@ -1323,8 +1354,8 @@ async function saveBoard(){
   ed.save.disabled=true;
   try{
     const d=editing==='new'
-      ?await api('/api/boards',{method:'POST',body:JSON.stringify({name,repos:edRepos})})
-      :await api(`/api/boards/${encodeURIComponent(editing)}`,{method:'PUT',body:JSON.stringify({name,repos:edRepos})});
+      ?await api('/api/boards',{method:'POST',body:JSON.stringify({name,repos:edRepos,color:edColor})})
+      :await api(`/api/boards/${encodeURIComponent(editing)}`,{method:'PUT',body:JSON.stringify({name,repos:edRepos,color:edColor})});
     boards=d.boards||boards;
     gotoBoard(d.board.id);
   }catch(e){showToast('Save failed: '+e.message)}

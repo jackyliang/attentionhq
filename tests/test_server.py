@@ -529,3 +529,20 @@ def test_archive_publishes_board_change_before_devin_refresh(monkeypatch, client
     assert r.status_code == 200
     assert server.board_version == before + 1
     assert server.state["board"]["columns"][0]["cards"] == []
+
+
+def test_board_color_roundtrip_and_validation(monkeypatch, client):
+    async def noop():
+        return None
+    monkeypatch.setattr(server, "_refresh_after_board_change", noop)
+    h = {"x-board-token": "tok"}
+    r = client.post("/api/boards", json={"name": "Tinted", "repos": ["acme/one"], "color": "teal"}, headers=h)
+    assert r.status_code == 200
+    bid = r.json()["board"]["id"]
+    assert r.json()["board"]["color"] == "teal"
+    assert client.put(f"/api/boards/{bid}", json={"name": "Tinted", "repos": ["acme/one"], "color": "neon"}, headers=h).status_code == 400
+    assert server.board_by_id(bid)["color"] == "teal"
+    r = client.put(f"/api/boards/{bid}", json={"name": "Tinted", "repos": ["acme/one"], "color": ""}, headers=h)
+    assert r.json()["board"]["color"] == ""
+    assert server.load_boards()[-1]["color"] == ""
+    client.delete(f"/api/boards/{bid}", headers=h)
