@@ -21,5 +21,7 @@ services:
         sync: false
       - key: RENDER_API_KEY
         sync: false
+      - key: DATABASE_URL
+        sync: false
       - key: REPOS
         value: jackyliang/answer-hq,jackyliang/answerhq-web,jackyliang/attentionhq

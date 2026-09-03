@@ -403,7 +403,7 @@ aside{
 .panel-close.armed{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-archive{display:none;margin-left:auto;padding:0 6px;font-size:11px;line-height:14px}
-#app[data-mode="card"] .panel-archive{display:inline-flex}
+#app[data-mode="card"] .panel-archive:not([hidden]){display:inline-flex}
 #app[data-mode="card"] .panel-archive~.panel-close{margin-left:0}
 .panel-close{margin-left:auto}
 .panel-title{min-width:0}
@@ -760,7 +760,7 @@ aside{
         <div class="s" id="panel-sub">operate the board</div>
       </div>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Archive</span><kbd>C</kbd>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close issue</span><kbd>C</kbd>
       </button>
       <button class="panel-close panel-archive" id="panel-hide" aria-label="Hide card from board">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4zM3 13L13 3"/></svg><span id="panel-hide-label">Hide</span><kbd>H</kbd>
@@ -802,8 +802,8 @@ aside{
         <div class="sc">Merge a ready PR (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
-        <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd><kbd>C</kbd></span></div>
-        <div class="sc">Hide card from board (nothing else) <span class="k"><kbd>H</kbd><kbd>H</kbd></span></div>
+        <div class="sc">Close issue — Issues column only (press twice) <span class="k"><kbd>C</kbd><kbd>C</kbd></span></div>
+        <div class="sc">Hide card from board, nothing else (press twice) <span class="k"><kbd>H</kbd><kbd>H</kbd></span></div>
         <div class="sc">Cancel a pending confirmation <span class="k"><kbd>Esc</kbd></span></div>
       </div>
       <div class="sc-group">
@@ -1027,7 +1027,7 @@ function cardHTML(c){
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  const closeHint=c.pending?'':`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>C</kbd><span>${isArmed('archive')?'confirm?':archiveLabel(c).toLowerCase()}</span></span><span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
+  const closeHint=c.pending?'':(canClose(c)?`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>C</kbd><span>${isArmed('archive')?'confirm?':'close'}</span></span>`:'')+`<span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
   if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div></div></div>`;
   const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
   const ciRunning=c.col==='review'&&c.pr&&(c.pr.ci==='running'||c.pr.ci==='pending');
@@ -1041,8 +1041,7 @@ function cardHTML(c){
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
   return `<div class="title">${escHTML(c.title)}</div>${line}${ciLine}${opts}${foot}`;
 }
-function isIssueClose(c){return c.kind==='issue'}
-function archiveLabel(c){return !isIssueClose(c)?'Archive':c.session_id?'Close & archive':'Close'}
+function canClose(c){return c.col==='issues'&&c.kind==='issue'}
 
 function wireCard(el){
   el.addEventListener('click',e=>{
@@ -1567,8 +1566,9 @@ function refreshPanel(c){
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
   const mergeBtn=panelList.querySelector('[data-merge]');
   if(mergeBtn)mergeBtn.addEventListener('click',()=>{if(openCard!=null)triggerAction(openCard)});
-  const lbl=!isIssueClose(c)?'Archive':c.session_id?'Close issue & archive':'Close issue';
+  const lbl='Close issue';
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
+  panelArchive.hidden=!canClose(c);
   panelArchiveLabel.textContent=isArmed('archive')?'Press again to confirm':lbl;
   panelArchive.classList.toggle('armed',isArmed('archive'));
   panelHideLabel.textContent=isArmed('hide')?'Press again':'Hide';
@@ -1781,12 +1781,10 @@ async function triggerAction(id){
 let archiving=false;
 async function archiveCard(id){
   const c=cards[id];
-  if(!c||c.pending||archiving)return;
-  const close=isIssueClose(c);
-  const both=close&&c.session_id;
-  if(!confirmArm(c,'archive',both?`Press C again to close ${shortRepo(c.repo)}#${c.num} and archive its session`:close?`Press C again to close ${shortRepo(c.repo)}#${c.num}`:'Press C again to archive this session'))return;
+  if(!c||c.pending||archiving||!canClose(c))return;
+  if(!confirmArm(c,'archive',`Press C again to close ${shortRepo(c.repo)}#${c.num}`))return;
   archiving=true;
-  showToast(both?`Closing ${shortRepo(c.repo)}#${c.num} & archiving session…`:close?`Closing ${shortRepo(c.repo)}#${c.num}…`:`Archiving “${c.title}”…`);
+  showToast(`Closing ${shortRepo(c.repo)}#${c.num}…`);
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
   const snapshot=cards;
   cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
@@ -1794,11 +1792,11 @@ async function archiveCard(id){
   firstCard()?.focus();
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
-    showToast(both?`Closed ${shortRepo(c.repo)}#${c.num} & archived session — “${c.title}”`:close?`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`:`Archived — “${c.title}”`);
+    showToast(`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`);
     await fetchBoard();
   }catch(e){
     cards=snapshot; cards.forEach((x,i)=>x.id=i); renderBoard();
-    showToast((close?'Close':'Archive')+' failed: '+e.message);
+    showToast('Close failed: '+e.message);
   }
   finally{archiving=false}
 }
