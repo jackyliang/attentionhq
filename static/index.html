@@ -215,7 +215,6 @@ main{
 .card .ref.pr{display:inline-flex;align-items:center;gap:4px}
 .card .ref.pr svg{width:10px;height:10px}
 .card .ref .ci{width:5px;height:5px;flex:none}
-.card .age{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600);margin:0}
 /* press-again confirmation on destructive / costly actions */
 .card .close-hint.armed,.card .start-hint.armed{visibility:visible;color:var(--ds-amber-900);white-space:nowrap}
 .card .close-hint.armed kbd,.card .start-hint.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
@@ -401,8 +400,6 @@ aside{
 .panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-archive{display:none;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive:not([hidden]){display:inline-flex}
-.panel-usd{margin-left:auto;flex:none;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
-.panel-usd:empty{margin-right:-10px}
 .panel-title{min-width:0}
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
@@ -747,7 +744,6 @@ aside{
         <div class="t" id="panel-title">Board</div>
         <div class="s" id="panel-sub">operate the board</div>
       </div>
-      <span class="panel-usd" id="panel-usd" title="On-demand usage"></span>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close</span><kbd>⌫</kbd>
       </button>
@@ -1025,10 +1021,9 @@ function progressOf(c){
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:'';
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
-  const age=c.age?`<span class="age">${escHTML(c.age)}</span>`:'';
-  const meta=`<div class="cmeta">${ref}${prRef}${age}</div>`;
+  const meta=`<div class="cmeta">${ref}${prRef}</div>`;
   const pct=Math.max(progressOf(c),c.session_id?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
@@ -1096,7 +1091,7 @@ function renderBoard(){
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
   const focusSpot=focusKey?cardSpot(a):null;
   const wasAdd=a&&a.id==='add-issue';
-  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput)return; // don't disturb typing
+  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
   const scroll=captureScroll();
   boardEl.innerHTML='';
   columns.forEach(col=>{
@@ -1125,11 +1120,7 @@ function renderBoard(){
     });
     boardEl.appendChild(el);
   });
-  if(openCard!=null&&openCardKey!=null){
-    const idx=cards.findIndex(c=>c.key===openCardKey);
-    if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
-    else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
-  }
+  syncOpenCard();
   restoreScroll(scroll);
   restoringFocus=true;
   if(focusKey){
@@ -1157,6 +1148,13 @@ function renderSync(state){
   syncTxt.textContent=`data ${agoS(dataAt||lastSync)}`;
 }
 setInterval(()=>{if(lastSync&&!syncEl.classList.contains('busy'))renderSync()},1000);
+// cards was replaced by a fresh board: re-point openCard at the same key and refresh its panel/thread
+function syncOpenCard(typing=false){
+  if(openCard==null||openCardKey==null)return;
+  const idx=cards.findIndex(c=>c.key===openCardKey);
+  if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
+  else if(!typing){setBoardMode(); mode='closed'; app.dataset.mode='closed'}
+}
 async function fetchBoard(){
   renderSync('busy');
   let data;
@@ -1293,7 +1291,6 @@ function wireAddCard(addBtn){
 const app=document.getElementById('app');
 const threadEl=document.getElementById('thread');
 const panelList=document.getElementById('panel-list');
-const panelUsd=document.getElementById('panel-usd');
 const panelScroll=document.getElementById('panel-scroll');
 const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
@@ -1580,14 +1577,11 @@ function setBoardMode(){
   panelSub.textContent='operate the board';
   composer.placeholder='Message the board…';
   panelList.innerHTML='';
-  panelUsd.textContent='';
   renderThread(boardThread);
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
-const ACU_USD=2.25;
-function usdOf(c){return c.acus?`$${(c.acus*ACU_USD).toFixed(2)}`:''}
 const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple',ready:'green'};
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
@@ -1598,7 +1592,6 @@ function panelSubHTML(c){
 function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.innerHTML=panelSubHTML(c);
-  panelUsd.textContent=usdOf(c);
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+linksHTML(c);
   const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
@@ -1636,12 +1629,14 @@ function echoes(p,m){
   return p.match?t.startsWith(p.match):p.atts.every(u=>t.includes(u));
 }
 // reqAt: when the server request was issued. A send made before the thread ever loaded has no
-// baseline (seen=null); a response requested before that send *is* its baseline, not an echo.
+// baseline (seen=null); a response requested before that send, arriving while the POST is still
+// in flight, cannot contain the echo and so *is* its baseline. Once the POST has returned the
+// response may already include the echo, so it is matched normally.
 function reconcilePending(cached,msgs,reqAt){
   const now=Date.now(),used=new Set();
   return (cached?.pending||[]).filter(p=>{
     if(now-p.at>=PENDING_MAX_MS)return false;
-    if(!p.seen&&reqAt<p.at){p.seen=new Set(msgs.filter(m=>m.who==='user').map(msgId));return true}
+    if(!p.seen&&reqAt<p.at&&p.state==='sending'){p.seen=new Set(msgs.filter(m=>m.who==='user').map(msgId));return true}
     const m=msgs.find(m=>!used.has(m)&&echoes(p,m));
     if(m)used.add(m);
     return !m;
