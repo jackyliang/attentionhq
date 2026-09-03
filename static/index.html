@@ -462,27 +462,13 @@ aside{
 .pl-desc a:hover,.msg .body a:not(.att-link):hover{text-decoration-color:var(--ds-gray-800)}
 
 /* ---- pull request state block ---- */
-.pl-pr{padding:12px 14px 12px;border-bottom:1px solid var(--ds-gray-400)}
-.pl-pr .pl-sect-head{margin-bottom:8px}
-.pl-pr .pl-sect-head a{color:var(--ds-gray-600);text-decoration:none;font-family:var(--font-mono);font-size:10px;display:inline-flex;align-items:center;gap:4px}
-.pl-pr .pl-sect-head a:hover{color:var(--ds-gray-1000)}
-.pl-pr .pr-title{display:flex;align-items:flex-start;gap:7px;font-size:12px;line-height:17px;color:var(--ds-gray-1000);margin-bottom:10px}
-.pl-pr .pr-title svg{margin-top:3px;color:var(--ds-gray-600)}
-.pl-pr .pr-title .n{font-family:var(--font-mono);color:var(--ds-gray-900);flex:none}
-.pl-pr .pr-title .draft{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-700);border:1px solid var(--ds-gray-400);padding:1px 5px;align-self:center}
-.pr-checks{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--ds-gray-300);border:1px solid var(--ds-gray-300)}
-.pr-check{background:var(--ds-background-100);padding:7px 9px;display:flex;flex-direction:column;gap:3px;min-width:0}
-.pr-check .k{font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
-.pr-check .v{display:flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--ds-gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pr-check .v .dot{width:6px;height:6px}
-.pr-check .v.green{color:var(--ds-green-900)}
-.pr-check .v.red{color:var(--ds-red-900)}
-.pr-check .v.amber{color:var(--ds-amber-900)}
-.pr-check .v.blue{color:var(--ds-blue-900)}
-.pr-verdict{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;font-size:12px;line-height:16px;border:1px solid var(--ds-gray-400);background:var(--ds-gray-100);color:var(--ds-gray-1000)}
+.pl-pr{padding:10px 14px;border-bottom:1px solid var(--ds-gray-400)}
+.pr-verdict{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12px;line-height:16px;border:1px solid var(--ds-gray-400);background:var(--ds-gray-100);color:var(--ds-gray-1000)}
 .pr-verdict svg{flex:none;color:var(--ds-gray-900)}
 .pr-verdict .txt{flex:1;min-width:0}
-.pr-verdict .txt small{display:block;font-size:11px;line-height:14px;color:var(--ds-gray-700)}
+.pr-verdict .txt small{display:block;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-700);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr-verdict .txt small a{color:inherit;text-decoration:none}
+.pr-verdict .txt small a:hover{color:var(--ds-gray-1000);text-decoration:underline}
 .pr-verdict.green{background:var(--ds-green-100);border-color:var(--ds-green-400)}
 .pr-verdict.green svg{color:var(--ds-green-900)}
 .pr-verdict.green .txt small{color:var(--ds-green-900)}
@@ -960,16 +946,15 @@ function prState(pr){
 function prVerdict(c){
   const pr=c.pr; if(!pr)return null;
   const {ci,review,merge}=prState(pr);
-  const n='#'+pr.number;
-  if(pr.draft)return {tone:'grey',icon:I.logs,head:`Draft PR ${n}`,sub:'Devin is still pushing — nothing to review yet'};
+  if(pr.draft)return {tone:'grey',icon:I.logs,head:'Draft',sub:'Devin is still pushing — nothing to review yet'};
   if(pr.ci==='failing')return {tone:'red',icon:I.x,head:'CI is failing',sub:'Check the failed job before reviewing'};
   if(pr.mergeable_state==='dirty')return {tone:'red',icon:I.flag,head:'Merge conflicts',sub:'Branch conflicts with base — resolve before merging'};
   if(pr.review==='changes_requested')return {tone:'amber',icon:I.reply,head:'Changes requested',sub:c.col==='working'?'Devin is addressing the review':'Waiting on a follow-up push'};
   if(c.col==='ready')return {tone:'green',icon:I.merge,head:'Ready to merge',sub:`${ci.label==='no checks'?'No CI configured':'CI green'} · ${review.label==='approved'?'approved':'no blocking review'} · no conflicts`,merge:true};
-  if(c.col==='working')return {tone:'blue',icon:I.spinner,head:'Devin is still working',sub:`PR ${n} is open — review once it hands off`};
-  if(pr.ci==='running'||pr.ci==='pending')return {tone:'amber',icon:I.spinner,head:`PR ${n} opened · CI running`,sub:'Not ready to merge yet — review now, or wait for checks to finish'};
-  if(pr.mergeable_state==='blocked'||pr.mergeable_state==='behind')return {tone:'amber',icon:I.flag,head:`PR ${n} · ${merge.label}`,sub:pr.mergeable_state==='behind'?'Update the branch, then merge':'A required check or review is still missing'};
-  return {tone:'purple',icon:I.eye,head:`PR ${n} is waiting for your review`,sub:ci.label==='passing'?'CI green — read it and approve or request changes':'Open it on GitHub to review'};
+  if(c.col==='working')return {tone:'blue',icon:I.spinner,head:'Devin is still working',sub:'Review once it hands off'};
+  if(pr.ci==='running'||pr.ci==='pending')return {tone:'amber',icon:I.spinner,head:'CI running',sub:'Review now, or wait for checks'};
+  if(pr.mergeable_state==='blocked'||pr.mergeable_state==='behind')return {tone:'amber',icon:I.flag,head:merge.label[0].toUpperCase()+merge.label.slice(1),sub:pr.mergeable_state==='behind'?'Update the branch, then merge':'A required check or review is still missing'};
+  return {tone:'purple',icon:I.eye,head:'Waiting for your review',sub:ci.label==='passing'?'CI green — approve or request changes':'Open it on GitHub to review'};
 }
 
 function mapCard(c,i){
@@ -1556,18 +1541,14 @@ function prHTML(c){
   const pr=c.pr; if(!pr)return '';
   const {ci,review,merge}=prState(pr);
   const v=prVerdict(c);
-  const cell=(k,s)=>`<div class="pr-check"><span class="k">${k}</span><span class="v ${s.tone}"><span class="dot ${s.tone}"></span>${escHTML(s.label)}</span></div>`;
-  const title=pr.title?`<div class="pr-title">${I.merge}<span class="n">#${pr.number}</span><span>${escHTML(pr.title)}</span>${pr.draft?'<span class="draft">draft</span>':''}</div>`:'';
-  const opened=pr.created_at?` · opened ${ago(tsMs(pr.created_at))}`:'';
+  const bits=[`CI ${ci.label}`];
+  if(pr.review&&pr.review!=='none')bits.push(review.label);
+  bits.push(merge.label);
+  const status=`<a href="${escHTML(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a> · ${escHTML(bits.join(' · '))}`;
   const action=v.merge
     ?`<span class="act green merge-btn" role="button" tabindex="-1" data-merge><kbd>E</kbd>${armed&&armed.key===c.key&&armed.action==='merge'?'Confirm':'Merge'}</span>`
-    :(c.col==='review'?`<a class="act" href="${escHTML(pr.url)}" target="_blank" rel="noopener">Review ${I.external}</a>`:'');
-  return `<div class="pl-pr">
-    <div class="pl-sect-head"><span class="h">Pull request</span><span class="m"><a href="${escHTML(pr.url)}" target="_blank" rel="noopener">${escHTML(shortRepo(pr.repo))}#${pr.number}${escHTML(opened)} ${I.external}</a></span></div>
-    ${title}
-    <div class="pr-checks">${cell('CI',ci)}${cell('Review',review)}${cell('Merge',merge)}</div>
-    <div class="pr-verdict ${v.tone}">${v.icon}<span class="txt">${escHTML(v.head)}<small>${escHTML(v.sub)}</small></span>${action}</div>
-  </div>`;
+    :`<a class="act" href="${escHTML(pr.url)}" target="_blank" rel="noopener">${v.tone==='purple'?'Review':'Open'} ${I.external}</a>`;
+  return `<div class="pl-pr"><div class="pr-verdict ${v.tone}">${v.icon}<span class="txt">${escHTML(v.head)}<small>${status}</small></span>${action}</div></div>`;
 }
 function checklistHTML(c){
   if(c.kind==='issue'&&!c.session_id)return issueDescHTML(c);
