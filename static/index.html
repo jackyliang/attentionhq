@@ -1216,7 +1216,7 @@ async function fetchBoard(){
   // prompts still in flight keep their placeholder until /api/prompt returns —
   // unless the server already shows the card it produced (same title, just created)
   const stems=flat.filter(c=>c.session_id&&c.title).map(c=>c.title.replace(/[\u2026.]+$/,''));
-  const dup=p=>stems.some(s=>s&&p.title.startsWith(s)&&(p.title===s||s.length>=40));
+  const dup=p=>{const t=p.title.replace(/\s+/g,' ');return stems.some(s=>s&&t.startsWith(s)&&(t===s||s.length>=40))};
   for(const p of inFlightPrompts)if(!dup(p))flat.unshift(p);
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
