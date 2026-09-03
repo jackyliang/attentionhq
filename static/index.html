@@ -177,12 +177,6 @@ main{
 .col[data-col="review"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-purple-900)}
 .col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
 .col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1;min-height:0;overflow-y:auto}
-.col-empty{display:flex;flex-direction:column;gap:3px;padding:14px 6px;font-size:12px;line-height:16px;color:var(--ds-gray-600)}
-.col-empty .e1{color:var(--ds-gray-700)}
-.col-empty .e2{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ds-gray-600)}
-.col-empty kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-700);background:transparent;border:1px solid var(--ds-gray-500)}
-.col[data-col="needs-you"] .col-empty .e1{color:var(--ds-green-900)}
-/* first-load skeletons */
 .skel{border:1px solid var(--ds-gray-300);border-left:2px solid var(--ds-gray-400);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .skel i{display:block;height:9px;background:linear-gradient(90deg,var(--ds-gray-200) 0%,var(--ds-gray-300) 50%,var(--ds-gray-200) 100%);background-size:200% 100%;animation:shimmer 1.6s linear infinite}
 .skel i.t{width:78%}.skel i.s{width:52%;height:7px}.skel i.f{width:30%;height:6px;margin-top:2px}
@@ -349,6 +343,12 @@ main{
 .spin{animation:spin 1.2s linear infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .pulse{animation:pulse 1.6s ease-in-out infinite}
+/* live activity chip (e.g. browser test running) — sits in the card meta like a CI status */
+.card .ref.live{display:inline-flex;align-items:center;gap:4px;color:var(--ds-blue-900)}
+.card .ref.live svg{width:10px;height:10px;animation:spin 1s linear infinite}
+.shimmer{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1s linear infinite}
+.card .ref.live .shimmer{background-image:linear-gradient(90deg,var(--ds-blue-700) 0%,var(--ds-blue-900) 50%,var(--ds-blue-700) 100%)}
+.msg.working.test .dot{background:var(--ds-blue-700)}
 
 /* ==== 3.2 overrides: card = title + segmented line ==== */
 .card{gap:8px}
@@ -418,6 +418,16 @@ aside{
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  border-radius:4px;margin:0 -4px;padding:0 4px;
+}
+.panel-title .t.editable{cursor:text}
+.panel-title .t.editable:hover{background:var(--ds-gray-200)}
+.panel-title .t.saving{opacity:.6}
+.panel-title .t-input{
+  width:100%;min-width:0;box-sizing:border-box;margin:0 -4px;padding:0 4px;
+  font:inherit;font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
+  color:var(--ds-gray-1000);background:var(--ds-background-100);
+  border:1px solid var(--ds-blue-700);border-radius:4px;outline:none;
 }
 .panel-title .s{display:flex;align-items:center;gap:6px;font-size:11px;line-height:14px;color:var(--ds-gray-600);font-family:var(--font-mono);white-space:nowrap;overflow:hidden}
 .panel-title .s .dot{width:5px;height:5px}
@@ -469,6 +479,23 @@ aside{
 .pl-desc strong{color:var(--ds-gray-1000);font-weight:500}
 .pl-desc a,.msg .body a:not(.att-link){color:var(--ds-gray-1000);text-decoration:underline;text-decoration-color:var(--ds-gray-500);text-underline-offset:2px}
 .pl-desc a:hover,.msg .body a:not(.att-link):hover{text-decoration-color:var(--ds-gray-800)}
+/* issue view: full body in the thread area, editable in place */
+.issue-view{padding:4px 2px;border-radius:6px;margin:0 -2px}
+.issue-view.editable{cursor:text}
+.issue-view.editable:hover{background:var(--ds-gray-100)}
+.issue-view .iv-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.issue-view .iv-head .h{font-size:11px;line-height:15px;font-family:var(--font-mono);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ds-gray-1000)}
+.issue-view .iv-head .m{font-size:11px;font-family:var(--font-mono);color:var(--ds-gray-600)}
+.issue-view .pl-desc.full{max-height:none;overflow:visible;font-size:13px;line-height:20px;color:var(--ds-gray-1000);margin:0;padding:0}
+.issue-view .pl-desc.full.empty{color:var(--ds-gray-600);font-style:italic}
+.issue-view .pl-desc.full pre code,.issue-view .pl-desc.full code{font-size:12px;line-height:17px}
+.issue-view .iv-edit{
+  width:100%;box-sizing:border-box;min-height:160px;resize:vertical;
+  font-family:var(--font-mono);font-size:12px;line-height:18px;color:var(--ds-gray-1000);
+  background:var(--ds-background-100);border:1px solid var(--ds-blue-700);border-radius:6px;padding:10px 12px;outline:none;
+}
+.issue-view .iv-hint{margin-top:6px;font-size:11px;color:var(--ds-gray-600);display:flex;gap:6px;align-items:center}
+#app[data-view="issue"] .composer{display:none}
 
 /* ---- pull request state block ---- */
 .pl-pr{padding:10px 14px;border-bottom:1px solid var(--ds-gray-400)}
@@ -579,6 +606,7 @@ aside{
 .msg .body a:hover{text-decoration:underline}
 .msg.working{flex-direction:row;align-items:center;gap:8px;font-size:12px;line-height:17px;padding:2px 0}
 .msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1s linear infinite}
+.msg.working.test .txt{background-image:linear-gradient(90deg,var(--ds-blue-700) 0%,var(--ds-blue-900) 50%,var(--ds-blue-700) 100%)}
 
 /* message action rows: PR cards, test offers, option buttons (mirrors app.devin.ai) */
 .msg .acts{display:flex;flex-direction:column;gap:6px;width:100%;max-width:100%}
@@ -618,6 +646,9 @@ aside{
 .msg-btns{display:flex;flex-wrap:wrap;gap:6px}
 .msg-btns .act{height:26px;font-size:12px;padding:0 10px;cursor:pointer}
 .msg-btns .act[disabled]{opacity:.5;cursor:default}
+.msg-btns .act.sent{opacity:1;border-color:var(--ds-blue-700);background:var(--ds-blue-100);color:var(--ds-blue-900)}
+.msg-btns .act.sent svg{color:var(--ds-blue-900)}
+.msg.user.local .body{opacity:.75}
 /* multiple-choice question, mirrors app.devin.ai: question, stacked option rows, free-text hint */
 .q-block{width:100%;max-width:420px;border:1px solid var(--ds-gray-400);background:var(--ds-background-200);padding:10px 10px 8px;display:flex;flex-direction:column;gap:8px}
 .q-block .q-text{font-size:12.5px;line-height:17px;font-weight:500;color:var(--ds-gray-1000)}
@@ -990,6 +1021,7 @@ function mapCard(c,i){
     age:c.age||'',
     proposed:c.kind==='issue'&&!c.session_id,
     pending:!!c.pending,
+    filing:!!c.filing, activity:c.activity||null,
     thread:[],
   };
 }
@@ -1035,9 +1067,10 @@ function progressOf(c){
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:'';
+  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.filing&&!c.repo?`<span class="ref">filing issue\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:'';
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
-  const meta=`<div class="cmeta">${ref}${prRef}</div>`;
+  const live=activityLabel(c)?`<span class="ref live" title="Devin is running a browser test right now">${I.spinner}<span class="shimmer">${escHTML(activityLabel(c))}</span></span>`:'';
+  const meta=`<div class="cmeta">${ref}${prRef}${live}</div>`;
   const pct=Math.max(progressOf(c),c.session_id?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
@@ -1045,7 +1078,11 @@ function cardHTML(c){
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
   const closeHint=c.pending?'':(canClose(c)?`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>⌫</kbd><span>${isArmed('archive')?'confirm?':'close'}</span></span>`:'')+`<span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
-  if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div></div></div>`;
+  if(c.col==='issues'){
+    const startHint=canStart(c)?`<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div>`:'';
+    const filingLine=c.pending||(c.filing&&!c.repo)?`<div class="nx solo">${ring}<span>${c.pending?'sending\u2026':'devin is filing the issue\u2026'}</span></div>`:'';
+    return `<div class="title">${escHTML(c.title)}</div>${filingLine}<div class="cfoot">${meta}<div class="hints">${closeHint}${startHint}</div></div>`;
+  }
   const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
   const ciRunning=c.col==='review'&&c.pr&&(c.pr.ci==='running'||c.pr.ci==='pending');
   const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'&&!ciRunning?prStatus:null));
@@ -1059,16 +1096,17 @@ function cardHTML(c){
   return `<div class="title">${escHTML(c.title)}</div>${line}${ciLine}${opts}${foot}`;
 }
 function canClose(c){return c.col==='issues'&&c.kind==='issue'}
+function canStart(c){return c.col==='issues'&&c.kind==='issue'&&!c.pending&&!c.session_id&&!!c.repo}
 
 function wireCard(el){
   el.addEventListener('click',e=>{
     const opt=e.target.closest('.opt');
-    if(opt){pickOption(+el.dataset.id,[...el.querySelectorAll('.opt')].indexOf(opt));e.stopPropagation();return}
-    if(e.target.closest('.hide-hint')){hideCard(+el.dataset.id);e.stopPropagation();return}
-    if(e.target.closest('.close-hint')){archiveCard(+el.dataset.id);e.stopPropagation();return}
+    if(opt){pickOption(idOf(el),[...el.querySelectorAll('.opt')].indexOf(opt));e.stopPropagation();return}
+    if(e.target.closest('.hide-hint')){hideCard(idOf(el));e.stopPropagation();return}
+    if(e.target.closest('.close-hint')){archiveCard(idOf(el));e.stopPropagation();return}
     const act=e.target.closest('.act');
-    if(act){triggerAction(+el.dataset.id);e.stopPropagation();return}
-    setCardMode(+el.dataset.id);
+    if(act){triggerAction(idOf(el));e.stopPropagation();return}
+    setCardMode(idOf(el));
     el.focus();
   });
   el.addEventListener('focus',()=>{if(!restoringFocus)ensureVisible(el)});
@@ -1084,21 +1122,13 @@ function wireCard(el){
   });
 }
 
-const EMPTY_COPY={
-  issues:['No open issues','<kbd>\u21b5</kbd> on <b>+</b> to file one'],
-  working:['Nothing running','<kbd>E</kbd> on an issue starts a session'],
-  'needs-you':['Nothing needs you','Devin is either moving or done'],
-  review:['No PRs in review','Devin hands PRs here when it stops'],
-  ready:['Nothing ready to merge','Green CI, no conflicts, no session running'],
-};
 let boardLoaded=false;
 function emptyHTML(colId){
   if(!boardLoaded){
     const n=colId==='issues'?1:colId==='working'?3:2;
     return Array.from({length:n},()=>'<div class="skel" aria-hidden="true"><i class="t"></i><i class="s"></i><i class="f"></i></div>').join('');
   }
-  const [e1,e2]=EMPTY_COPY[colId];
-  return `<div class="col-empty"><span class="e1">${e1}</span><span class="e2">${e2}</span></div>`;
+  return ''; // empty columns stay empty
 }
 /* ---- FLIP card moves ----
    Before a re-render we snapshot every card's rect (and column); afterwards each card that
@@ -1164,12 +1194,13 @@ function flipCards(before,focusEl){
     ghost.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.96)'}],{duration:FLIP_DUR.exit,easing:FLIP_EASE}).onfinish=()=>ghost.remove();
   });
 }
-function renderBoard(){
+// force: repaint even while the user is typing (the composer lives outside the board)
+function renderBoard(force=false){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
   const focusSpot=focusKey?cardSpot(a):null;
   const wasAdd=a&&a.id==='add-issue';
-  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
+  if(!force&&a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
   const scroll=captureScroll();
   const before=snapshotCards();
   boardEl.innerHTML='';
@@ -1244,6 +1275,11 @@ async function fetchBoard(){
   if(data.loading&&cards.length){renderSync('busy');return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
+  // prompts still in flight keep their placeholder until /api/prompt returns —
+  // unless the server already shows the card it produced (same title, just created)
+  const stems=flat.filter(c=>c.session_id&&c.title).map(c=>c.title.replace(/[\u2026.]+$/,''));
+  const dup=p=>{const t=p.title.replace(/\s+/g,' ');return stems.some(s=>s&&t.startsWith(s)&&(t===s||s.length>=40))};
+  for(const p of inFlightPrompts)if(!dup(p))flat.unshift(p);
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
   lastSync=Date.now();
@@ -1319,6 +1355,7 @@ async function prefetchThreads(){
 }
 
 /* ---- add-task (prompt) card ---- */
+const inFlightPrompts=[]; // raw placeholder cards for prompts awaiting /api/prompt
 const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new task</span></span>';
 function wireAddCard(addBtn){
   function addToPlus(){
@@ -1344,14 +1381,23 @@ function wireAddCard(addBtn){
         setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
         if(v||attachments.length){
           const pendingKey='pending:'+Date.now();
-          cards.unshift(mapCard({id:pendingKey,kind:'issue',col:'issues',tone:'grey',title:v||'(attached files)',pending:true}));
+          const placeholder={id:pendingKey,kind:'issue',col:start?'working':'issues',tone:start?'blue':'grey',title:v||'(attached files)',pending:true};
+          inFlightPrompts.push(placeholder);
+          cards.unshift(mapCard(placeholder));
           cards.forEach((c,i)=>c.id=i);
           renderBoard();
+          showToast(start?'Sending to Devin — will file the issue and start on it\u2026':'Sending to Devin — will file the issue\u2026');
           try{
-            await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments})});
-            showToast(start?'Sent to Devin — filing the issue, then starting on it':'Sent to Devin — filing the issue');
+            const r=await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments})});
+            inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
+            showToast(start?'Devin received it — filing the issue, then starting on it':'Devin received it — filing the issue');
+            const newKey=r.session_id?`session:${r.session_id}`:null;
+            if(openCardKey===pendingKey&&newKey)openCardKey=newKey;
+            const hadFocus=document.activeElement===cardEl(cards.findIndex(c=>c.key===pendingKey));
             await fetchBoard();
+            if(hadFocus&&newKey)focusCardByKey(newKey);
           }catch(err){
+            inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
             showToast('Send failed: '+err.message);
@@ -1508,7 +1554,7 @@ function prCardHTML(p){
   const ci=state==='open'||state==='draft'?(CI_LABEL[p.ci]?`<span class="ci ${p.ci}">${p.ci==='passing'?I.check:p.ci==='failing'?I.x:p.ci==='running'?I.spinner:''}${CI_LABEL[p.ci]}</span>`:''):'';
   const diff=`<span><span class="add">+${p.additions}</span> <span class="del">\u2212${p.deletions}</span></span>`;
   const canMerge=state==='open';
-  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a><a class="act" href="${escHTML(p.review_url)}" target="_blank" rel="noopener">${I.logs} Devin Review</a>${canMerge?`<span class="act green merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}</div>`;
+  const btns=`<div class="pr-btns"><a class="act" href="${escHTML(p.url)}" target="_blank" rel="noopener">${I.external} View PR</a>${canMerge?`<span class="act green merge" role="button" tabindex="0" data-merge-pr="${escHTML(p.repo)}#${p.number}">${I.merge} Merge</span>`:''}</div>`;
   return `<div class="pr-card" data-state="${escHTML(state)}">
     <div class="pr-repo">${GH_ICON}<span>${escHTML(p.repo)}</span></div>
     <span class="pr-state ${state}">${state==='merged'?I.merge:''}${PR_STATE_LABEL[state]||state}</span>
@@ -1527,7 +1573,13 @@ function whoHTML(m){
   }
   return `<span class="who">${WHO[m.who]||m.who}</span>`;
 }
+const ACTIVITY_LABEL={browser_test:'browser test'};
+function activityLabel(c,st){
+  const a=(st&&st.activity)||(c&&c.activity);
+  return ACTIVITY_LABEL[a]||null;
+}
 function workingText(c){
+  if(c.activity==='browser_test')return 'Browser test in progress — Devin is driving the app and recording it…';
   if(c.now&&c.now.text)return c.now.text;
   const nx=c.todos.find(t=>t.state!=='done');
   return nx?nx.text:'working\u2026';
@@ -1536,8 +1588,9 @@ function workingHTML(c){
   if(!c||c.pending)return '';
   const awaiting=awaitingReply(c);
   if(c.col!=='working'&&!awaiting)return '';
-  const txt=awaiting&&(c.col!=='working'||/waiting|blocked/i.test(workingText(c)))?'Devin is on it\u2026':workingText(c);
-  return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(txt)}</span></div>`;
+  const test=c.activity==='browser_test';
+  const txt=!test&&awaiting&&(c.col!=='working'||/waiting|blocked/i.test(workingText(c)))?'Devin is on it\u2026':workingText(c);
+  return `<div class="msg working${test?' test':''}"><span class="dot blue pulse"></span><span class="txt">${escHTML(txt)}</span></div>`;
 }
 const OPT_LINE_RE=/^\s*(?:\*\*)?(?:\d+|[a-c])[.)]\s*(?:\*\*)?\s*(.+?)\s*$/;
 // fallback when the extractor hasn't produced options yet: the agent's own numbered list
@@ -1598,10 +1651,10 @@ threadEl.addEventListener('click',async e=>{
     return;
   }
   if(t.dataset.offer){
-    t.disabled=true;
-    const text=`Yes — go ahead: ${t.dataset.offer}`;
-    if(await sendToSession(c,text))showToast(`Sent “${text}”`);
-    else t.disabled=false;
+    t.closest('.msg-btns')?.querySelectorAll('.act').forEach(b=>{b.disabled=true});
+    t.classList.add('sent');
+    const ok=await sendToSession(c,`Yes — go ahead: ${t.dataset.offer}`,[],`“${t.dataset.offer}”`);
+    if(!ok){t.classList.remove('sent');t.closest('.msg-btns')?.querySelectorAll('.act').forEach(b=>{b.disabled=false})}
   }
 });
 
@@ -1619,9 +1672,9 @@ function todoRow(t,i,proposed){
 }
 
 function issueDescHTML(c){
-  const tags=c.labels.length?`<div class="pl-tags">${c.labels.map(l=>`<span class="pl-tag">${escHTML(l)}</span>`).join('')}</div>`:'';
-  const desc=c.body.trim()?`<div class="pl-desc">${mdHTML(c.body.trim())}</div>`:`<div class="pl-proposed-note">No description.</div>`;
-  return `<div class="pl-sect"><div class="pl-sect-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num}</span></div>${tags}${desc}</div>`;
+  // the body itself is shown full-size in the thread area (issue view); only labels live up here
+  if(!c.labels.length)return '';
+  return `<div class="pl-sect"><div class="pl-tags">${c.labels.map(l=>`<span class="pl-tag">${escHTML(l)}</span>`).join('')}</div></div>`;
 }
 function prHTML(c){
   const pr=c.pr; if(!pr)return '';
@@ -1652,9 +1705,128 @@ function linksHTML(c){
   return `<div class="pl-links">${links.join('')}</div>`;
 }
 
+/* ---- inline title rename ---- */
+let titleEdit=null; // {input, key}
+function startTitleEdit(){
+  if(titleEdit||mode!=='card'||openCard==null)return;
+  const c=cards[openCard];
+  if(!canRename(c))return;
+  const input=document.createElement('input');
+  input.className='t-input';input.type='text';input.value=c.title;input.maxLength=256;
+  input.setAttribute('aria-label','Card title');
+  titleEdit={input,key:c.key,original:c.title};
+  panelTitle.textContent='';panelTitle.classList.remove('editable');panelTitle.appendChild(input);
+  input.focus();input.select();
+  const key=c.key,original=c.title;
+  let done=false;
+  const finish=async save=>{
+    if(done)return;done=true;
+    const v=input.value.trim().replace(/\s+/g,' ');
+    if(titleEdit&&titleEdit.input===input)titleEdit=null;
+    const cur=cards.find(x=>x.key===key);
+    if(cur&&openCardKey===key)refreshPanel(cur);
+    if(!save||!v||v===original)return;
+    // patch the card in place: a full renderBoard() here would swap out the
+    // element the user may be mid-click on (blur fires before click)
+    const setTitle=t=>{
+      const x=cards.find(x=>x.key===key);if(!x)return;
+      x.title=t;
+      if(openCardKey===key)refreshPanel(x);
+      const el=boardEl.querySelector(`.card[data-key="${CSS.escape(key)}"] .title`);
+      if(el)el.textContent=t;
+    };
+    setTitle(v);
+    panelTitle.classList.add('saving');
+    try{
+      const r=await api(`/api/card/${encodeURIComponent(key)}/edit`,{method:'POST',body:JSON.stringify({title:v})});
+      setTitle(r.title||v);
+      showToast(`Renamed — “${r.title||v}”`);
+    }catch(e){
+      setTitle(original);
+      showToast('Rename failed: '+e.message);
+    }finally{panelTitle.classList.remove('saving')}
+  };
+  input.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){e.preventDefault();finish(true)}
+    else if(e.key==='Escape'){e.preventDefault();finish(false)}
+  });
+  input.addEventListener('blur',()=>finish(true));
+}
+panelTitle.addEventListener('click',startTitleEdit);
+
+/* ---- issue view (no session yet): the whole issue body, click to edit ---- */
+let bodyEdit=null; // {key, textarea}
+function isIssueView(c){return !!c&&c.kind==='issue'&&!c.session_id&&!c.pending&&!!c.repo}
+function renderIssueView(c){
+  if(bodyEdit&&bodyEdit.key===c.key)return;
+  const body=(c.body||'').trim();
+  threadEl.innerHTML=`<div class="issue-view editable" title="Click to edit the issue description" data-key="${escHTML(c.key)}">
+    <div class="iv-head"><span class="h">Issue</span><span class="m">${escHTML(shortRepo(c.repo))}#${c.num} · click to edit</span></div>
+    ${body?`<div class="pl-desc full">${mdHTML(body)}</div>`:`<div class="pl-desc full empty">No description yet — click to add one.</div>`}
+  </div>`;
+  panelScroll.scrollTop=0;
+}
+function startBodyEdit(){
+  if(bodyEdit||mode!=='card'||openCard==null)return;
+  const c=cards[openCard];
+  if(!isIssueView(c))return;
+  const key=c.key,original=(c.body||'').replace(/\r\n/g,'\n').trim();
+  const view=threadEl.querySelector('.issue-view');
+  if(!view)return;
+  const ta=document.createElement('textarea');
+  ta.className='iv-edit';ta.value=original;ta.setAttribute('aria-label','Issue description');
+  ta.placeholder='Describe the issue (markdown)…';
+  const hint=document.createElement('div');
+  hint.className='iv-hint';
+  hint.innerHTML=`<span><kbd>${MOD}⏎</kbd> save · <kbd>Esc</kbd> cancel · saves when you click away</span>`;
+  view.classList.remove('editable');view.removeAttribute('title');
+  view.querySelector('.pl-desc').replaceWith(ta);
+  view.appendChild(hint);
+  bodyEdit={key,textarea:ta};
+  const size=()=>{ta.style.height='auto';ta.style.height=Math.max(160,ta.scrollHeight+2)+'px'};
+  size();ta.addEventListener('input',size);
+  ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);
+  let done=false;
+  const finish=async save=>{
+    if(done)return;done=true;
+    const v=ta.value.replace(/\r\n/g,'\n').trim();
+    if(bodyEdit&&bodyEdit.textarea===ta)bodyEdit=null;
+    const cur=cards.find(x=>x.key===key);
+    const repaint=()=>{const x=cards.find(x=>x.key===key);if(x&&openCardKey===key&&isIssueView(x))renderIssueView(x)};
+    if(!save||v===original){repaint();return}
+    if(cur)cur.body=v;
+    repaint();
+    showToast('Saving description…');
+    try{
+      const r=await api(`/api/card/${encodeURIComponent(key)}/edit`,{method:'POST',body:JSON.stringify({body:v})});
+      const x=cards.find(x=>x.key===key);if(x&&typeof r.body==='string')x.body=r.body;
+      repaint();
+      showToast('Description saved to GitHub');
+    }catch(e){
+      const x=cards.find(x=>x.key===key);if(x)x.body=original;
+      repaint();
+      showToast('Save failed: '+e.message);
+    }
+  };
+  ta.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();finish(true)}
+    else if(e.key==='Escape'){e.preventDefault();finish(false)}
+  });
+  ta.addEventListener('blur',()=>finish(true));
+}
+threadEl.addEventListener('click',e=>{
+  const v=e.target.closest('.issue-view.editable');
+  if(!v||e.target.closest('a'))return;
+  startBodyEdit();
+});
+
 function setBoardMode(){
   mode='board'; openCard=null; openCardKey=null;
   app.dataset.mode='board';
+  titleEdit=null;bodyEdit=null;delete app.dataset.view;
+  panelTitle.classList.remove('editable','saving');panelTitle.title='';
   panelTitle.textContent='Board';
   panelSub.textContent='operate the board';
   composer.placeholder='Message the board…';
@@ -1668,12 +1840,19 @@ const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple'
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
   const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'in review',ready:'ready to merge'}[c.col]||c.col;
-  const ref=c.pending?'creating\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
-  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${st}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
+  const ref=c.pending?'sending\u2026':c.filing&&!c.repo?'filing issue\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
+  const stTxt=c.pending?'sending to devin':c.filing&&!c.repo?'filing':st;
+  return `<span class="dot ${tone}${c.col==='working'||c.pending||c.filing?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
 }
+function canRename(c){return !!c&&!c.pending&&(c.kind==='issue'||c.kind==='pr')&&!!c.repo}
 function refreshPanel(c){
-  panelTitle.textContent=c.title;
+  if(!titleEdit){
+    panelTitle.textContent=c.title;
+    panelTitle.classList.toggle('editable',canRename(c));
+    panelTitle.title=canRename(c)?'Click to rename':'';
+  }
   panelSub.innerHTML=panelSubHTML(c);
+  if(isIssueView(c))app.dataset.view='issue';else delete app.dataset.view;
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+linksHTML(c);
   const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
@@ -1761,7 +1940,8 @@ threadEl.addEventListener('loadedmetadata',()=>{if(stickToEnd)panelScroll.scroll
 // quiet: background refresh — re-render only if something changed and don't yank the scroll position
 async function loadThread(c,quiet=false){
   if(!c.session_id){
-    renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
+    if(isIssueView(c))renderIssueView(c);
+    else renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
     return;
   }
   const cached=threadCache[c.key];
@@ -1802,6 +1982,8 @@ function setCardMode(id){
   if(el){el.classList.add('selected');ensureVisible(el)}
   requestAnimationFrame(()=>moveRing(ringTarget,true));
 }
+// DOM ids can lag behind `cards` while a poll was deferred; resolve by key
+function idOf(el){const i=cards.findIndex(c=>c.key===el.dataset.key);return i>=0?i:+el.dataset.id}
 function cardEl(id){return document.querySelector(`.card[data-id="${id}"]`)}
 function ensureVisible(el){
   if(!el)return;
@@ -1896,9 +2078,8 @@ async function pickOption(id,i,override){
   const c=cards[id];
   const label=override||(c&&c.options&&c.options[i]);
   if(!c||!label)return;
-  const text=`${i+1}. ${label}`;
   showToast(`Replying “${label}”…`);
-  if(await sendToSession(c,text))showToast(`Sent “${label}” — “${c.title}”`);
+  await sendToSession(c,`${i+1}. ${label}`,[],`“${label}”`);
 }
 
 /* inline PR card merge: first click arms the button, second click within ARM_MS merges */
@@ -2013,6 +2194,7 @@ panelHide.addEventListener('click',()=>{if(openCard!=null)hideCard(openCard)});
 async function startIssue(id){
   const c=cards[id];
   if(!c||c.col!=='issues'||c.pending)return;
+  if(!canStart(c)){if(c.filing||c.session_id)showToast('Devin is already on it — filing the issue');return}
   if(!confirmArm(c,'start','Press E again to start a Devin session (uses ACUs)'))return;
   showToast(`Starting session — “${c.title}”…`);
   try{
@@ -2075,6 +2257,9 @@ function attachTray(trayEl,inputEl){
     uploading:()=>items.some(i=>i.state==='uploading'),
     busy:()=>items.some(i=>i.state==='uploading'),
     clear:()=>{for(const i of items)if(i.preview)URL.revokeObjectURL(i.preview);items.length=0;render()},
+    // take() empties the tray but keeps the uploaded entries so a failed send can restore() them
+    take:()=>{const kept=items.splice(0,items.length);render();return kept},
+    restore:kept=>{if(!kept||!kept.length)return;items.push(...kept.filter(i=>i.state==='ready'));render()},
   };
 }
 const composerTray=attachTray(document.getElementById('composer-atts'),composer);
@@ -2094,14 +2279,15 @@ async function sendMsg(){
     return;
   }
   const c=cards[openCard];
-  if(!c.session_id){showToast('This card has no session yet — press E to start one');return}
-  composer.value='';composerTray.clear();
-  sendToSession(c,v,attachments);
+  if(!c.session_id){showToast(c.pending||c.filing?'Devin is still filing this issue — hang on':'This card has no session yet — press E to start one');return}
+  composer.value='';const kept=composerTray.take();
+  const ok=await sendToSession(c,v,attachments);
+  if(!ok){if(!composer.value)composer.value=v;composerTray.restore(kept)}
 }
 // optimistic send: the message shows up immediately as "sending…", flips to "sent" once the
 // board accepts it, and stays until the Devin API echoes it back; a shimmer line below it
 // says Devin is on it until a reply lands
-async function sendToSession(c,text,attachments=[]){
+async function sendToSession(c,text,attachments=[],label=null){
   const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
   const loaded=!!th.loaded;
   const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),atts:attachments,
@@ -2111,6 +2297,10 @@ async function sendToSession(c,text,attachments=[]){
   th.sentAt=p.at;
   th.status={...(th.status||{}),waiting:false,state:'running'};
   th.sig=threadSig(th);
+  // the card is busy again the moment we send: move it to WORKING now rather than on the next poll
+  const prev={col:c.col,tone:c.tone,now:c.now,options:c.options,question:c.question};
+  const busyNow=c.col!=='working'&&!(c.pr&&(c.pr.ci==='failing'||c.pr.review==='changes_requested'));
+  if(busyNow){Object.assign(c,{col:'working',tone:'blue',now:null,options:[],question:null});renderBoard(true)}
   const show=()=>{const cur=threadCache[c.key];if(openCardKey===c.key&&cur){cur.sig=threadSig(cur);renderThread(threadMsgs(cur),threadCtx(c,cur))}};
   show();
   scrollThreadToEnd();
@@ -2118,11 +2308,14 @@ async function sendToSession(c,text,attachments=[]){
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text,attachments})});
     p.state='sent';
     show();
+    showToast(`Devin received ${label||'your message'}`);
+    fetchBoard().catch(()=>{});
     return true;
   }catch(e){
     p.state='failed';
     const cur=threadCache[c.key];
     if(cur&&cur.sentAt===p.at)cur.sentAt=null;
+    if(busyNow){const live=cards.find(x=>x.key===c.key);if(live)Object.assign(live,prev);renderBoard(true)}
     show();
     showToast('Send failed: '+e.message);
     return false;
@@ -2195,7 +2388,7 @@ function syncPanel(){
   if(mode!=='card')return;
   const f=focused();
   if(!f||f.dataset.id==null)return;
-  const id=+f.dataset.id;
+  const id=idOf(f);
   if(id!==openCard)setCardMode(id);
   f.focus();
 }
@@ -2240,22 +2433,22 @@ document.addEventListener('keydown',e=>{
     case 'ArrowRight': case 'd': case 'D': move(1,0); e.preventDefault(); break;
     case 'Home': {const f=focused(); if(f)colCards(f.closest('.col'))[0].focus(); e.preventDefault(); break}
     case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
-    case 'Enter': {const f=focused(); if(f){if(f.id==='add-issue')break; const id=+f.dataset.id; if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
+    case 'Enter': {const f=focused(); if(f){if(f.id==='add-issue')break; const id=idOf(f); if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
     case 'Escape':
       if(armed){disarm();break}
       if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; requestAnimationFrame(()=>el?.focus())}
       break;
     case 'b': case 'B': setBoardMode(); composer.focus(); e.preventDefault(); break;
     case '?': toggleOverlay(true); e.preventDefault(); break;
-    case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(+f.dataset.id); break}
+    case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(idOf(f)); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
-    case 'Backspace': case 'Delete': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
-    case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(+f.dataset.id); e.preventDefault(); break}
+    case 'Backspace': case 'Delete': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(idOf(f)); e.preventDefault(); break}
+    case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(idOf(f)); e.preventDefault(); break}
     case '1': case '2': case '3': case '4': case '5': {
       const i=+e.key-1;
       const btn=openCard!=null?threadEl.querySelector(`.opt-btn[data-opt="${i}"]`):null;
       if(btn){btn.click();break}
-      const f=focused(); if(f&&f.dataset.id!=null&&cards[+f.dataset.id]?.col==='needs-you')pickOption(+f.dataset.id,i);
+      const f=focused(); if(f&&f.dataset.id!=null&&cards[idOf(f)]?.col==='needs-you')pickOption(idOf(f),i);
       break}
   }
 });

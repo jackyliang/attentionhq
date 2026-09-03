@@ -191,6 +191,36 @@ RECENT_ISSUE_TTL = 300
 recent_issues: dict[str, tuple[float, dict]] = {}
 # ...and hide issues we just closed until the listing stops returning them.
 recently_closed: dict[str, float] = {}
+# Devin's session list lags behind creates too; keep sessions we just started on the
+# board until the listing catches up.
+RECENT_SESSION_TTL = 300
+recent_sessions: dict[str, tuple[float, dict]] = {}
+# ...and treat a session we just replied to as running until Devin's status catches up.
+RECENT_REPLY_TTL = 120
+recent_replies: dict[str, float] = {}
+
+def _devin_replied_since(session_id: str, ts: float) -> bool:
+    msgs = (session_msgs_cache.get(session_id) or {}).get("msgs") or []
+    return any(m["who"] == "devin" and _epoch_f(m.get("ts")) > ts for m in msgs)
+
+def mark_running(sess: dict):
+    """A message we just sent means Devin is (about to be) working on it again."""
+    sess["status_detail"] = ""
+    if session_status(sess) not in ACTIVE_STATUSES:
+        sess["status"] = "running"
+
+def remember_session(data: dict, tags: list[str], title: str) -> dict:
+    """Build a placeholder for a session the create call just returned, so the
+    board can show it before the sessions listing includes it."""
+    sid = data.get("session_id") or ""
+    sess = {
+        "session_id": sid,
+        "url": data.get("url") or f"https://app.devin.ai/sessions/{sid}",
+        "title": title, "tags": tags, "status": "running", "status_detail": "",
+        "created_at": datetime.now(timezone.utc).isoformat(), "pull_requests": [],
+    }
+    recent_sessions[sid] = (time.time(), sess)
+    return sess
 
 async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
     try:
@@ -359,6 +389,19 @@ async def fetch_devin():
         ages = [_epoch(s.get("created_at")) for s in items if s.get("created_at")]
         if ages and min(ages) < cutoff:
             break
+    now = time.time()
+    live = {s["session_id"] for s in sessions}
+    for sid, (ts, sess) in list(recent_sessions.items()):
+        if now - ts > RECENT_SESSION_TTL or sid in live:
+            recent_sessions.pop(sid, None)
+        else:
+            sessions.insert(0, sess)
+    for sid, ts in list(recent_replies.items()):
+        if now - ts > RECENT_REPLY_TTL or _devin_replied_since(sid, ts):
+            recent_replies.pop(sid, None)
+    for s in sessions:
+        if s["session_id"] in recent_replies:
+            mark_running(s)
     state["sessions"] = sessions
     state["devin_ok"] = True
     # Transcripts are only needed for sessions that can hold a card; holding one
@@ -401,6 +444,8 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
             if eid in seen:
                 continue
             seen.add(eid)
+            if m.get("source") == "user":
+                _drop_local_echo(msgs, m.get("message") or "")
             msgs.append({
                 "who": "user" if m.get("source") == "user" else "devin",
                 "ts": m.get("created_at", ""),
@@ -413,11 +458,53 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
         cursor = page.get("end_cursor") or cursor
         if not page.get("has_next_page"):
             break
+    # post_message may have echoed a message while this poll was in flight; keep it
+    live = (session_msgs_cache.get(session_id) or {}).get("msgs") or []
+    for m in live:
+        if m.get("local") and m not in msgs and not _has_real_user_msg(msgs, m["text"], m["local"]):
+            msgs.append(m)
+    _expire_local_echoes(msgs)
     session_msgs_cache[session_id] = {
         "msgs": msgs, "cursor": cursor, "seen": seen,
         "updated_at": updated_at if updated_at is not None else cached.get("updated_at"),
     }
     return msgs
+
+# A message the board just sent is echoed into the transcript straight away and
+# swapped for the real one once Devin's message list returns it.
+LOCAL_ECHO_TTL = 300
+
+def _drop_local_echo(msgs: list[dict], text: str):
+    for i, m in enumerate(msgs):
+        if m.get("local") and m["text"].strip() == text.strip():
+            del msgs[i]
+            return
+
+def _has_real_user_msg(msgs: list[dict], text: str, since: float) -> bool:
+    """True if Devin's list already holds this user message (sent within the last minute)."""
+    return any(
+        m["who"] == "user" and not m.get("local") and m["text"].strip() == _clean_text(text).strip()
+        and _epoch_f(m.get("ts")) >= since - 60
+        for m in msgs
+    )
+
+def _expire_local_echoes(msgs: list[dict]):
+    now = time.time()
+    msgs[:] = [m for m in msgs if not (m.get("local") and now - m["local"] > LOCAL_ECHO_TTL)]
+
+def echo_user_message(session_id: str, text: str):
+    cached = session_msgs_cache.setdefault(session_id, {"msgs": [], "cursor": None, "seen": set()})
+    now = time.time()
+    if not _has_real_user_msg(cached["msgs"], text, now):  # a poll may already have it
+        cached["msgs"].append({
+            "who": "user", "ts": datetime.now(timezone.utc).isoformat(), "text": text,
+            "origin": "web", "name": None, "local": now,
+        })
+    cached["updated_at"] = None
+    recent_replies[session_id] = time.time()
+    for s in state["sessions"]:
+        if s["session_id"] == session_id:
+            mark_running(s)
 
 # ---------------------------------------------------------------- extractor
 
@@ -430,13 +517,33 @@ Return STRICT JSON (no markdown) with this shape:
  "question":"if the agent's last message asks the user to choose or decide, that question copied verbatim in one line (<120 chars), else null",
  "options":["the choices the agent offered, if any, each copied verbatim from the agent's own wording (the label/heading of each numbered or bulleted choice, without its explanation), in the agent's order, max 5, else empty"],
  "blocked":true|false,
+ "activity":"browser_test|coding|review|deploy|waiting|other",
  "progress_pct":0-100}
+"activity": "browser_test" only while the agent says it is currently running a browser / end-to-end / UI test (e.g. "starting the browser test run", "recording a test of the send flow") and has not yet reported the result; once it reports results or asks something, use "waiting".
 Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you".
 If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you to ...") — never invent in-progress work.
 "blocked": true only if the agent explicitly says it cannot continue until the user supplies something (a credential/token, a decision between alternatives, an approval). Examples of blocked=true: "blocked on you for the token", "which approach should I take?", "waiting for your approval to run X". Examples of blocked=false: "PR is up — want me to record a test?", "done; anything else?", "want me to also do X?" (delivered work + optional offer). If one of the offered choices is to skip / do nothing / proceed without it, blocked=false.
 A trailing [prs] line lists the session's pull requests and their current state. A PR that is already merged or closed needs nothing from the user: do not ask them to review or merge it, and set ask to null if that was the only pending action."""
 
-EXTRACT_VERSION = 5
+EXTRACT_VERSION = 6
+
+BROWSER_TEST_RE = re.compile(
+    r"\b(?:(?:starting|running|kicking off|beginning|launching)\b[^.\n]{0,60}\b(?:browser|e2e|end-to-end|ui)\b[^.\n]{0,30}\btest|"
+    r"testing agent (?:is|will be) (?:now )?(?:running|testing|recording)|record(?:ing)? (?:myself )?testing)",
+    re.I,
+)
+
+def session_activity(sess: dict | None, msgs: list[dict], extract: dict | None) -> str | None:
+    """What the agent is doing right now, when the board can tell. "browser_test" is
+    the case the UI surfaces specially; anything else is None."""
+    if not sess or session_status(sess) not in ACTIVE_STATUSES or session_needs_user(sess):
+        return None
+    if extract and extract.get("activity") == "browser_test":
+        return "browser_test"
+    last = next((m for m in reversed(msgs) if m["who"] in ("devin", "user")), None)
+    if last and last["who"] == "devin" and BROWSER_TEST_RE.search(last["text"]):
+        return "browser_test"
+    return None
 
 async def extract_session(session_id: str, messages: list[dict], context: str = "") -> dict | None:
     if not OPENROUTER_API_KEY or not messages:
@@ -471,6 +578,14 @@ async def extract_session(session_id: str, messages: list[dict], context: str = 
     return data
 
 # ---------------------------------------------------------------- board assembly
+
+def _epoch_f(ts: str | int | float | None) -> float:
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    try:
+        return datetime.fromisoformat((ts or "").replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
 
 def _epoch(ts: str | int | float | None) -> int:
     if isinstance(ts, (int, float)):
@@ -557,7 +672,12 @@ def session_prs(sess: dict) -> list[dict]:
                         "state": (p.get("pr_state") or "open").lower()})
     return out
 
+# bumped whenever a card is removed out-of-band (archive/hide) so an assembly that
+# started before the removal cannot commit a board that still shows the card
+board_gen = 0
+
 async def assemble_board():
+    gen = board_gen
     issues, prs, sessions = state["issues"], state["prs"], state["sessions"]
     cards = {}
 
@@ -632,6 +752,7 @@ async def assemble_board():
             ctx = ", ".join(f"{p['repo']}#{p['number']} {p['state']}" for p in s_prs)
             extract = await extract_session(sid, msgs, ctx) if msgs else None
 
+        activity = session_activity(sess, msgs if sess else [], extract)
         waiting = bool(sess) and session_needs_user(sess)
         busy = st in ACTIVE_STATUSES and not waiting
         blocked = waiting and (st == "blocked" or bool((extract or {}).get("blocked")))
@@ -649,10 +770,12 @@ async def assemble_board():
             col, tone = "needs-you", ("red" if pr and pr["ci"] == "failing" else "amber")
         elif pr and not pr["draft"] and pr["ci"] in ("passing", "none") and pr["mergeable_state"] == "clean" and not busy:
             col, tone = "ready", "green"
-        elif pr and not pr["draft"]:
-            col, tone = "review", "purple"
         elif c.get("filing"):
             col, tone = "issues", "grey"  # Devin is only filing the issue, not working on it
+        elif busy:
+            col, tone = "working", "blue"  # Devin is actively on it, even if a PR is already up
+        elif pr and not pr["draft"]:
+            col, tone = "review", "purple"
         elif st in ACTIVE_STATUSES:
             col, tone = "working", "blue"
         elif c["kind"] == "issue":
@@ -685,7 +808,7 @@ async def assemble_board():
 
         out.append({
             **{k: c[k] for k in ("id", "kind", "title", "repo", "number", "url")},
-            "col": col, "tone": tone,
+            "col": col, "tone": tone, "filing": bool(c.get("filing")), "activity": activity,
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
             "pr": {k: pr.get(k) for k in ("repo", "number", "url", "ci", "review", "mergeable_state", "draft", "title", "branch", "created_at")} if pr else None,
@@ -701,6 +824,8 @@ async def assemble_board():
             "created_at": c["created_at"],
         })
 
+    if gen != board_gen:
+        return
     # newest issues first; everything else oldest first
     state["board"] = {
         "columns": [
@@ -908,6 +1033,7 @@ async def get_messages(card_id: str):
             "state": session_status(sess),
             "detail": (sess.get("status_detail") or "").lower(),
             "waiting": session_needs_user(sess),
+            "activity": session_activity(sess, msgs, (extract_cache.get(sess["session_id"]) or {}).get("data")),
         } if sess else None,
     }
 
@@ -970,7 +1096,87 @@ async def post_message(card_id: str, body: MessageIn):
     r = await dv.post(f"/sessions/{card['session_id']}/messages", json=payload)
     if r.status_code >= 400:
         raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+    echo_user_message(card["session_id"], "\n".join([body.text, *(f'ATTACHMENT:"{u}"' for u in atts)]).strip())
+    # the echo also flips the served board card to WORKING right away; a full
+    # assembly (which may call the extractor) happens in the background
+    cols = {col["id"]: col for col in (state["board"] or {"columns": []})["columns"]}
+    if "needs-you" in cols and "working" in cols:
+        # same guard as the client: a PR with failing CI / requested changes stays put
+        def stuck(c):
+            pr = c.get("pr") or {}
+            return pr.get("ci") == "failing" or pr.get("review") == "changes_requested"
+        moved = [c for c in cols["needs-you"]["cards"] if c["id"] == card_id and not stuck(c)]
+        cols["needs-you"]["cards"] = [c for c in cols["needs-you"]["cards"] if c not in moved]
+        for c in moved:
+            c.update({"col": "working", "tone": "blue", "now": None, "options": [], "question": None})
+            cols["working"]["cards"].append(c)
+    asyncio.create_task(_assemble_quietly())
     return {"ok": True}
+
+async def _assemble_quietly():
+    try:
+        await assemble_board()
+    except Exception:  # noqa: BLE001
+        log.warning("post-message assembly failed", exc_info=True)
+
+class EditIn(BaseModel):
+    title: str | None = None
+    body: str | None = None
+
+@app.post("/api/card/{card_id:path}/edit")
+async def edit_card(card_id: str, body: EditIn):
+    """Edit the title and/or body of the GitHub issue or PR behind a card.
+    Standalone session cards have no GitHub object to edit."""
+    patch: dict = {}
+    if body.title is not None:
+        title = " ".join(body.title.split())
+        if not title:
+            raise HTTPException(400, "empty title")
+        if len(title) > 256:
+            raise HTTPException(400, "title too long")
+        patch["title"] = title
+    card = find_card(card_id)
+    if card["kind"] not in ("issue", "pr") or not card["repo"]:
+        raise HTTPException(400, "only issue and PR cards can be edited")
+    key = f"{card['repo']}#{card['number']}"
+    issue = state["issues"].get(key) or recent_issues.get(key, (0, None))[1] if card["kind"] == "issue" else None
+    if body.body is not None:
+        text = body.body.replace("\r\n", "\n").strip()
+        if len(text) > 60000:
+            raise HTTPException(400, "body too long")
+        patch["body"] = text
+        # keep the prompt marker Devin wrote so the issue stays paired with its session
+        if issue and issue.get("prompt_id"):
+            patch["body"] = f"{text}\n\n<!-- attention:prompt:{issue['prompt_id']} -->".lstrip()
+    if not patch:
+        raise HTTPException(400, "nothing to change")
+    gh = gh_client()
+    path = f"/repos/{card['repo']}/" + ("issues" if card["kind"] == "issue" else "pulls") + f"/{card['number']}"
+    r = await gh.patch(path, json=patch)
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
+    shown = {k: v for k, v in patch.items()}
+    if "body" in shown:
+        shown["body"] = PROMPT_MARK_RE.sub("", shown["body"])
+    if card["kind"] == "issue":
+        for store in (state["issues"].get(key), recent_issues.get(key, (0, None))[1]):
+            if store:
+                store.update(shown)
+    else:
+        if key in state["prs"]:
+            state["prs"][key].update(shown)
+        pr_meta_cache.pop(key, None)
+    for col in (state["board"] or {"columns": []})["columns"]:
+        for c in col["cards"]:
+            if c["id"] == card_id:
+                c.update({k: v for k, v in shown.items() if k in c})
+    global board_gen
+    board_gen += 1
+    try:
+        await assemble_board()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, **shown}
 
 @app.exception_handler(httpx.HTTPError)
 async def _upstream_error(_req, exc: httpx.HTTPError):
@@ -1001,7 +1207,11 @@ async def archive_card(card_id: str):
     elif card["kind"] != "session":
         dismissed.add(card_id)
         await asyncio.to_thread(save_dismissed, dismissed)
+    global board_gen
+    board_gen += 1
     if card["session_id"]:
+        recent_sessions.pop(card["session_id"], None)
+        recent_replies.pop(card["session_id"], None)
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
@@ -1012,6 +1222,8 @@ async def archive_card(card_id: str):
 async def hide_card(card_id: str):
     """Drop the card from the board without touching the Devin session or the
     GitHub issue."""
+    global board_gen
+    board_gen += 1
     dismissed.add(card_id)
     await asyncio.to_thread(save_dismissed, dismissed)
     for col in (state["board"] or {"columns": []})["columns"]:
@@ -1068,6 +1280,7 @@ async def start_session(body: StartIn):
     if r.status_code >= 400:
         raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     data = r.json()
+    remember_session(data, [tag], issue["title"])
     try:
         await fetch_devin()
         await assemble_board()
@@ -1116,6 +1329,7 @@ async def prompt_devin(body: PromptIn):
     if r.status_code >= 400:
         raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     data = r.json()
+    remember_session(data, payload["tags"], title)
     try:
         await fetch_devin()
         await assemble_board()
