@@ -137,9 +137,11 @@ class BoardStoreError(Exception):
     """Durable storage rejected a board change; callers roll back state["boards"]."""
 
 def _save_boards_file():
+    tmp = f"{BOARDS_FILE}.tmp"
     try:
-        with open(BOARDS_FILE, "w") as f:
+        with open(tmp, "w") as f:
             json.dump(state["boards"], f, indent=1)
+        os.replace(tmp, BOARDS_FILE)
     except OSError as e:
         raise BoardStoreError(f"could not write {BOARDS_FILE}") from e
 
@@ -1037,6 +1039,9 @@ async def _refresh_after_board_change():
     except Exception as e:  # noqa: BLE001
         log.warning("refresh after board change failed: %s", e)
 
+# one mutation (state change + persist + rollback) at a time, so a slow write can't interleave with the next edit
+_boards_lock = asyncio.Lock()
+
 async def _store(fn, *args):
     """Run a blocking persistence call off the loop; map storage failures to a 503."""
     try:
@@ -1054,46 +1059,51 @@ async def create_board(body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    board = {"id": slugify(name), "name": name, "repos": clean_repos(body.repos), "sessions": []}
-    state["boards"].append(board)
-    try:
-        await _store(persist_boards, board)
-    except HTTPException:
-        state["boards"].remove(board)
-        raise
+    repos = clean_repos(body.repos)
+    async with _boards_lock:
+        board = {"id": slugify(name), "name": name, "repos": repos, "sessions": []}
+        state["boards"].append(board)
+        try:
+            await _store(persist_boards, board)
+        except HTTPException:
+            state["boards"].remove(board)
+            raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
 
 @app.put("/api/boards/{board_id}")
 async def update_board(board_id: str, body: BoardIn):
-    board = board_by_id(board_id)
-    if board is None:
-        raise HTTPException(404, "board not found")
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    prev = (board["name"], board["repos"])
-    board["name"], board["repos"] = name, clean_repos(body.repos)
-    try:
-        await _store(persist_boards, board)
-    except HTTPException:
-        board["name"], board["repos"] = prev
-        raise
+    repos = clean_repos(body.repos)
+    async with _boards_lock:
+        board = board_by_id(board_id)
+        if board is None:
+            raise HTTPException(404, "board not found")
+        prev = (board["name"], board["repos"])
+        board["name"], board["repos"] = name, repos
+        try:
+            await _store(persist_boards, board)
+        except HTTPException:
+            board["name"], board["repos"] = prev
+            raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
 
 @app.delete("/api/boards/{board_id}")
 async def delete_board(board_id: str):
-    board = board_by_id(board_id)
-    if board is None:
-        raise HTTPException(404, "board not found")
-    idx = state["boards"].index(board)
-    state["boards"].remove(board)
-    try:
-        await _store(persist_board_delete, board_id)
-    except HTTPException:
-        state["boards"].insert(idx, board)
-        raise
+    async with _boards_lock:
+        board = board_by_id(board_id)
+        if board is None:
+            raise HTTPException(404, "board not found")
+        idx = state["boards"].index(board)
+        state["boards"].remove(board)
+        try:
+            await _store(persist_board_delete, board_id)
+        except HTTPException:
+            state["boards"].insert(idx, board)
+            raise
     asyncio.create_task(_refresh_after_board_change())
     return _boards_payload()
 
@@ -1128,30 +1138,31 @@ async def pin_card(card_id: str, body: PinIn):
     card = find_card(card_id)
     if not card["session_id"]:
         raise HTTPException(400, "only session cards can be pinned")
-    target = None
-    if body.board and body.board != ALL_BOARD:
-        target = board_by_id(body.board)
-        if target is None:
-            raise HTTPException(404, "board not found")
     sid = card["session_id"]
-    changed = []
-    for b in state["boards"]:
-        if sid in b["sessions"] and b is not target:
-            b["sessions"].remove(sid)
-            changed.append(b)
-    if target and sid not in target["sessions"]:
-        target["sessions"].append(sid)
-        changed.append(target)
-    if changed:
-        try:
-            await _store(persist_boards, *changed)
-        except HTTPException:
-            for b in changed:
-                if b is target:
-                    b["sessions"].remove(sid)
-                else:
-                    b["sessions"].append(sid)
-            raise
+    async with _boards_lock:
+        target = None
+        if body.board and body.board != ALL_BOARD:
+            target = board_by_id(body.board)
+            if target is None:
+                raise HTTPException(404, "board not found")
+        changed = []
+        for b in state["boards"]:
+            if sid in b["sessions"] and b is not target:
+                b["sessions"].remove(sid)
+                changed.append(b)
+        if target and sid not in target["sessions"]:
+            target["sessions"].append(sid)
+            changed.append(target)
+        if changed:
+            try:
+                await _store(persist_boards, *changed)
+            except HTTPException:
+                for b in changed:
+                    if b is target:
+                        b["sessions"].remove(sid)
+                    else:
+                        b["sessions"].append(sid)
+                raise
     if state["board"] is not None:
         await assemble_board()
     return {"ok": True, "board": target["id"] if target else None}
