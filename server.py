@@ -152,25 +152,21 @@ def load_session_titles() -> dict[str, str]:
     except (OSError, ValueError, AttributeError):
         return {}
 
-def save_session_title(session_id: str, title: str):
+def save_session_titles(titles: dict[str, str], session_id: str):
+    """Durably store titles[session_id]; raises on failure so the caller can roll back."""
     if DATABASE_URL:
-        try:
-            with _db() as conn:
-                conn.execute(
-                    "INSERT INTO session_titles (session_id, title) VALUES (%s, %s) "
-                    "ON CONFLICT (session_id) DO UPDATE SET title = EXCLUDED.title, updated_at = now()",
-                    (session_id, title),
-                )
-        except psycopg.Error:
-            log.warning("could not persist session title to db", exc_info=True)
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO session_titles (session_id, title) VALUES (%s, %s) "
+                "ON CONFLICT (session_id) DO UPDATE SET title = EXCLUDED.title, updated_at = now()",
+                (session_id, titles[session_id]),
+            )
         return
-    try:
-        with open(SESSION_TITLES_FILE, "w") as f:
-            json.dump(session_titles, f, indent=1, sort_keys=True)
-    except OSError:
-        log.warning("could not persist session titles")
+    with open(SESSION_TITLES_FILE, "w") as f:
+        json.dump(titles, f, indent=1, sort_keys=True)
 
 session_titles: dict[str, str] = load_session_titles()
+session_titles_lock = asyncio.Lock()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -1623,8 +1619,18 @@ async def edit_card(card_id: str, body: EditIn):
         if "title" not in patch:
             raise HTTPException(400, "nothing to change")
         sid = card["session_id"]
-        session_titles[sid] = patch["title"]
-        await asyncio.to_thread(save_session_title, sid, patch["title"])
+        async with session_titles_lock:
+            previous = session_titles.get(sid)
+            session_titles[sid] = patch["title"]
+            try:
+                await asyncio.to_thread(save_session_titles, dict(session_titles), sid)
+            except (psycopg.Error, OSError) as e:
+                if previous is None:
+                    session_titles.pop(sid, None)
+                else:
+                    session_titles[sid] = previous
+                log.warning("could not persist session title", exc_info=True)
+                raise HTTPException(500, f"could not save title: {e.__class__.__name__}")
         for s in state["sessions"]:
             if s["session_id"] == sid:
                 s["title"] = patch["title"]
