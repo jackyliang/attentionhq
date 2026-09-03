@@ -241,7 +241,12 @@ main{
   display:flex;flex-direction:column;gap:7px;
   text-align:left;width:100%;
 }
-#selring{position:fixed;left:0;top:0;z-index:4;pointer-events:none;box-shadow:var(--ds-focus-border);opacity:0;transition:transform .14s cubic-bezier(.3,.9,.3,1),width .14s cubic-bezier(.3,.9,.3,1),height .14s cubic-bezier(.3,.9,.3,1),opacity .15s ease}
+#selring{position:fixed;left:0;top:0;z-index:4;pointer-events:none;box-shadow:var(--ds-focus-border);opacity:0;will-change:transform;transition:transform .14s cubic-bezier(.3,.9,.3,1),width .14s cubic-bezier(.3,.9,.3,1),height .14s cubic-bezier(.3,.9,.3,1),opacity .15s ease}
+.card.flip-hidden{opacity:0}
+.flip-ghost{position:fixed;left:0;top:0;z-index:5;pointer-events:none;margin:0;will-change:transform,opacity}
+.flip-ghost.selected{border-color:var(--ds-gray-400);background:var(--ds-background-100)}
+#fps{position:fixed;left:8px;bottom:8px;z-index:9;padding:2px 6px;font-family:var(--font-mono);font-size:11px;line-height:16px;color:var(--ds-gray-1000);background:var(--ds-background-100);border:1px solid var(--ds-gray-400);pointer-events:none}
+@media (prefers-reduced-motion:reduce){#selring{transition:opacity .15s ease}}
 .card:hover{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card.selected{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card[data-tone="amber"]{border-left-color:var(--ds-amber-700)}
@@ -1086,6 +1091,65 @@ function emptyHTML(colId){
   const [e1,e2]=EMPTY_COPY[colId];
   return `<div class="col-empty"><span class="e1">${e1}</span><span class="e2">${e2}</span></div>`;
 }
+/* ---- FLIP: cards travel between slots/columns instead of teleporting ---- */
+const FLIP_EASE='cubic-bezier(.3,.9,.3,1)';
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
+let flipPrevLoaded=false,flipSkip=false;
+document.addEventListener('visibilitychange',()=>{if(document.hidden)flipSkip=true});
+function flipSnapshot(){
+  const ok=boardLoaded&&flipPrevLoaded&&!document.hidden&&!flipSkip&&!reduceMotion.matches;
+  flipPrevLoaded=boardLoaded; if(!document.hidden)flipSkip=false;
+  if(!ok)return null;
+  const m=new Map();
+  boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
+    m.set(el.dataset.key,{rect:el.getBoundingClientRect(),col:el.closest('.col').dataset.col,node:el});
+  });
+  return m;
+}
+function flipGhost(node,rect){
+  const g=node.cloneNode(true);
+  g.classList.add('flip-ghost'); g.classList.remove('flip-hidden');
+  g.removeAttribute('id'); g.removeAttribute('tabindex'); g.setAttribute('aria-hidden','true');
+  g.style.width=rect.width+'px'; g.style.height=rect.height+'px';
+  g.style.transform=`translate(${rect.left}px,${rect.top}px)`;
+  document.body.appendChild(g);
+  return g;
+}
+function flipPlay(prev){
+  if(!prev)return;
+  const mainR=boardEl.closest('main').getBoundingClientRect();
+  const seen=new Set();
+  boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
+    const key=el.dataset.key; seen.add(key);
+    const to=el.getBoundingClientRect();
+    if(!to.width)return;
+    const old=prev.get(key);
+    if(!old){
+      el.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:140,easing:FLIP_EASE});
+      return;
+    }
+    const dx=old.rect.left-to.left,dy=old.rect.top-to.top;
+    if(Math.abs(dx)<.5&&Math.abs(dy)<.5)return;
+    if(old.col===el.closest('.col').dataset.col){
+      el.animate([{transform:`translate(${dx}px,${dy}px)`},{transform:'none'}],{duration:140,easing:FLIP_EASE});
+      return;
+    }
+    // cross-column: columns clip overflow, so fly a fixed ghost over the board
+    el.classList.add('flip-hidden');
+    const g=flipGhost(el,to);
+    const anim=g.animate(
+      [{transform:`translate(${old.rect.left}px,${old.rect.top}px)`},{transform:`translate(${to.left}px,${to.top}px)`}],
+      {duration:200,easing:FLIP_EASE});
+    anim.onfinish=anim.oncancel=()=>{g.remove();el.classList.remove('flip-hidden')};
+  });
+  prev.forEach((old,key)=>{
+    if(seen.has(key)||old.rect.bottom<mainR.top||old.rect.top>mainR.bottom)return;
+    const g=flipGhost(old.node,old.rect);
+    const anim=g.animate([{opacity:1,transform:g.style.transform},{opacity:0,transform:g.style.transform+' scale(.96)'}],{duration:120,easing:FLIP_EASE});
+    anim.onfinish=anim.oncancel=()=>g.remove();
+  });
+}
+
 function renderBoard(){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
@@ -1093,6 +1157,7 @@ function renderBoard(){
   const wasAdd=a&&a.id==='add-issue';
   if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
   const scroll=captureScroll();
+  const flipPrev=flipSnapshot();
   boardEl.innerHTML='';
   columns.forEach(col=>{
     const colCards = cards.filter(c=>c.col===col.id);
@@ -1131,6 +1196,7 @@ function renderBoard(){
     const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
   restoringFocus=false;
+  flipPlay(flipPrev); // after focus restore so moveRing reads the settled rect, not the first FLIP keyframe
 }
 
 let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false;
@@ -2077,14 +2143,20 @@ function moveRing(el,instant){
   if(!el){selring.style.opacity=0;ringTarget=null;return}
   ringTarget=el;
   const r=el.getBoundingClientRect();
-  if(instant){
-    selring.style.transition='none';
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{selring.style.transition=''}));
-  }
+  if(instant)selring.style.transition='none';
   selring.style.width=r.width+'px';
   selring.style.height=r.height+'px';
   selring.style.transform=`translate(${r.left}px,${r.top}px)`;
   selring.style.opacity=1;
+  if(instant){void getComputedStyle(selring).transform;selring.style.transition=''} // flush so no transition is queued
+}
+
+/* dev-only frame counter: ?fps=1 */
+if(new URLSearchParams(location.search).get('fps')==='1'){
+  const fpsEl=document.createElement('div'); fpsEl.id='fps'; fpsEl.textContent='-- fps'; document.body.appendChild(fpsEl);
+  let frames=0,t0=performance.now();
+  const tick=t=>{frames++; if(t-t0>=500){fpsEl.textContent=Math.round(frames*1000/(t-t0))+' fps'; frames=0; t0=t} requestAnimationFrame(tick)};
+  requestAnimationFrame(tick);
 }
 document.addEventListener('focusin',e=>{
   if(e.target.classList&&e.target.classList.contains('card'))moveRing(e.target,pointerNav);
