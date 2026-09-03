@@ -2047,6 +2047,7 @@ function move(dx,dy){
 
 document.addEventListener('keydown',e=>{
   if(e.target===composer||e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
   if(gate.classList.contains('open')){gateInput.focus();return}
   if(overlay.classList.contains('open')){
     if(e.key==='Escape'||e.key==='?'){toggleOverlay(false);e.preventDefault()}
