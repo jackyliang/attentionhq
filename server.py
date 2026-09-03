@@ -383,7 +383,16 @@ def _budget_exhausted() -> bool:
     rate = state["github_rate"]
     return rate["remaining"] is not None and rate["remaining"] < GITHUB_RATE_RESERVE and (rate["reset"] or 0) > time.time()
 
+def _check_budget() -> None:
+    """Background reads stop at the reserve so create/merge/edit keep working."""
+    if _budget_exhausted():
+        raise RateLimited(state["github_rate"]["reset"] + 1)
+
+# keys apply_webhook touched; a reconcile that started before the webhook must not undo it
+_webhook_touched: set[str] = set()
+
 async def fetch_github_repo(gh: httpx.AsyncClient, repo: str) -> tuple[dict, dict]:
+    _check_budget()
     issues, prs = {}, {}
     now = time.time()
     for it in await gh_get(gh, f"/repos/{repo}/issues", {"state": "open", "per_page": 100}):
@@ -399,22 +408,23 @@ async def fetch_github_repo(gh: httpx.AsyncClient, repo: str) -> tuple[dict, dic
         elif issue["repo"] == repo:
             issues[key] = issue
     for pr in await gh_get(gh, f"/repos/{repo}/pulls", {"state": "open", "per_page": 100}):
+        _check_budget()
         prs[f"{repo}#{pr['number']}"] = await enrich_pr(gh, repo, pr)
     return issues, prs
 
 async def fetch_github():
     """Full reconciliation of every tracked repo. Webhooks keep the board current
     between runs; this catches deliveries that were missed."""
-    if _budget_exhausted():
-        raise RateLimited(state["github_rate"]["reset"] + 1)
+    _check_budget()
     gh = gh_client()
     now = time.time()
     for key, ts in list(recently_closed.items()):
         if now - ts > RECENT_ISSUE_TTL:
             recently_closed.pop(key, None)
-    issues, prs = dict(state["issues"]), dict(state["prs"])
     failed = None
     for repo in REPOS:
+        prefix = f"{repo}#"
+        _webhook_touched.difference_update({k for k in _webhook_touched if k.startswith(prefix)})
         try:
             ri, rp = await fetch_github_repo(gh, repo)
         except RateLimited:
@@ -423,11 +433,14 @@ async def fetch_github():
             failed = e
             log.warning("github fetch failed for %s: %s", repo, e)
             continue
-        for store, fresh in ((issues, ri), (prs, rp)):
-            for k in [k for k in store if k.startswith(f"{repo}#")]:
+        # merge against *current* state: keys a webhook changed while we were
+        # fetching are newer than what GitHub gave us, keep them as they are
+        for name, fresh in (("issues", ri), ("prs", rp)):
+            store = dict(state[name])
+            for k in [k for k in store if k.startswith(prefix) and k not in _webhook_touched]:
                 del store[k]
-            store.update(fresh)
-    state["issues"], state["prs"] = issues, prs
+            store.update({k: v for k, v in fresh.items() if k not in _webhook_touched})
+            state[name] = store
     prune_etag_cache()
     if failed is not None:
         raise failed
@@ -474,6 +487,9 @@ def apply_webhook(event: str, payload: dict) -> set[tuple[str, int]]:
         if not it.get("number"):
             return set()
         key = f"{repo}#{it['number']}"
+        _webhook_touched.add(key)
+        if payload.get("action") == "reopened":
+            recently_closed.pop(key, None)
         if it.get("state") == "open" and "pull_request" not in it:
             if key not in recently_closed:
                 state["issues"][key] = issue_from_gh(repo, it)
@@ -486,6 +502,7 @@ def apply_webhook(event: str, payload: dict) -> set[tuple[str, int]]:
         if not pr.get("number"):
             return set()
         key = f"{repo}#{pr['number']}"
+        _webhook_touched.add(key)
         if pr.get("state") == "open":
             prev = state["prs"].get(key) or {}
             state["prs"][key] = {
@@ -1097,7 +1114,8 @@ async def poll_loop():
     gh_sleep = float(GITHUB_POLL_SECS)
     while True:
         try:
-            if time.time() >= gh_next or (state["gh_refresh"] and time.time() >= (state["github_rate"]["retry_at"] or 0)):
+            now = time.time()
+            if (now >= gh_next or state["gh_refresh"]) and now >= (state["github_rate"]["retry_at"] or 0):
                 state["gh_refresh"] = False
                 await fetch_github()
                 last_gh = time.time()

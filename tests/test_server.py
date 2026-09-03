@@ -366,3 +366,52 @@ def test_manual_refresh_wakes_poll_loop(client):
     server.wake.clear()
     client.post("/api/refresh", headers={"x-board-token": "tok"})
     assert server.wake.is_set() and server.state["gh_refresh"] is True
+
+
+def test_reopened_issue_clears_recently_closed():
+    server.recently_closed["acme/one#3"] = time.time()
+    p = issue_payload()
+    p["action"] = "reopened"
+    server.apply_webhook("issues", p)
+    assert "acme/one#3" in server.state["issues"]
+    assert "acme/one#3" not in server.recently_closed
+
+
+def test_reconcile_does_not_clobber_webhook_applied_during_fetch(monkeypatch):
+    server.state["issues"]["acme/one#1"] = {"repo": "acme/one", "number": 1, "title": "stale"}
+    server._webhook_touched.clear()
+
+    async def fake_repo(gh, repo):
+        if repo == "acme/one":
+            # webhook lands mid-fetch: closes #1, opens #3
+            server.apply_webhook("issues", issue_payload(number=1, state="closed"))
+            server.apply_webhook("issues", issue_payload(number=3))
+            return {"acme/one#1": {"repo": "acme/one", "number": 1, "title": "from github (old)"}}, {}
+        return {}, {}
+
+    monkeypatch.setattr(server, "fetch_github_repo", fake_repo)
+    monkeypatch.setattr(server, "gh_client", lambda: None)
+    asyncio.run(server.fetch_github())
+    assert "acme/one#1" not in server.state["issues"]
+    assert server.state["issues"]["acme/one#3"]["title"] == "Issue 3"
+
+
+def test_reconcile_stops_at_reserve_mid_run(monkeypatch):
+    server.state["github_rate"].update(remaining=server.GITHUB_RATE_RESERVE + 5, reset=int(time.time()) + 600)
+    calls = []
+
+    def handler(req):
+        calls.append(req.url.path)
+        server.state["github_rate"]["remaining"] = server.GITHUB_RATE_RESERVE - 1
+        if req.url.path.endswith("/issues"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[{"number": 1, "title": "p", "html_url": "u", "head": {"ref": "b", "sha": "s"}, "created_at": "2026-01-01T00:00:00Z"}])
+
+    async def run():
+        async with make_gh(handler) as gh:
+            await server.fetch_github_repo(gh, "acme/one")
+
+    with pytest.raises(server.RateLimited):
+        asyncio.run(run())
+    # the two listings ran; no per-PR detail/CI/review reads were spent below the reserve
+    assert calls == ["/repos/acme/one/issues", "/repos/acme/one/pulls"]
