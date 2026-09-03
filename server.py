@@ -827,11 +827,11 @@ async def assemble_board():
 
     if gen != board_gen:
         return
-    # newest issues first; everything else oldest first
+    # newest issues first (with anything still being filed on top); everything else oldest first
     state["board"] = {
         "columns": [
             {"id": cid, "cards": sorted((c for c in out if c["col"] == cid),
-                                        key=lambda c: str(c["created_at"]), reverse=(cid == "issues"))}
+                                        key=lambda c: (c["filing"], _epoch_f(c["created_at"])), reverse=(cid == "issues"))}
             for cid in ("issues", "working", "needs-you", "review", "ready")
         ],
         "deploys": state["deploys"],
