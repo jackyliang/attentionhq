@@ -361,9 +361,9 @@ async def fetch_devin():
             break
     state["sessions"] = sessions
     state["devin_ok"] = True
-    # Transcripts are only needed for the sessions the board reads; holding one
+    # Transcripts are only needed for sessions that can hold a card; holding one
     # per session in the whole lookback window is most of the process's memory.
-    live = {s["session_id"] for s in sessions if tracked_session(s)}
+    live = {s["session_id"] for s in sessions if tracked_session(s) or session_pr_urls(s)}
     for cache in (session_msgs_cache, extract_cache):
         for sid in [sid for sid in cache if sid not in live]:
             del cache[sid]
