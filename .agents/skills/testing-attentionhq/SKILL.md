@@ -21,14 +21,14 @@ description: How to run and test the AttentionHQ session board (FastAPI + static
 - Responsive checks: resize with `wmctrl -r "Attention" -e 0,x,y,w,h` (display caps at 1600x1200; xrandr can't add larger modes on this VNC). Short heights (~800px) are the fragile case for the panel.
 - F was removed as a shortcut; never press E on issue cards during tests — it starts a REAL Devin session.
 - Test-plan files live in `plans/`.
-- Keyboard: WASD/arrows move selection ring; Enter opens card chat; Esc closes; `?` (send as `shift+slash` via xdotool — `question` may not register) opens shortcuts overlay; N jumps to Needs-you; C, E and H are two-step: the first press arms the card (hint turns amber, toast says "Press X again"), the second press within 4s fires, Esc or moving to another card disarms. C closes the GitHub issue and/or archives the Devin session (both when an issue card has a session) and removes the card (MUTATES — don't press against production; the same button sits in the card panel header); E starts a Devin session / merges (COSTS MONEY / MUTATES); B focuses board composer.
+- Keyboard: WASD/arrows move selection ring; Enter opens card chat; Esc closes; `?` (send as `shift+slash` via xdotool — `question` may not register) opens shortcuts overlay; N jumps to Needs-you; Backspace, E and H are two-step: the first press arms the card (hint turns amber, toast says "Press X again"), the second press within 4s fires, Esc or moving to another card disarms. Backspace closes the GitHub issue and/or archives the Devin session (both when an issue card has a session) and removes the card (MUTATES — don't press against production; the same button sits in the card panel header); E starts a Devin session / merges (COSTS MONEY / MUTATES); B focuses board composer.
 - Clicking a card opens its chat panel directly.
 - The Todo section renders at the very TOP of the card panel scroll area, above a long transcript — scroll/drag the panel scrollbar fully up to see it.
 - The "+" new-issue card is the FIRST card in the Issues column (focus a card, press Home); new issues appear directly under it (newest first). Enter opens inline input; Enter submits and creates a REAL GitHub issue in jackyliang/answer-hq.
 
 ## Cleanup after tests
 - Close test issues: `curl -X PATCH -H "Authorization: Bearer $ATTENTIONHQ_GITHUB_TOKEN" https://api.github.com/repos/jackyliang/answer-hq/issues/<n> -d '{"state":"closed"}'`
-- Archive (C on non-session cards) persists to `dismissed.json` in the repo dir — delete it and restart the server to un-archive.
+- Archive (Backspace on non-session cards) persists to `dismissed.json` in the repo dir — delete it and restart the server to un-archive.
 
 ## Devin Secrets Needed
 - DEVIN_API_KEY, ATTENTIONHQ_GITHUB_TOKEN, ATTENTIONHQ_OPENROUTER_API_KEY
