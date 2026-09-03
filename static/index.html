@@ -107,9 +107,6 @@ header{
 .brand{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;letter-spacing:-.01em}
 .brand svg{color:var(--ds-gray-1000)}
 .brand .variant{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-600);font-weight:400;border:1px solid var(--ds-gray-400);padding:1px 6px}
-.hdr-stats{display:flex;align-items:center;gap:16px;margin-left:8px}
-.hdr-stat{display:flex;align-items:center;gap:7px;font-size:12px;line-height:16px;color:var(--ds-gray-900)}
-.hdr-stat .n{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-1000)}
 .dot{width:7px;height:7px;flex:none}
 .dot.amber{background:var(--ds-amber-700)}
 .dot.blue{background:var(--ds-blue-700)}
@@ -218,7 +215,6 @@ main{
 .card .ref.pr{display:inline-flex;align-items:center;gap:4px}
 .card .ref.pr svg{width:10px;height:10px}
 .card .ref .ci{width:5px;height:5px;flex:none}
-.card .age{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600);margin:0}
 /* press-again confirmation on destructive / costly actions */
 .card .close-hint.armed,.card .start-hint.armed{visibility:visible;color:var(--ds-amber-900);white-space:nowrap}
 .card .close-hint.armed kbd,.card .start-hint.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
@@ -418,8 +414,6 @@ aside{
 .panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-archive{display:none;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive:not([hidden]){display:inline-flex}
-.panel-usd{margin-left:auto;flex:none;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
-.panel-usd:empty{margin-right:-10px}
 .panel-title{min-width:0}
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
@@ -576,6 +570,9 @@ aside{
   padding:8px 10px;max-width:85%;
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
+.msg.pending.sending .body{opacity:.6}
+.msg.pending.failed .ts{color:var(--ds-red-900)}
+.msg.pending.failed .body{border-color:var(--ds-red-700)}
 .msg.pr{align-items:stretch}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900);background:var(--ds-gray-200);padding:0 3px}
 .msg .body a{color:var(--ds-blue-900);text-decoration:none}
@@ -653,6 +650,7 @@ aside{
 .composer .row{display:flex;align-items:center;gap:8px}
 .composer .hint{font-size:11px;color:var(--ds-gray-600);display:flex;align-items:center;gap:6px}
 .composer .send{margin-left:auto}
+.composer .send kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:inherit;opacity:.7;background:transparent;border:1px solid currentColor}
 
 /* pasted / dropped attachments waiting to be sent */
 .att-tray{display:flex;flex-wrap:wrap;gap:6px}
@@ -743,12 +741,6 @@ aside{
       Attention
       <span class="variant">live</span>
     </div>
-    <div class="hdr-stats">
-      <span class="hdr-stat"><span class="dot amber"></span><span class="n" id="stat-needs">6</span> on you</span>
-      <span class="hdr-stat"><span class="dot blue"></span><span class="n" id="stat-working">6</span> moving</span>
-      <span class="hdr-stat"><span class="dot green"></span><span class="n" id="stat-ready">1</span> ready</span>
-      <span class="hdr-stat"><span class="dot grey"></span><span class="n" id="stat-idle">4</span> not started</span>
-    </div>
     <div class="hdr-right">
       <span class="hdr-sync" id="hdr-sync" aria-live="polite"><span class="dot grey"></span><span id="hdr-sync-txt">loading…</span></span>
       <div class="hdr-deploys" id="hdr-deploys" aria-label="Render deploy status"></div>
@@ -766,7 +758,6 @@ aside{
         <div class="t" id="panel-title">Board</div>
         <div class="s" id="panel-sub">operate the board</div>
       </div>
-      <span class="panel-usd" id="panel-usd" title="On-demand usage"></span>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close</span><kbd>⌫</kbd>
       </button>
@@ -785,10 +776,8 @@ aside{
       <textarea id="composer" placeholder="Message the board…" rows="3"></textarea>
       <div class="att-tray" id="composer-atts"></div>
       <div class="row">
-        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board · paste or drop files to attach</span>
-        <button class="act primary send" id="send-btn">Send
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
-        </button>
+        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board</span>
+        <button class="act primary send" id="send-btn">Send<kbd>⏎</kbd></button>
       </div>
     </div>
   </aside>
@@ -1046,10 +1035,9 @@ function progressOf(c){
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:'';
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
-  const age=c.age?`<span class="age">${escHTML(c.age)}</span>`:'';
-  const meta=`<div class="cmeta">${ref}${prRef}${age}</div>`;
+  const meta=`<div class="cmeta">${ref}${prRef}</div>`;
   const pct=Math.max(progressOf(c),c.session_id?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
@@ -1181,7 +1169,7 @@ function renderBoard(){
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
   const focusSpot=focusKey?cardSpot(a):null;
   const wasAdd=a&&a.id==='add-issue';
-  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput)return; // don't disturb typing
+  if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
   const scroll=captureScroll();
   const before=snapshotCards();
   boardEl.innerHTML='';
@@ -1211,16 +1199,7 @@ function renderBoard(){
     });
     boardEl.appendChild(el);
   });
-  const by=id=>cards.filter(c=>c.col===id).length;
-  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
-  const n=id=>boardLoaded?by(id):'\u2014';
-  set('stat-needs',n('needs-you')); set('stat-working',n('working'));
-  set('stat-ready',n('ready')); set('stat-idle',n('issues'));
-  if(openCard!=null&&openCardKey!=null){
-    const idx=cards.findIndex(c=>c.key===openCardKey);
-    if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
-    else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
-  }
+  syncOpenCard();
   restoreScroll(scroll);
   restoringFocus=true;
   let focusEl=null;
@@ -1250,6 +1229,13 @@ function renderSync(state){
   syncTxt.textContent=`data ${agoS(dataAt||lastSync)}`;
 }
 setInterval(()=>{if(lastSync&&!syncEl.classList.contains('busy'))renderSync()},1000);
+// cards was replaced by a fresh board: re-point openCard at the same key and refresh its panel/thread
+function syncOpenCard(typing=false){
+  if(openCard==null||openCardKey==null)return;
+  const idx=cards.findIndex(c=>c.key===openCardKey);
+  if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
+  else if(!typing){setBoardMode(); mode='closed'; app.dataset.mode='closed'}
+}
 async function fetchBoard(){
   renderSync('busy');
   let data;
@@ -1324,10 +1310,9 @@ async function prefetchThreads(){
     const pending=cards.filter(c=>c.session_id&&!threadCache[c.key]);
     for(const c of pending){
       try{
+        const reqAt=Date.now();
         const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-        const d={msgs:data.messages||[],status:data.status||null};
-        d.sig=threadSig(d);
-        threadCache[c.key]=d;
+        threadCache[c.key]=mergeThread(threadCache[c.key],data,reqAt);
       }catch(e){/* warm cache best-effort */}
     }
   }finally{prefetching=false}
@@ -1388,7 +1373,6 @@ function wireAddCard(addBtn){
 const app=document.getElementById('app');
 const threadEl=document.getElementById('thread');
 const panelList=document.getElementById('panel-list');
-const panelUsd=document.getElementById('panel-usd');
 const panelScroll=document.getElementById('panel-scroll');
 const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
@@ -1549,8 +1533,11 @@ function workingText(c){
   return nx?nx.text:'working\u2026';
 }
 function workingHTML(c){
-  if(!c||c.col!=='working'||c.pending)return '';
-  return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(workingText(c))}</span></div>`;
+  if(!c||c.pending)return '';
+  const awaiting=awaitingReply(c);
+  if(c.col!=='working'&&!awaiting)return '';
+  const txt=awaiting&&(c.col!=='working'||/waiting|blocked/i.test(workingText(c)))?'Devin is on it\u2026':workingText(c);
+  return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(txt)}</span></div>`;
 }
 const OPT_LINE_RE=/^\s*(?:\*\*)?(?:\d+|[a-c])[.)]\s*(?:\*\*)?\s*(.+?)\s*$/;
 // fallback when the extractor hasn't produced options yet: the agent's own numbered list
@@ -1573,7 +1560,7 @@ function questionHTML(ctx,lastText){
 }
 // ctx: {options:[...], question, ask, waiting}
 function renderThread(msgs,ctx={}){
-  const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
+  const real=msgs.filter(m=>(m.who==='user'&&m.state!=='failed')||m.who==='devin');
   const last=real.at(-1);
   const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
   const lastIsDevin=last&&last.who==='devin';
@@ -1583,13 +1570,14 @@ function renderThread(msgs,ctx={}){
     if(m.who==='pr')return `<div class="msg pr">${prCardHTML(m.pr)}</div>`;
     const acts=[];
     const text=(m.text??'').toString();
-    if(m===lastDevin){
+    if(m===lastDevin&&lastIsDevin){
       const offers=[...text.matchAll(OFFER_RE)].map(x=>x[1].trim()).filter(Boolean);
       if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
-    return `<div class="msg ${m.who}">
-    ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
+    const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
+    return `<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
+    ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
     <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`;
   });
   const tail=[];
@@ -1612,11 +1600,8 @@ threadEl.addEventListener('click',async e=>{
   if(t.dataset.offer){
     t.disabled=true;
     const text=`Yes — go ahead: ${t.dataset.offer}`;
-    try{
-      await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text})});
-      showToast(`Sent “${text}”`);
-      loadThread(c);
-    }catch(err){t.disabled=false;showToast('Send failed: '+err.message)}
+    if(await sendToSession(c,text))showToast(`Sent “${text}”`);
+    else t.disabled=false;
   }
 });
 
@@ -1674,25 +1659,21 @@ function setBoardMode(){
   panelSub.textContent='operate the board';
   composer.placeholder='Message the board…';
   panelList.innerHTML='';
-  panelUsd.textContent='';
   renderThread(boardThread);
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
-const ACU_USD=2.25;
-function usdOf(c){return c.acus==null?'':`$${(c.acus*ACU_USD).toFixed(2)}`}
 const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple',ready:'green'};
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
   const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'in review',ready:'ready to merge'}[c.col]||c.col;
-  const ref=c.pending?'creating\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'session';
-  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${st}</span><span>·</span><span>${ref}</span>${c.age?`<span>·</span><span>${escHTML(c.age)}</span>`:''}`;
+  const ref=c.pending?'creating\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
+  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${st}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
 }
 function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.innerHTML=panelSubHTML(c);
-  panelUsd.textContent=usdOf(c);
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+linksHTML(c);
   const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
@@ -1710,9 +1691,50 @@ function refreshPanel(c){
   panelHide.disabled=!!c.pending;
 }
 
-const threadCache={}; // card key -> {msgs, status, sig}
+const threadCache={}; // card key -> {msgs, status, sig, pending, sentAt}
+const PENDING_MAX_MS=10*60*1000;
+const msgId=m=>`${m.ts}|${m.text||''}`;
 function threadSig(d){
-  return JSON.stringify([d.msgs||[],d.status||null]);
+  return JSON.stringify([d.msgs||[],d.status||null,(d.pending||[]).map(p=>[p.state,p.text]),d.sentAt||null]);
+}
+// messages we sent that the Devin API hasn't echoed back yet stay in the thread
+function threadMsgs(d){
+  const all=[...(d.msgs||[]),...(d.pending||[])];
+  return all.length?all:[{who:'system',text:'No messages yet.'}];
+}
+// a pending entry is echoed by the first unclaimed server user message that wasn't already in the
+// thread when we sent, whose text starts with what we sent (or, for attachment-only sends, carries
+// the same attachment URLs)
+function echoes(p,m){
+  if(m.who!=='user'||(p.seen&&p.seen.has(msgId(m))))return false;
+  const t=(m.text||'').trim();
+  return p.match?t.startsWith(p.match):p.atts.every(u=>t.includes(u));
+}
+// reqAt: when the server request was issued. A send made before the thread ever loaded has no
+// baseline (seen=null); a response requested before that send, arriving while the POST is still
+// in flight, cannot contain the echo and so *is* its baseline. Once the POST has returned the
+// response may already include the echo, so it is matched normally.
+function reconcilePending(cached,msgs,reqAt){
+  const now=Date.now(),used=new Set();
+  return (cached?.pending||[]).filter(p=>{
+    if(now-p.at>=PENDING_MAX_MS)return false;
+    if(!p.seen&&reqAt<p.at&&p.state==='sending'){p.seen=new Set(msgs.filter(m=>m.who==='user').map(msgId));return true}
+    const m=msgs.find(m=>!used.has(m)&&echoes(p,m));
+    if(m)used.add(m);
+    return !m;
+  });
+}
+// server thread data + whatever optimistic state landed in the cache while the request was in flight
+function mergeThread(cur,data,reqAt){
+  const msgs=data.messages||[];
+  const d={msgs,status:data.status||null,pending:reconcilePending(cur,msgs,reqAt),sentAt:cur?.sentAt||null,loaded:true};
+  if(d.sentAt&&msgs.some(m=>m.who==='devin'&&tsMs(m.ts)>d.sentAt))d.sentAt=null;
+  d.sig=threadSig(d);
+  return d;
+}
+function awaitingReply(c){
+  const th=c&&threadCache[c.key];
+  return !!(th&&th.sentAt&&Date.now()-th.sentAt<PENDING_MAX_MS);
 }
 function threadCtx(c,d){
   const st=d.status||{};
@@ -1744,20 +1766,21 @@ async function loadThread(c,quiet=false){
   }
   const cached=threadCache[c.key];
   if(cached){
-    renderThread(cached.msgs.length?cached.msgs:[{who:'system',text:'No messages yet.'}],threadCtx(c,cached));
+    renderThread(threadMsgs(cached),threadCtx(c,cached));
     if(!quiet)scrollThreadToEnd();
   }else{
     renderThread([{who:'system',text:'Loading conversation…'}]);
   }
   try{
+    const reqAt=Date.now();
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-    const d={msgs:data.messages||[],status:data.status||null};
-    d.sig=threadSig(d);
-    const changed=!cached||cached.sig!==d.sig;
+    const cur=threadCache[c.key]; // re-read: a send may have landed while the request was in flight
+    const d=mergeThread(cur,data,reqAt);
+    const changed=!cur||cur.sig!==d.sig;
     threadCache[c.key]=d;
     if(openCardKey===c.key&&changed){
       const keep=quiet&&!atThreadEnd();
-      renderThread(d.msgs.length?d.msgs:[{who:'system',text:'No messages yet.'}],threadCtx(c,d));
+      renderThread(threadMsgs(d),threadCtx(c,d));
       if(!keep)scrollThreadToEnd();
     }
   }catch(e){
@@ -1875,11 +1898,7 @@ async function pickOption(id,i,override){
   if(!c||!label)return;
   const text=`${i+1}. ${label}`;
   showToast(`Replying “${label}”…`);
-  try{
-    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text})});
-    showToast(`Sent “${label}” — “${c.title}”`);
-    if(openCardKey===c.key)loadThread(c);
-  }catch(e){showToast('Send failed: '+e.message)}
+  if(await sendToSession(c,text))showToast(`Sent “${label}” — “${c.title}”`);
 }
 
 /* inline PR card merge: first click arms the button, second click within ARM_MS merges */
@@ -2077,15 +2096,37 @@ async function sendMsg(){
   const c=cards[openCard];
   if(!c.session_id){showToast('This card has no session yet — press E to start one');return}
   composer.value='';composerTray.clear();
+  sendToSession(c,v,attachments);
+}
+// optimistic send: the message shows up immediately as "sending…", flips to "sent" once the
+// board accepts it, and stays until the Devin API echoes it back; a shimmer line below it
+// says Devin is on it until a reply lands
+async function sendToSession(c,text,attachments=[]){
   const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
-  th.msgs.push({who:'user',ts:new Date().toISOString(),text:[v,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')});
+  const loaded=!!th.loaded;
+  const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),atts:attachments,
+    seen:loaded?new Set(th.msgs.filter(m=>m.who==='user').map(msgId)):null,
+    text:[text,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')};
+  (th.pending||(th.pending=[])).push(p);
+  th.sentAt=p.at;
   th.status={...(th.status||{}),waiting:false,state:'running'};
   th.sig=threadSig(th);
-  renderThread(th.msgs,threadCtx(c,th));
+  const show=()=>{const cur=threadCache[c.key];if(openCardKey===c.key&&cur){cur.sig=threadSig(cur);renderThread(threadMsgs(cur),threadCtx(c,cur))}};
+  show();
   scrollThreadToEnd();
   try{
-    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v,attachments})});
-  }catch(e){showToast('Send failed: '+e.message)}
+    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text,attachments})});
+    p.state='sent';
+    show();
+    return true;
+  }catch(e){
+    p.state='failed';
+    const cur=threadCache[c.key];
+    if(cur&&cur.sentAt===p.at)cur.sentAt=null;
+    show();
+    showToast('Send failed: '+e.message);
+    return false;
+  }
 }
 composer.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}

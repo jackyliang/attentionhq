@@ -26,6 +26,12 @@ description: How to run and test the AttentionHQ session board (FastAPI + static
 - The Todo section renders at the very TOP of the card panel scroll area, above a long transcript — scroll/drag the panel scrollbar fully up to see it.
 - The "+" new-issue card is the FIRST card in the Issues column (focus a card, press Home); new issues appear directly under it (newest first). Enter opens inline input; Enter submits and creates a REAL GitHub issue in jackyliang/answer-hq.
 
+## Testing render/animation behaviour without mutating anything
+- `cards`, `renderBoard()`, `selring`, `fetchBoard` are page globals. To simulate a column move: `const c=cards.find(x=>x.col==='issues'); c.col='needs-you'; renderBoard();`; to simulate removal: `cards=cards.filter(c=>c.key!==k); cards.forEach((c,i)=>c.id=i); renderBoard();`.
+- The 5s poll (`setInterval(fetchBoard,5000)`) reverts synthetic edits almost immediately — stub it first (`window.__o=fetchBoard; fetchBoard=async()=>{}`) and restore afterwards (`fetchBoard=window.__o`). Reloading the page also resets it.
+- Animations are ~140-200ms, too fast for screenshots: right after `renderBoard()` run `document.getAnimations().forEach(a=>a.playbackRate=0.05)` to slow them. Cross-column moves create a `.flip-ghost` clone on `body` (it also matches `.card[data-key]`, so scope real-card queries to `#board`) and add `.flip-hidden` to the real card until the ghost finishes.
+- Ring alignment check: compare `selring.getBoundingClientRect()` with `document.activeElement.getBoundingClientRect()` (expect 0px diff). Live board changes from other sessions can also shift cards mid-test.
+
 ## Cleanup after tests
 - Close test issues: `curl -X PATCH -H "Authorization: Bearer $ATTENTIONHQ_GITHUB_TOKEN" https://api.github.com/repos/jackyliang/answer-hq/issues/<n> -d '{"state":"closed"}'`
 - Archive (Backspace on non-session cards) persists to `dismissed.json` in the repo dir — delete it and restart the server to un-archive.
