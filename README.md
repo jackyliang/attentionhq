@@ -14,6 +14,10 @@ set -a; source .env; set +a
 
 Open http://localhost:8000. If `BOARD_TOKEN` is set, the UI prompts for it once.
 
+## Boards
+
+Boards are managed in the UI (the `+` and settings tiles in the left rail, or `/settings`) and stored in Postgres (`DATABASE_URL`) or `boards.json`. Each board is a named set of repos at `/b/<slug>`; `/` shows everything. Sessions with no repo yet show on every board until Devin opens a PR or you pin them.
+
 ## Environment
 
 | Var | Purpose |
@@ -24,7 +28,8 @@ Open http://localhost:8000. If `BOARD_TOKEN` is set, the UI prompts for it once.
 | `OPENROUTER_API_KEY` | Optional — powers todos/activity/ask extraction |
 | `OPENROUTER_MODEL` | Default `openai/gpt-5.6-luna:nitro` |
 | `BOARD_TOKEN` | Shared token gating all `/api` routes |
-| `REPOS` | Comma-separated `owner/repo` list |
+| `DATABASE_URL` | Optional — Postgres for boards + hidden cards; falls back to JSON files |
+| `REPOS` | Only seeds the first board when none exist yet; boards are edited in the UI after that |
 | `GITHUB_WEBHOOK_SECRET` | Secret shared with the GitHub webhooks (see below). When set, GitHub is polled every 5 min as a reconcile instead of every 20 s |
 | `GITHUB_POLL_SECS` | Override the GitHub reconcile interval (default 300 with webhooks, 20 without; backs off up to `GITHUB_POLL_MAX_SECS`) |
 | `GITHUB_RATE_RESERVE` | Requests kept in reserve for user actions (create/merge/edit); polling pauses below this until the quota resets. Default 200 |
