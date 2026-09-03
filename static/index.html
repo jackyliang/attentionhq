@@ -2057,7 +2057,7 @@ async function pickOption(id,i,override){
   const label=override||(c&&c.options&&c.options[i]);
   if(!c||!label)return;
   showToast(`Replying “${label}”…`);
-  await sendToSession(c,text,[],`“${label}”`);
+  await sendToSession(c,`${i+1}. ${label}`,[],`“${label}”`);
 }
 
 /* inline PR card merge: first click arms the button, second click within ARM_MS merges */

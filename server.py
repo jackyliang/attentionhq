@@ -1041,11 +1041,23 @@ async def post_message(card_id: str, body: MessageIn):
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     echo_user_message(card["session_id"], "\n".join([body.text, *(f'ATTACHMENT:"{u}"' for u in atts)]).strip())
+    # the echo also flips the served board card to WORKING right away; a full
+    # assembly (which may call the extractor) happens in the background
+    cols = {col["id"]: col for col in (state["board"] or {"columns": []})["columns"]}
+    if "needs-you" in cols and "working" in cols:
+        moved = [c for c in cols["needs-you"]["cards"] if c["id"] == card_id]
+        cols["needs-you"]["cards"] = [c for c in cols["needs-you"]["cards"] if c["id"] != card_id]
+        for c in moved:
+            c.update({"col": "working", "tone": "blue", "now": None, "options": [], "question": None})
+            cols["working"]["cards"].append(c)
+    asyncio.create_task(_assemble_quietly())
+    return {"ok": True}
+
+async def _assemble_quietly():
     try:
         await assemble_board()
     except Exception:  # noqa: BLE001
-        pass
-    return {"ok": True}
+        log.warning("post-message assembly failed", exc_info=True)
 
 class EditIn(BaseModel):
     title: str | None = None
@@ -1134,6 +1146,8 @@ async def archive_card(card_id: str):
         dismissed.add(card_id)
         await asyncio.to_thread(save_dismissed, dismissed)
     if card["session_id"]:
+        recent_sessions.pop(card["session_id"], None)
+        recent_replies.pop(card["session_id"], None)
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
