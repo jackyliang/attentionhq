@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -980,8 +980,10 @@ async def assemble_board():
         if prompt and not ik:
             ik = by_prompt.get(prompt[0])
             if not ik and (st not in ACTIVE_STATUSES or session_needs_user(sess)) and time.time() - _epoch(sess.get("created_at")) < 1800:
-                if time.time() - state["github_synced_at"] > 30:
-                    request_refresh()  # Devin just filed the issue; pick it up now
+                # Devin just filed the issue; pick it up now. With webhooks the
+                # `issues` delivery does this, so only nudge a stale reconcile.
+                if time.time() - state["github_synced_at"] > (GITHUB_POLL_SECS // 2 if state["webhook"]["configured"] else 30):
+                    request_refresh()
             # a file-only session is done once the issue exists; don't keep it on the card
             if prompt[1] == "file" and (ik or (st not in ACTIVE_STATUSES and not session_pr_urls(sess))):
                 continue
@@ -1227,9 +1229,19 @@ def publish(kind: str):
                 pass
         q.put_nowait(payload)
 
+_DIGEST_SKIP_CARD_KEYS = ("age",)  # display-only, ticks every minute
+
+def _digest_view(board: dict) -> dict:
+    out = {k: v for k, v in board.items() if k not in ("generated_at", "sync", "columns")}
+    out["columns"] = [
+        {**col, "cards": [{k: v for k, v in c.items() if k not in _DIGEST_SKIP_CARD_KEYS} for c in col.get("cards", [])]}
+        for col in board.get("columns", [])
+    ]
+    return out
+
 def _note_board_changed(board: dict):
     global board_version, _board_digest
-    digest = hashlib.sha1(json.dumps({k: v for k, v in board.items() if k not in ("generated_at", "sync")}, sort_keys=True, default=str).encode()).hexdigest()
+    digest = hashlib.sha1(json.dumps(_digest_view(board), sort_keys=True, default=str).encode()).hexdigest()
     if digest != _board_digest:
         _board_digest = digest
         board_version += 1

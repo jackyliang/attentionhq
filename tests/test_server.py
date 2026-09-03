@@ -446,3 +446,16 @@ def test_fetch_github_is_serialized(monkeypatch):
 
     asyncio.run(run())
     assert active["max"] == 1
+
+
+def test_board_digest_ignores_card_age():
+    board = {"columns": [{"id": "issues", "cards": [{"id": "x", "title": "t", "age": "3m"}]}], "generated_at": 1, "sync": {}}
+    server._note_board_changed(board)
+    v = server.board_version
+    board["columns"][0]["cards"][0]["age"] = "4m"
+    board["generated_at"] = 2
+    server._note_board_changed(board)
+    assert server.board_version == v
+    board["columns"][0]["cards"][0]["title"] = "changed"
+    server._note_board_changed(board)
+    assert server.board_version == v + 1
