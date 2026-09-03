@@ -710,8 +710,9 @@ async def assemble_board():
             ik = by_prompt.get(prompt[0])
             if not ik and (st not in ACTIVE_STATUSES or session_needs_user(sess)) and time.time() - _epoch(sess.get("created_at")) < 1800:
                 state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
-            # a file-only session is done once the issue exists; don't keep it on the card
-            if prompt[1] == "file" and (ik or (st not in ACTIVE_STATUSES and not session_pr_urls(sess))):
+            # a file-only session only exists to create the issue: show it just while it is
+            # busy filing, never once the issue exists or it stops and waits on you
+            if prompt[1] == "file" and (ik or st not in ACTIVE_STATUSES or session_needs_user(sess)):
                 continue
         if ik and ik in cards:
             cards[ik]["sessions"].append(sess)
