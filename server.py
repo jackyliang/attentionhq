@@ -911,7 +911,8 @@ async def get_messages(card_id: str):
         } if sess else None,
     }
 
-ATT_PASS_THROUGH = ("content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified")
+# aiter_raw() forwards the body still encoded, so content-encoding has to travel with it.
+ATT_PASS_THROUGH = ("content-type", "content-length", "content-range", "content-encoding", "accept-ranges", "etag", "last-modified", "vary")
 
 @app.get("/api/attachment/{uuid}/{name}")
 async def get_attachment(uuid: str, name: str, request: Request):
@@ -921,7 +922,7 @@ async def get_attachment(uuid: str, name: str, request: Request):
     buffering each whole response here is what fills the instance's memory."""
     if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid) or name in (".", ".."):
         raise HTTPException(400, "bad attachment path")
-    fwd = {k: v for k, v in request.headers.items() if k.lower() in ("range", "if-range", "if-none-match", "if-modified-since")}
+    fwd = {k: v for k, v in request.headers.items() if k.lower() in ("range", "if-range", "if-none-match", "if-modified-since", "accept-encoding")}
     dv = devin_client()
     req = dv.build_request("GET", f"/attachments/{uuid}/{name}", headers=fwd, timeout=60)
     r = await dv.send(req, stream=True, follow_redirects=True)
