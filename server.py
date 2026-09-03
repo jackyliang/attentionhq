@@ -1319,6 +1319,7 @@ async def prompt_devin(body: PromptIn):
     atts = clean_attachments(body.attachments)
     if not text and not atts:
         raise HTTPException(400, "empty prompt")
+    typed = bool(text)
     text = text or "(see attached files)"
     pid = uuid.uuid4().hex[:12]
     mode = "work" if body.start else "file"
@@ -1331,10 +1332,10 @@ async def prompt_devin(body: PromptIn):
         "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
         "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
         "questions; make reasonable assumptions and note them in the issue.\n"
-        "   The issue body MUST also include the user's original prompt above, verbatim and unedited, under a "
-        "heading `## Original request` (quoted). Your summary may miss details; the verbatim prompt is the "
-        "source of truth for whoever implements the issue.\n"
-        f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
+        + ("   The issue body MUST also include the user's original prompt above, verbatim and unedited, under a "
+           "heading `## Original request` (quoted). Your summary may miss details; the verbatim prompt is the "
+           "source of truth for whoever implements the issue.\n" if typed else "")
+        + f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
         "4. Create the issue in that repo and reply with just its URL.\n"
         + ("The user attached files to this task (see the session attachments). Embed the image attachments in the issue body "
            "and link any others, so they are visible on GitHub.\n" if atts else "")
