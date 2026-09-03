@@ -1106,20 +1106,27 @@ function wireCard(el){
     if(e.target.closest('.close-hint')){archiveCard(idOf(el));e.stopPropagation();return}
     const act=e.target.closest('.act');
     if(act){triggerAction(idOf(el));e.stopPropagation();return}
-    setCardMode(idOf(el));
-    el.focus();
+    setCardMode(idOf(el),{scroll:false});
+    focusByMouse(el);
   });
-  el.addEventListener('focus',()=>{if(!restoringFocus)ensureVisible(el)});
+  el.addEventListener('focus',()=>{if(!restoringFocus&&!mouseFocusing)ensureVisible(el)});
   el.addEventListener('mouseenter',()=>{
     if(performance.now()-lastMouseMove>150)return;
     const a=document.activeElement;
     if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
-    el.focus();
+    focusByMouse(el);
   });
   el.addEventListener('dblclick',e=>{
     if(e.target.closest('.act'))return;
     composer.focus();
   });
+}
+
+/* pointer-driven focus never scrolls the board; only keyboard nav pulls cards into view */
+let mouseFocusing=false;
+function focusByMouse(el){
+  mouseFocusing=true;
+  try{el.focus({preventScroll:true})}finally{mouseFocusing=false}
 }
 
 let boardLoaded=false;
@@ -1972,7 +1979,7 @@ async function loadThread(c,quiet=false){
   }
 }
 
-function setCardMode(id){
+function setCardMode(id,{scroll=true}={}){
   const c=cards[id];
   if(!c)return;
   mode='card'; openCard=id; openCardKey=c.key;
@@ -1983,7 +1990,7 @@ function setCardMode(id){
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
   const el=cardEl(id);
-  if(el){el.classList.add('selected');ensureVisible(el)}
+  if(el){el.classList.add('selected');if(scroll)ensureVisible(el)}
   requestAnimationFrame(()=>moveRing(ringTarget,true));
 }
 // DOM ids can lag behind `cards` while a poll was deferred; resolve by key
