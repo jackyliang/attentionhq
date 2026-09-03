@@ -1095,24 +1095,34 @@ function renderBoard(){
   }
 }
 
-let lastSync=0;
+let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false;
 const syncEl=document.getElementById('hdr-sync'),syncTxt=document.getElementById('hdr-sync-txt');
+function agoS(ts){
+  const s=Math.floor(Math.max(0,(Date.now()-ts)/1000));
+  return s<60?`${s}s ago`:ago(ts);
+}
 function renderSync(state){
   if(state==='busy'){syncEl.className='hdr-sync busy';syncTxt.textContent=lastSync?'syncing\u2026':'loading board\u2026';return}
-  if(state==='err'){syncEl.className='hdr-sync err';syncTxt.textContent=lastSync?`sync failed \u00b7 last ${ago(lastSync)}`:'load failed';return}
+  if(fetchFailed){syncEl.className='hdr-sync err';syncTxt.textContent=lastSync?`sync failed \u00b7 last ${agoS(lastSync)}`:'load failed';return}
+  if(!lastSync){syncEl.className='hdr-sync';syncTxt.textContent='';return}
+  if(upstreamDown.length){syncEl.className='hdr-sync err';syncTxt.textContent=`${upstreamDown.join(' + ')} unreachable \u00b7 data ${agoS(dataAt||lastSync)}`;return}
   syncEl.className='hdr-sync';
-  syncTxt.textContent=lastSync?`synced ${ago(lastSync)}`:'';
+  syncTxt.textContent=`data ${agoS(dataAt||lastSync)}`;
 }
+setInterval(()=>{if(lastSync&&!syncEl.classList.contains('busy'))renderSync()},1000);
 async function fetchBoard(){
   renderSync('busy');
   let data;
-  try{data=await api('/api/board')}catch(e){renderSync('err');throw e}
+  try{data=await api('/api/board')}catch(e){fetchFailed=true;renderSync();throw e}
+  fetchFailed=false;
   if(data.loading&&cards.length){renderSync();return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
   lastSync=Date.now();
+  dataAt=data.generated_at?data.generated_at*1000:lastSync;
+  upstreamDown=[data.devin_ok===false&&'devin',data.github_ok===false&&'github'].filter(Boolean);
   renderSync();
   renderBoard();
   renderDeploys(data);
