@@ -1232,9 +1232,7 @@ async function prefetchThreads(){
     for(const c of pending){
       try{
         const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-        const d={msgs:data.messages||[],status:data.status||null};
-        d.sig=threadSig(d);
-        threadCache[c.key]=d;
+        threadCache[c.key]=mergeThread(threadCache[c.key],data);
       }catch(e){/* warm cache best-effort */}
     }
   }finally{prefetching=false}
@@ -1492,7 +1490,7 @@ function renderThread(msgs,ctx={}){
     if(m.who==='pr')return `<div class="msg pr">${prCardHTML(m.pr)}</div>`;
     const acts=[];
     const text=(m.text??'').toString();
-    if(m===lastDevin){
+    if(m===lastDevin&&lastIsDevin){
       const offers=[...text.matchAll(OFFER_RE)].map(x=>x[1].trim()).filter(Boolean);
       if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
       if(qHTML){acts.push(qHTML);qHTML='';}
@@ -1618,7 +1616,7 @@ function refreshPanel(c){
 }
 
 const threadCache={}; // card key -> {msgs, status, sig, pending, sentAt}
-const PENDING_MAX_MS=10*60*1000;
+const PENDING_MAX_MS=10*60*1000, PENDING_ECHO_SLACK_MS=30*1000;
 function threadSig(d){
   return JSON.stringify([d.msgs||[],d.status||null,(d.pending||[]).map(p=>[p.state,p.text]),d.sentAt||null]);
 }
@@ -1627,9 +1625,29 @@ function threadMsgs(d){
   const all=[...(d.msgs||[]),...(d.pending||[])];
   return all.length?all:[{who:'system',text:'No messages yet.'}];
 }
+// a pending entry is echoed by the first unclaimed server user message sent around the same time
+// whose text starts with what we sent (or, for attachment-only sends, carries the same attachment URLs)
+function echoes(p,m){
+  if(m.who!=='user'||!(tsMs(m.ts)>=p.at-PENDING_ECHO_SLACK_MS))return false;
+  const t=(m.text||'').trim();
+  return p.match?t.startsWith(p.match):p.atts.every(u=>t.includes(u));
+}
 function reconcilePending(cached,msgs){
-  const now=Date.now();
-  return (cached?.pending||[]).filter(p=>now-p.at<PENDING_MAX_MS&&!msgs.some(m=>m.who==='user'&&tsMs(m.ts)>=p.at-60000&&(!p.match||(m.text||'').trim().startsWith(p.match))));
+  const now=Date.now(),used=new Set();
+  return (cached?.pending||[]).filter(p=>{
+    if(now-p.at>=PENDING_MAX_MS)return false;
+    const m=msgs.find(m=>!used.has(m)&&echoes(p,m));
+    if(m)used.add(m);
+    return !m;
+  });
+}
+// server thread data + whatever optimistic state landed in the cache while the request was in flight
+function mergeThread(cur,data){
+  const msgs=data.messages||[];
+  const d={msgs,status:data.status||null,pending:reconcilePending(cur,msgs),sentAt:cur?.sentAt||null};
+  if(d.sentAt&&msgs.some(m=>m.who==='devin'&&tsMs(m.ts)>d.sentAt))d.sentAt=null;
+  d.sig=threadSig(d);
+  return d;
 }
 function awaitingReply(c){
   const th=c&&threadCache[c.key];
@@ -1674,9 +1692,7 @@ async function loadThread(c,quiet=false){
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
     const msgs=data.messages||[];
     const cur=threadCache[c.key]; // re-read: a send may have landed while the request was in flight
-    const d={msgs,status:data.status||null,pending:reconcilePending(cur,msgs),sentAt:cur?.sentAt||null};
-    if(d.sentAt&&msgs.some(m=>m.who==='devin'&&tsMs(m.ts)>d.sentAt))d.sentAt=null;
-    d.sig=threadSig(d);
+    const d=mergeThread(cur,data);
     const changed=!cur||cur.sig!==d.sig;
     threadCache[c.key]=d;
     if(openCardKey===c.key&&changed){
@@ -2004,7 +2020,7 @@ async function sendMsg(){
 // says Devin is on it until a reply lands
 async function sendToSession(c,text,attachments=[]){
   const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
-  const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),
+  const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),atts:attachments,
     text:[text,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')};
   (th.pending||(th.pending=[])).push(p);
   th.sentAt=p.at;
