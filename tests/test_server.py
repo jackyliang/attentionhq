@@ -13,6 +13,7 @@ os.environ.update(
     DISMISSED_FILE="/tmp/attentionhq-test-dismissed.json",
     BOARDS_FILE="/tmp/attentionhq-test-boards.json",
     PROMPTS_FILE="/tmp/attentionhq-test-prompts.json",
+    SETTINGS_FILE="/tmp/attentionhq-test-settings.json",
 )
 
 import httpx  # noqa: E402
@@ -549,3 +550,17 @@ def test_board_color_roundtrip_and_validation(monkeypatch, client):
     assert r.json()["board"]["color"] == ""
     assert server.load_boards()[-1]["color"] == ""
     client.delete(f"/api/boards/{bid}", headers=h)
+
+
+def test_settings_roundtrip(client):
+    h = {"x-board-token": "tok"}
+    server.settings.clear()
+    server.settings.update(server.DEFAULT_SETTINGS)
+    assert client.get("/api/settings", headers=h).json() == {"settings": {"show_all": False}}
+    assert client.put("/api/settings", json={"show_all": True}, headers=h).json()["settings"]["show_all"] is True
+    assert server.load_settings() == {"show_all": True}
+    server.state["board"] = None
+    assert client.get("/api/board", headers=h).json()["settings"] == {"show_all": True}
+    # partial / unknown keys leave the rest alone
+    assert client.put("/api/settings", json={"bogus": 1}, headers=h).json()["settings"] == {"show_all": True}
+    assert client.put("/api/settings", json={"show_all": False}, headers=h).json()["settings"]["show_all"] is False

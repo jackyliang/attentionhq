@@ -5,3 +5,4 @@ __pycache__/
 dismissed.json
 boards.json
 session_titles.json
+settings.json

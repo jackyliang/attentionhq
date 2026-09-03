@@ -283,8 +283,8 @@ main{
 .repos .fallback .inp{height:28px;max-width:320px}
 .ed-foot{flex:none;display:flex;align-items:center;gap:8px;height:56px;padding:0 40px;border-top:1px solid var(--ds-gray-400);background:var(--ds-background-100)}
 .ed-foot .act{height:28px;padding:0 12px}
-.ed-foot .act.del{margin-left:auto;background:none;border-color:transparent;color:var(--ds-gray-600)}
-.ed-foot .act.del:hover,.ed-foot .act.del.armed{color:var(--ds-red-900)}
+.ed-foot .act.del{margin-left:auto;background:none;border-color:var(--ds-red-400);color:var(--ds-red-700)}
+.ed-foot .act.del:hover,.ed-foot .act.del.armed{color:var(--ds-red-900);border-color:var(--ds-red-700);background:var(--ds-red-100)}
 .ed-foot .act.del[hidden]{display:none}
 
 /* unassigned session: no repo yet, so it shows on every board with pin pills */
@@ -925,7 +925,7 @@ aside{
     <div class="group bottom">
       <div class="slot" id="rail-settings-slot" title="Boards">
         <button class="tile icon" id="rail-settings" aria-label="Boards settings">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.2l2.5 2.5L5.5 13H3v-2.5z"/><path d="M9.8 3.7l2.5 2.5"/></svg>
         </button>
       </div>
     </div>
@@ -1232,8 +1232,8 @@ function mapCard(c,i){
 /* ================= boards ================= */
 /* boards live server-side; the URL picks one: / = all, /b/<id> = one board, /settings = editor */
 let boards=[], boardId=null, boardMeta=null, view='board';
-/* the All view is opt-in per browser; with it off, / lands on the first board */
-let showAll=localStorage.getItem('show_all')==='1';
+/* the All view is opt-in (stored server-side with the boards); with it off, / lands on the first board */
+let showAll=false;
 function allHidden(){return !showAll&&boards.length>0}
 function homeBoard(){return allHidden()?boards[0].id:null}
 function routeFromURL(){
@@ -1327,12 +1327,16 @@ function renderBoardList(){
   ].join('');
 }
 document.getElementById('blist-rows').addEventListener('click',e=>{
-  if(e.target.closest('[data-toggle-all]')){
-    showAll=!showAll; localStorage.setItem('show_all',showAll?'1':'0');
-    renderBoardList(); renderRail(); return;
-  }
+  if(e.target.closest('[data-toggle-all]')){toggleShowAll();return}
   const r=e.target.closest('[data-edit]'); if(r)editBoard(r.dataset.edit);
 });
+async function toggleShowAll(){
+  const prev=showAll;
+  showAll=!prev; renderBoardList(); renderRail();
+  try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify({show_all:showAll})});showAll=!!d.settings.show_all}
+  catch(e){showAll=prev;showToast('Save failed: '+e.message)}
+  renderBoardList(); renderRail();
+}
 function renderSwatches(){
   ed.colors.innerHTML=['',...BOARD_COLORS].map(c=>`<button type="button" class="sw${c?'':' none'}${edColor===c?' on':''}"${tint(c)} data-color="${c}" role="radio" aria-checked="${edColor===c}" title="${c||'None'}" aria-label="${c||'No color'}"></button>`).join('');
 }
@@ -1736,12 +1740,13 @@ async function fetchBoard(){
   const want=boardId;
   try{data=await api('/api/board'+(want?`?board=${encodeURIComponent(want)}`:''))}
   catch(e){
-    if(/board not found/.test(e.message)&&want){showToast('Board not found');gotoBoard(null,{replace:true});return}
+    if(/board not found/.test(e.message)&&want){showToast('Board not found');boards=boards.filter(b=>b.id!==want);gotoBoard(null,{replace:true});return}
     fetchFailed=true;renderSync();throw e
   }
   if(want!==boardId)return; // switched boards while this was in flight
   fetchFailed=false;
   boards=data.boards||[]; boardMeta=data.board&&data.board.id!=='all'?data.board:null;
+  if(data.settings)showAll=!!data.settings.show_all;
   if(boardId===null&&view==='board'&&allHidden()){gotoBoard(homeBoard(),{replace:true});return}
   renderRail();
   if(view==='settings')renderBoardList();

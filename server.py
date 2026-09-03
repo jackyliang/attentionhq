@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 import httpx
 import psycopg
+from psycopg.types.json import Jsonb
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -358,6 +359,48 @@ def save_session_titles(titles: dict[str, str], session_id: str):
 
 session_titles: dict[str, str] = load_session_titles()
 session_titles_lock = asyncio.Lock()
+
+# UI preferences shared by everyone on this board token (one row per account for later).
+SETTINGS_FILE = os.environ.get("SETTINGS_FILE", "settings.json")
+DEFAULT_SETTINGS = {"show_all": False}
+
+def clean_settings(raw) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    return {"show_all": bool(raw.get("show_all", DEFAULT_SETTINGS["show_all"]))}
+
+def load_settings() -> dict:
+    if DATABASE_URL:
+        try:
+            with _db() as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS settings (account_id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())")
+                row = conn.execute("SELECT data FROM settings WHERE account_id = ''").fetchone()
+                return clean_settings(row[0] if row else None)
+        except psycopg.Error:
+            log.warning("could not load settings from db", exc_info=True)
+            return dict(DEFAULT_SETTINGS)
+    try:
+        with open(SETTINGS_FILE) as f:
+            return clean_settings(json.load(f))
+    except (OSError, ValueError):
+        return dict(DEFAULT_SETTINGS)
+
+def save_settings(s: dict):
+    """Durably store the settings; raises on failure so the caller can roll back."""
+    if DATABASE_URL:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO settings (account_id, data) VALUES ('', %s) "
+                "ON CONFLICT (account_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
+                (Jsonb(s),),
+            )
+        return
+    tmp = SETTINGS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=1, sort_keys=True)
+    os.replace(tmp, SETTINGS_FILE)
+
+settings: dict = load_settings()
+settings_lock = asyncio.Lock()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -1417,13 +1460,14 @@ def board_view(board_id: str | None) -> dict:
         return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
                 "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
                 "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0,
-                "board": current, "boards": boards, "sync": sync_status()}
+                "board": current, "boards": boards, "settings": dict(settings), "sync": sync_status()}
     return {
         **full,
         "columns": [{"id": col["id"], "cards": [c for c in col["cards"] if card_on_board(c, board)]} for col in full["columns"]],
         "deploys": [d for d in full["deploys"] if board is None or d["repo"] in board["repos"]],
         "board": current,
         "boards": boards,
+        "settings": dict(settings),
         "sync": sync_status(),
     }
 
@@ -1624,6 +1668,27 @@ class BoardIn(BaseModel):
 
 class PinIn(BaseModel):
     board: str | None = None
+
+class SettingsIn(BaseModel):
+    show_all: bool | None = None
+
+@app.get("/api/settings")
+async def get_settings():
+    return {"settings": dict(settings)}
+
+@app.put("/api/settings")
+async def update_settings(body: SettingsIn):
+    async with settings_lock:
+        new = clean_settings({**settings, **body.model_dump(exclude_none=True)})
+        if new != settings:
+            try:
+                await asyncio.to_thread(save_settings, new)
+            except (psycopg.Error, OSError) as e:
+                log.warning("settings storage failed: %s", e, exc_info=True)
+                raise HTTPException(503, f"could not save settings: {e}") from e
+            settings.clear()
+            settings.update(new)
+    return {"settings": dict(settings)}
 
 def _boards_payload() -> dict:
     return {"boards": [public_board(b) for b in state["boards"]]}
