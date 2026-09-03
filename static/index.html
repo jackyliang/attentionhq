@@ -1275,7 +1275,7 @@ function wireAddCard(addBtn){
         if(tray.uploading()){showToast('Still uploading attachments…');return}
         const attachments=tray.urls();
         addToPlus();
-        setTimeout(()=>addBtn.focus(),0);
+        setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
         if(v||attachments.length){
           const pendingKey='pending:'+Date.now();
           cards.unshift(mapCard({id:pendingKey,kind:'issue',col:'issues',tone:'grey',title:v||'(attached files)',pending:true}));
