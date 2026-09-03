@@ -38,6 +38,9 @@ DEVIN_POLL_MAX_SECS = int(os.environ.get("DEVIN_POLL_MAX_SECS", "60"))
 GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "20"))
 GITHUB_POLL_MAX_SECS = int(os.environ.get("GITHUB_POLL_MAX_SECS", "300"))
 RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
+# The sessions list is newest-first, 100 per page; keep paging until sessions are older than this.
+DEVIN_LOOKBACK_DAYS = float(os.environ.get("DEVIN_LOOKBACK_DAYS", "14"))
+DEVIN_MAX_PAGES = int(os.environ.get("DEVIN_MAX_PAGES", "10"))
 # Automation-origin sessions (merged-PR review bots and the like) are background
 # chatter, not work the board tracks.
 SHOW_AUTOMATION_SESSIONS = os.environ.get("SHOW_AUTOMATION_SESSIONS", "").lower() in ("1", "true", "yes")
@@ -297,13 +300,27 @@ async def fetch_render():
 ACTIVE_STATUSES = {"running", "working", "resumed", "resume_requested", "resume_requested_frontend", "suspend_requested", "suspend_requested_frontend"}
 
 async def fetch_devin():
+    cutoff = time.time() - DEVIN_LOOKBACK_DAYS * 86400
+    sessions, cursor = [], None
     async with devin_client() as dv:
-        r = await dv.get("/sessions", params={"limit": 100})
-        r.raise_for_status()
-        sessions = [
-            s for s in r.json().get("items", [])
-            if not s.get("is_archived") and (SHOW_AUTOMATION_SESSIONS or not is_automation_session(s))
-        ]
+        for _ in range(DEVIN_MAX_PAGES):
+            params = {"limit": 100}
+            if cursor:
+                params["after"] = cursor
+            r = await dv.get("/sessions", params=params)
+            r.raise_for_status()
+            data = r.json()
+            items = data.get("items", [])
+            sessions.extend(
+                s for s in items
+                if not s.get("is_archived") and (SHOW_AUTOMATION_SESSIONS or not is_automation_session(s))
+            )
+            cursor = data.get("end_cursor")
+            if not items or not data.get("has_next_page") or not cursor:
+                break
+            ages = [_epoch(s.get("created_at")) for s in items if s.get("created_at")]
+            if ages and min(ages) < cutoff:
+                break
     state["sessions"] = sessions
     state["devin_ok"] = True
     live = {s["session_id"] for s in sessions}
