@@ -401,10 +401,10 @@ aside{
 .panel-close kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-600);background:transparent;border:1px solid var(--ds-gray-400)}
 .panel-close.armed{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
-.panel-archive{display:none;margin-left:auto;padding:0 6px;font-size:11px;line-height:14px}
+.panel-archive{display:none;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive:not([hidden]){display:inline-flex}
-#app[data-mode="card"] .panel-archive~.panel-close{margin-left:0}
-.panel-close{margin-left:auto}
+.panel-usd{margin-left:auto;flex:none;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
+.panel-usd:empty{margin-right:-10px}
 .panel-title{min-width:0}
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
@@ -446,9 +446,6 @@ aside{
 }
 .pl-sect-head .m{margin-left:auto;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
 .pl-sect-head .m .yn{color:var(--ds-amber-900)}
-.pl-usage{display:flex;align-items:baseline;gap:8px;padding:10px 14px;border-bottom:1px solid var(--ds-gray-400)}
-.pl-usage .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
-.pl-usage .v{margin-left:auto;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
 .pl-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
 .pl-tag{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-900);border:1px solid var(--ds-gray-400);padding:1px 6px}
 .pl-desc{font-size:12px;line-height:18px;color:var(--ds-gray-900);overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin-bottom:8px;padding-right:6px}
@@ -544,15 +541,6 @@ aside{
 .todo.proposed .txt{color:var(--ds-gray-800)}
 
 /* conversation (demoted) */
-.pl-conv-head{
-  position:sticky;top:0;z-index:1;
-  display:flex;align-items:center;gap:8px;
-  padding:10px 14px 6px;
-  background:var(--ds-background-100);
-}
-.pl-conv-head .m{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600)}
-.pl-conv-head .h{font-family:var(--font-mono);font-size:10px;line-height:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--ds-gray-600)}
-.pl-conv-head .rule{flex:1;height:1px;background:var(--ds-gray-300)}
 .thread{padding:10px 14px 14px;display:flex;flex-direction:column;gap:14px}
 .msg{display:flex;flex-direction:column;gap:4px;max-width:100%;align-items:flex-start}
 .msg .meta{display:flex;align-items:center;gap:6px}
@@ -763,6 +751,7 @@ aside{
         <div class="t" id="panel-title">Board</div>
         <div class="s" id="panel-sub">operate the board</div>
       </div>
+      <span class="panel-usd" id="panel-usd" title="On-demand usage"></span>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close issue</span><kbd>C</kbd>
       </button>
@@ -775,7 +764,6 @@ aside{
     </div>
     <div id="panel-list"></div>
     <div class="panel-scroll" id="panel-scroll">
-      <div class="pl-conv-head" id="conv-head" style="display:none"><span class="h">Conversation</span><span class="rule"></span><span class="m" id="conv-meta"></span></div>
       <div class="thread" id="thread"></div>
     </div>
     <div class="composer">
@@ -1314,7 +1302,7 @@ function wireAddCard(addBtn){
 const app=document.getElementById('app');
 const threadEl=document.getElementById('thread');
 const panelList=document.getElementById('panel-list');
-const convHead=document.getElementById('conv-head');
+const panelUsd=document.getElementById('panel-usd');
 const panelScroll=document.getElementById('panel-scroll');
 const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
@@ -1499,10 +1487,8 @@ function questionHTML(ctx,lastText){
 }
 // ctx: {options:[...], question, ask, waiting}
 function renderThread(msgs,ctx={}){
-  const convMeta=document.getElementById('conv-meta');
   const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
   const last=real.at(-1);
-  convMeta.textContent=real.length?`${real.length} · last ${last&&last.ts?ago(tsMs(last.ts)):''}`.replace(/ · last $/,''):'';
   const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
   const lastIsDevin=last&&last.who==='devin';
   if(lastIsDevin&&!(ctx.options||[]).length)ctx={...ctx,options:inlineOptions((lastDevin.text??'').toString()),inline:true};
@@ -1586,8 +1572,7 @@ function prHTML(c){
 function checklistHTML(c){
   if(c.kind==='issue'&&!c.session_id)return issueDescHTML(c);
   if(!c.todos.length)return '';
-  const k=counts(c);
-  const head=`<div class="pl-sect-head"><span class="h">Todo</span><span class="m">${k.yours?`<span class="yn">${k.yours} you</span> · `:''}${k.open} left · ${k.done} done</span></div>`;
+  const head=`<div class="pl-sect-head"><span class="h">Todo</span></div>`;
   const rows=c.todos.map((t,i)=>todoRow(t,i,false)).join('');
   return `<div class="pl-sect">${head}${rows}</div>`;
 }
@@ -1607,18 +1592,14 @@ function setBoardMode(){
   panelSub.textContent='operate the board';
   composer.placeholder='Message the board…';
   panelList.innerHTML='';
-  convHead.style.display='none';
+  panelUsd.textContent='';
   renderThread(boardThread);
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
 const ACU_USD=2.25;
-function usageHTML(c){
-  if(c.acus==null)return '';
-  const usd=(c.acus*ACU_USD).toFixed(2);
-  return `<div class="pl-usage"><span class="h">On-demand usage</span><span class="v">$${usd} · ${(+c.acus).toFixed(1)} ACUs</span></div>`;
-}
+function usdOf(c){return c.acus==null?'':`$${(c.acus*ACU_USD).toFixed(2)}`}
 const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple',ready:'green'};
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
@@ -1629,7 +1610,8 @@ function panelSubHTML(c){
 function refreshPanel(c){
   panelTitle.textContent=c.title;
   panelSub.innerHTML=panelSubHTML(c);
-  panelList.innerHTML=prHTML(c)+checklistHTML(c)+usageHTML(c)+linksHTML(c);
+  panelUsd.textContent=usdOf(c);
+  panelList.innerHTML=prHTML(c)+checklistHTML(c)+linksHTML(c);
   const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
   const mergeBtn=panelList.querySelector('[data-merge]');
@@ -1708,7 +1690,6 @@ function setCardMode(id){
   app.dataset.mode='card';
   composer.placeholder='Message this session…';
   refreshPanel(c);
-  convHead.style.display='flex';
   loadThread(c);
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
