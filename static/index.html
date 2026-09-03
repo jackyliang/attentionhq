@@ -1213,8 +1213,11 @@ async function fetchBoard(){
   if(data.loading&&cards.length){renderSync('busy');return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
-  // prompts still in flight keep their placeholder until /api/prompt returns
-  for(const p of inFlightPrompts)flat.unshift(p);
+  // prompts still in flight keep their placeholder until /api/prompt returns —
+  // unless the server already shows the card it produced (same title, just created)
+  const stems=flat.filter(c=>c.session_id&&c.title).map(c=>c.title.replace(/[\u2026.]+$/,''));
+  const dup=p=>stems.some(s=>s&&p.title.startsWith(s)&&(p.title===s||s.length>=40));
+  for(const p of inFlightPrompts)if(!dup(p))flat.unshift(p);
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
   lastSync=Date.now();
@@ -2180,6 +2183,9 @@ function attachTray(trayEl,inputEl){
     uploading:()=>items.some(i=>i.state==='uploading'),
     busy:()=>items.some(i=>i.state==='uploading'),
     clear:()=>{for(const i of items)if(i.preview)URL.revokeObjectURL(i.preview);items.length=0;render()},
+    // take() empties the tray but keeps the uploaded entries so a failed send can restore() them
+    take:()=>{const kept=items.splice(0,items.length);render();return kept},
+    restore:kept=>{if(!kept||!kept.length)return;items.push(...kept.filter(i=>i.state==='ready'));render()},
   };
 }
 const composerTray=attachTray(document.getElementById('composer-atts'),composer);
@@ -2200,9 +2206,9 @@ async function sendMsg(){
   }
   const c=cards[openCard];
   if(!c.session_id){showToast(c.pending||c.filing?'Devin is still filing this issue — hang on':'This card has no session yet — press E to start one');return}
-  composer.value='';composerTray.clear();
+  composer.value='';const kept=composerTray.take();
   const ok=await sendToSession(c,v,attachments);
-  if(!ok&&!composer.value){composer.value=v}
+  if(!ok){if(!composer.value)composer.value=v;composerTray.restore(kept)}
 }
 composer.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}
