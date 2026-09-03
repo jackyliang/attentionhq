@@ -133,37 +133,42 @@ def load_boards() -> list[dict] | None:
         log.warning("could not read %s", BOARDS_FILE, exc_info=True)
         return None
 
+class BoardStoreError(Exception):
+    """Durable storage rejected a board change; callers roll back state["boards"]."""
+
 def _save_boards_file():
     try:
         with open(BOARDS_FILE, "w") as f:
             json.dump(state["boards"], f, indent=1)
-    except OSError:
-        log.warning("could not persist boards")
+    except OSError as e:
+        raise BoardStoreError(f"could not write {BOARDS_FILE}") from e
 
-def persist_board(board: dict):
+def persist_boards(*boards: dict):
+    """Write the given boards (already updated in state) to storage. Raises BoardStoreError."""
     if not DATABASE_URL:
         _save_boards_file()
         return
-    position = next((i for i, b in enumerate(state["boards"]) if b["id"] == board["id"]), len(state["boards"]))
     try:
         with _db() as conn:
-            conn.execute(
-                "INSERT INTO boards (id, name, position) VALUES (%s, %s, %s) "
-                "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, position = EXCLUDED.position",
-                (board["id"], board["name"], position),
-            )
-            conn.execute("DELETE FROM board_repos WHERE board_id = %s", (board["id"],))
-            for i, repo in enumerate(board["repos"]):
-                conn.execute("INSERT INTO board_repos (board_id, repo, position) VALUES (%s, %s, %s)", (board["id"], repo, i))
-            conn.execute("DELETE FROM board_sessions WHERE board_id = %s", (board["id"],))
-            for sid in board["sessions"]:
+            for board in boards:
+                position = next((i for i, b in enumerate(state["boards"]) if b["id"] == board["id"]), len(state["boards"]))
                 conn.execute(
-                    "INSERT INTO board_sessions (board_id, session_id) VALUES (%s, %s) "
-                    "ON CONFLICT (session_id) DO UPDATE SET board_id = EXCLUDED.board_id",
-                    (board["id"], sid),
+                    "INSERT INTO boards (id, name, position) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, position = EXCLUDED.position",
+                    (board["id"], board["name"], position),
                 )
-    except psycopg.Error:
-        log.warning("could not persist board %s to db", board["id"], exc_info=True)
+                conn.execute("DELETE FROM board_repos WHERE board_id = %s", (board["id"],))
+                for i, repo in enumerate(board["repos"]):
+                    conn.execute("INSERT INTO board_repos (board_id, repo, position) VALUES (%s, %s, %s)", (board["id"], repo, i))
+                conn.execute("DELETE FROM board_sessions WHERE board_id = %s", (board["id"],))
+                for sid in board["sessions"]:
+                    conn.execute(
+                        "INSERT INTO board_sessions (board_id, session_id) VALUES (%s, %s) "
+                        "ON CONFLICT (session_id) DO UPDATE SET board_id = EXCLUDED.board_id",
+                        (board["id"], sid),
+                    )
+    except psycopg.Error as e:
+        raise BoardStoreError("database write failed") from e
 
 def persist_board_delete(board_id: str):
     if not DATABASE_URL:
@@ -172,8 +177,8 @@ def persist_board_delete(board_id: str):
     try:
         with _db() as conn:
             conn.execute("DELETE FROM boards WHERE id = %s", (board_id,))
-    except psycopg.Error:
-        log.warning("could not delete board %s from db", board_id, exc_info=True)
+    except psycopg.Error as e:
+        raise BoardStoreError("database write failed") from e
 
 def init_boards():
     boards = load_boards()
@@ -185,8 +190,11 @@ def init_boards():
     if not boards and REPOS:
         seed = {"id": "main", "name": "Main", "repos": list(REPOS), "sessions": []}
         state["boards"].append(seed)
-        persist_board(seed)
-        log.info("seeded board %s from REPOS", seed["id"])
+        try:
+            persist_boards(seed)
+            log.info("seeded board %s from REPOS", seed["id"])
+        except BoardStoreError:
+            log.warning("could not persist seeded board; it will be re-seeded next boot", exc_info=True)
 
 def tracked_repos() -> list[str]:
     out: list[str] = []
@@ -1029,6 +1037,14 @@ async def _refresh_after_board_change():
     except Exception as e:  # noqa: BLE001
         log.warning("refresh after board change failed: %s", e)
 
+async def _store(fn, *args):
+    """Run a blocking persistence call off the loop; map storage failures to a 503."""
+    try:
+        await asyncio.to_thread(fn, *args)
+    except BoardStoreError as e:
+        log.warning("board storage failed: %s", e, exc_info=True)
+        raise HTTPException(503, f"could not save boards: {e}") from e
+
 @app.get("/api/boards")
 async def list_boards():
     return _boards_payload()
@@ -1040,7 +1056,11 @@ async def create_board(body: BoardIn):
         raise HTTPException(400, "name required")
     board = {"id": slugify(name), "name": name, "repos": clean_repos(body.repos), "sessions": []}
     state["boards"].append(board)
-    persist_board(board)
+    try:
+        await _store(persist_boards, board)
+    except HTTPException:
+        state["boards"].remove(board)
+        raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
 
@@ -1052,8 +1072,13 @@ async def update_board(board_id: str, body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
+    prev = (board["name"], board["repos"])
     board["name"], board["repos"] = name, clean_repos(body.repos)
-    persist_board(board)
+    try:
+        await _store(persist_boards, board)
+    except HTTPException:
+        board["name"], board["repos"] = prev
+        raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
 
@@ -1062,31 +1087,38 @@ async def delete_board(board_id: str):
     board = board_by_id(board_id)
     if board is None:
         raise HTTPException(404, "board not found")
+    idx = state["boards"].index(board)
     state["boards"].remove(board)
-    persist_board_delete(board_id)
+    try:
+        await _store(persist_board_delete, board_id)
+    except HTTPException:
+        state["boards"].insert(idx, board)
+        raise
     asyncio.create_task(_refresh_after_board_change())
     return _boards_payload()
 
 _repos_cache: dict = {"at": 0.0, "repos": []}
+REPOS_CACHE_TTL, REPOS_RETRY_AFTER, REPOS_MAX_PAGES = 300, 30, 20
 
 @app.get("/api/repos")
 async def list_repos():
     """Repos the GitHub token can see, for the board editor's picker."""
-    if time.time() - _repos_cache["at"] > 300:
+    if GITHUB_TOKEN and time.time() - _repos_cache["at"] > REPOS_CACHE_TTL:
         found: list[str] = []
-        if GITHUB_TOKEN:
-            gh = gh_client()
-            try:
-                for page in range(1, 4):
-                    r = await gh.get("/user/repos", params={"per_page": 100, "page": page, "sort": "pushed"})
-                    r.raise_for_status()
-                    items = r.json()
-                    found += [x["full_name"] for x in items if x.get("full_name")]
-                    if len(items) < 100:
-                        break
-            except httpx.HTTPError as e:
-                log.warning("could not list repos: %s", e)
-        _repos_cache.update(at=time.time(), repos=found)
+        gh = gh_client()
+        try:
+            for page in range(1, REPOS_MAX_PAGES + 1):
+                r = await gh.get("/user/repos", params={"per_page": 100, "page": page, "sort": "pushed"})
+                r.raise_for_status()
+                items = r.json()
+                found += [x["full_name"] for x in items if x.get("full_name")]
+                if len(items) < 100:
+                    break
+            _repos_cache.update(at=time.time(), repos=found)
+        except httpx.HTTPError as e:
+            # keep the last good list; retry soon rather than after a full TTL
+            log.warning("could not list repos: %s", e)
+            _repos_cache["at"] = time.time() - REPOS_CACHE_TTL + REPOS_RETRY_AFTER
     repos = list(_repos_cache["repos"])
     repos += [r for r in tracked_repos() if r not in repos]
     return {"repos": repos}
@@ -1110,8 +1142,16 @@ async def pin_card(card_id: str, body: PinIn):
     if target and sid not in target["sessions"]:
         target["sessions"].append(sid)
         changed.append(target)
-    for b in changed:
-        persist_board(b)
+    if changed:
+        try:
+            await _store(persist_boards, *changed)
+        except HTTPException:
+            for b in changed:
+                if b is target:
+                    b["sessions"].remove(sid)
+                else:
+                    b["sessions"].append(sid)
+            raise
     if state["board"] is not None:
         await assemble_board()
     return {"ok": True, "board": target["id"] if target else None}
