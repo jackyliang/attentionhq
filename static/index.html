@@ -1341,17 +1341,18 @@ document.getElementById('blist-rows').addEventListener('click',e=>{
   if(e.target.closest('[data-toggle-all]')){toggleShowAll();return}
   const r=e.target.closest('[data-edit]'); if(r)editBoard(r.dataset.edit);
 });
-/* saves run one at a time; every click is a new generation, and only the newest one
-   is sent / may roll back — superseded clicks are skipped, never reversed */
-let allSaves=0, allGen=0, allQueue=Promise.resolve();
+/* saves run one at a time; every click is a new generation and only the newest one is
+   sent — superseded clicks are skipped. allSaved is what the server last confirmed, so a
+   failed save falls back to the stored value, not to the opposite of what was requested */
+let allSaves=0, allGen=0, allSaved=false, allQueue=Promise.resolve();
 function toggleShowAll(){
   showAll=!showAll; renderBoardList(); renderRail();
   const gen=++allGen, want=showAll;
   allSaves++;
   allQueue=allQueue.then(async()=>{
     if(gen!==allGen){allSaves--;return}
-    try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify({show_all:want})});if(gen===allGen)showAll=!!d.settings.show_all}
-    catch(e){if(gen===allGen){showAll=!want;showToast('Save failed: '+e.message)}}
+    try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify({show_all:want})});allSaved=!!d.settings.show_all;if(gen===allGen)showAll=allSaved}
+    catch(e){if(gen===allGen){showAll=allSaved;showToast('Save failed: '+e.message)}}
     finally{allSaves--}
     renderBoardList(); renderRail();
   });
@@ -1765,7 +1766,7 @@ async function fetchBoard(){
   if(want!==boardId)return; // switched boards while this was in flight
   fetchFailed=false;
   boards=data.boards||[]; boardMeta=data.board&&data.board.id!=='all'?data.board:null;
-  if(data.settings&&!allSaves)showAll=!!data.settings.show_all;
+  if(data.settings&&!allSaves)showAll=allSaved=!!data.settings.show_all;
   if(boardId===null&&view==='board'&&allHidden()){gotoBoard(homeBoard(),{replace:true});return}
   renderRail();
   if(view==='settings')renderBoardList();
