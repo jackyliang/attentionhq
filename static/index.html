@@ -1279,11 +1279,15 @@ async function fetchBoard(){
   if(data.loading&&cards.length){renderSync('busy');return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
-  // prompts still in flight keep their placeholder until /api/prompt returns —
+  // prompts still in flight keep their placeholder until the board shows the session they became —
   // unless the server already shows the card it produced (same title, just created)
   const stems=flat.filter(c=>c.session_id&&c.title).map(c=>c.title.replace(/[\u2026.]+$/,''));
   const dup=p=>{const t=p.title.replace(/\s+/g,' ');return stems.some(s=>s&&t.startsWith(s)&&(t===s||s.length>=40))};
-  for(const p of inFlightPrompts)if(!dup(p))flat.unshift(p);
+  const landed=p=>(p.session_id&&flat.some(c=>c.session_id===p.session_id))||dup(p)||(p.session_id&&Date.now()-p.sentAt>60000);
+  for(const p of [...inFlightPrompts]){
+    if(landed(p))inFlightPrompts.splice(inFlightPrompts.indexOf(p),1);
+    else flat.unshift(p);
+  }
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
   lastSync=Date.now();
@@ -1393,7 +1397,9 @@ function wireAddCard(addBtn){
           showToast(start?'Sending to Devin — starting on it now\u2026':'Sending to Devin — will file the issue\u2026');
           try{
             const r=await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments})});
-            inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
+            // keep the placeholder until the board actually shows the session it became
+            placeholder.session_id=r.session_id||null; placeholder.sentAt=Date.now();
+            if(!r.session_id)inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
             showToast(start?'Devin is on it — card will update as it works':'Devin received it — filing the issue');
             const newKey=r.session_id?`session:${r.session_id}`:null;
             if(openCardKey===pendingKey&&newKey)openCardKey=newKey;
