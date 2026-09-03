@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -911,19 +911,36 @@ async def get_messages(card_id: str):
         } if sess else None,
     }
 
+ATT_PASS_THROUGH = ("content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified")
+
 @app.get("/api/attachment/{uuid}/{name}")
-async def get_attachment(uuid: str, name: str):
+async def get_attachment(uuid: str, name: str, request: Request):
+    """Stream a Devin attachment, passing Range through.
+
+    Video players fetch a recording in dozens of ranged pieces per minute;
+    buffering each whole response here is what fills the instance's memory."""
     if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid) or name in (".", ".."):
         raise HTTPException(400, "bad attachment path")
+    fwd = {k: v for k, v in request.headers.items() if k.lower() in ("range", "if-range", "if-none-match", "if-modified-since")}
     dv = devin_client()
-    r = await dv.get(f"/attachments/{uuid}/{name}", follow_redirects=True, timeout=60)
+    req = dv.build_request("GET", f"/attachments/{uuid}/{name}", headers=fwd, timeout=60)
+    r = await dv.send(req, stream=True, follow_redirects=True)
     if r.status_code >= 400:
+        await r.aclose()
         raise HTTPException(r.status_code, "attachment unavailable")
-    return Response(
-        content=r.content,
-        media_type=r.headers.get("content-type", "application/octet-stream"),
-        headers={"Cache-Control": "private, max-age=86400", "Content-Disposition": "inline"},
-    )
+
+    async def body():
+        try:
+            async for chunk in r.aiter_raw():
+                yield chunk
+        finally:
+            await r.aclose()
+
+    headers = {k: v for k, v in r.headers.items() if k.lower() in ATT_PASS_THROUGH}
+    headers["Cache-Control"] = "private, max-age=86400"
+    headers["Content-Disposition"] = "inline"
+    headers.setdefault("accept-ranges", "bytes")
+    return StreamingResponse(body(), status_code=r.status_code, headers=headers)
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 DEVIN_ATT_RE = re.compile(r"^https://app\.devin\.ai/attachments/[0-9a-fA-F-]{36}/[^/?#]+$")
