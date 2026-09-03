@@ -32,6 +32,12 @@ description: How to run and test the AttentionHQ session board (FastAPI + static
 - Animations are ~140-200ms, too fast for screenshots: right after `renderBoard()` run `document.getAnimations().forEach(a=>a.playbackRate=0.05)` to slow them. Cross-column moves create a `.flip-ghost` clone on `body` (it also matches `.card[data-key]`, so scope real-card queries to `#board`) and add `.flip-hidden` to the real card until the ghost finishes.
 - Ring alignment check: compare `selring.getBoundingClientRect()` with `document.activeElement.getBoundingClientRect()` (expect 0px diff). Live board changes from other sessions can also shift cards mid-test.
 
+## Testing the send / failed-send path without messaging a real Devin session
+- DevTools → Ctrl+Shift+P → "Show Network request blocking" → add a pattern and tick "Enable". Use a pattern that ends exactly at `/message` — Chrome patterns are substring matches, so `*/api/card/*/message` ALSO blocks the `/messages` thread poll (blocked counter keeps climbing, thread stops refreshing). Disable the rule as soon as the send has failed.
+- Expected failed-send UI: user bubble gets a red border + "not sent" label, toast "Send failed: Failed to fetch", composer text (and attachment chips) restored, card returns to its pre-send column. Verify in the server log that no `POST /api/card/*/message` reached uvicorn.
+- Inline title/body editing (`/api/card/{key}/edit`) needs `c.repo`, which is only present when the GitHub poll succeeds. GitHub can hit a *secondary* rate limit for the token's user (403 "API rate limit exceeded", while `/rate_limit` still shows 5000 remaining); the header then says "github unreachable", the Issues column is empty and cards show plain "session" refs — issue view / rename can't be tested until it clears (can take 30+ min). Snapshot the original body (`curl .../issues/N > /tmp/orig.txt`) before any save test so it can be restored exactly.
+- Thread `<img>` attachments load `/api/attachment/<uuid>/<name>?t=<BOARD_TOKEN>`; any request without `?t=` shows as a 401 in the console (not a JS exception).
+
 ## Cleanup after tests
 - Close test issues: `curl -X PATCH -H "Authorization: Bearer $ATTENTIONHQ_GITHUB_TOKEN" https://api.github.com/repos/jackyliang/answer-hq/issues/<n> -d '{"state":"closed"}'`
 - Archive (Backspace on non-session cards) persists to `dismissed.json` in the repo dir — delete it and restart the server to un-archive.

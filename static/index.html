@@ -177,7 +177,6 @@ main{
 .col[data-col="review"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-purple-900)}
 .col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
 .col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1;min-height:0;overflow-y:auto}
-.col[data-col="needs-you"] /* first-load skeletons */
 .skel{border:1px solid var(--ds-gray-300);border-left:2px solid var(--ds-gray-400);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .skel i{display:block;height:9px;background:linear-gradient(90deg,var(--ds-gray-200) 0%,var(--ds-gray-300) 50%,var(--ds-gray-200) 100%);background-size:200% 100%;animation:shimmer 1.6s linear infinite}
 .skel i.t{width:78%}.skel i.s{width:52%;height:7px}.skel i.f{width:30%;height:6px;margin-top:2px}
@@ -339,8 +338,7 @@ main{
 .card .ref.live{display:inline-flex;align-items:center;gap:4px;color:var(--ds-blue-900)}
 .card .ref.live svg{width:10px;height:10px;animation:spin 1s linear infinite}
 .shimmer{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1s linear infinite}
-.card .ref.live .shimmer{background-image:linear-gradient(90deg,var(--ds-blue-700) 0%,var(--ds-blue-1000) 50%,var(--ds-blue-700) 100%)}
-.msg.working.test .txt{background-image:linear-gradient(90deg,var(--ds-blue-700) 0%,var(--ds-blue-1000) 50%,var(--ds-blue-700) 100%)}
+.card .ref.live .shimmer{background-image:linear-gradient(90deg,var(--ds-blue-700) 0%,var(--ds-blue-900) 50%,var(--ds-blue-700) 100%)}
 .msg.working.test .dot{background:var(--ds-blue-700)}
 
 /* ==== 3.2 overrides: card = title + segmented line ==== */
@@ -599,6 +597,7 @@ aside{
 .msg .body a:hover{text-decoration:underline}
 .msg.working{flex-direction:row;align-items:center;gap:8px;font-size:12px;line-height:17px;padding:2px 0}
 .msg.working .txt{background:linear-gradient(90deg,var(--ds-gray-700) 0%,var(--ds-gray-1000) 50%,var(--ds-gray-700) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1s linear infinite}
+.msg.working.test .txt{background-image:linear-gradient(90deg,var(--ds-blue-700) 0%,var(--ds-blue-900) 50%,var(--ds-blue-700) 100%)}
 
 /* message action rows: PR cards, test offers, option buttons (mirrors app.devin.ai) */
 .msg .acts{display:flex;flex-direction:column;gap:6px;width:100%;max-width:100%}
