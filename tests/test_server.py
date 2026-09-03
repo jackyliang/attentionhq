@@ -11,6 +11,7 @@ os.environ.update(
     REPOS="acme/one,acme/two",
     DATABASE_URL="",
     DISMISSED_FILE="/tmp/attentionhq-test-dismissed.json",
+    BOARDS_FILE="/tmp/attentionhq-test-boards.json",
     PROMPTS_FILE="/tmp/attentionhq-test-prompts.json",
 )
 
