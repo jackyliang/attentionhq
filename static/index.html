@@ -107,9 +107,6 @@ header{
 .brand{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;letter-spacing:-.01em}
 .brand svg{color:var(--ds-gray-1000)}
 .brand .variant{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-600);font-weight:400;border:1px solid var(--ds-gray-400);padding:1px 6px}
-.hdr-stats{display:flex;align-items:center;gap:16px;margin-left:8px}
-.hdr-stat{display:flex;align-items:center;gap:7px;font-size:12px;line-height:16px;color:var(--ds-gray-900)}
-.hdr-stat .n{font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-1000)}
 .dot{width:7px;height:7px;flex:none}
 .dot.amber{background:var(--ds-amber-700)}
 .dot.blue{background:var(--ds-blue-700)}
@@ -213,7 +210,6 @@ main{
 .card .ref.pr{display:inline-flex;align-items:center;gap:4px}
 .card .ref.pr svg{width:10px;height:10px}
 .card .ref .ci{width:5px;height:5px;flex:none}
-.card .age{font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-600);margin:0}
 /* press-again confirmation on destructive / costly actions */
 .card .close-hint.armed,.card .start-hint.armed{visibility:visible;color:var(--ds-amber-900);white-space:nowrap}
 .card .close-hint.armed kbd,.card .start-hint.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
@@ -240,7 +236,12 @@ main{
   display:flex;flex-direction:column;gap:7px;
   text-align:left;width:100%;
 }
-#selring{position:fixed;left:0;top:0;z-index:4;pointer-events:none;box-shadow:var(--ds-focus-border);opacity:0;transition:transform .14s cubic-bezier(.3,.9,.3,1),width .14s cubic-bezier(.3,.9,.3,1),height .14s cubic-bezier(.3,.9,.3,1),opacity .15s ease}
+#selring{position:fixed;left:0;top:0;z-index:4;pointer-events:none;box-shadow:var(--ds-focus-border);opacity:0;will-change:transform;transition:transform .14s cubic-bezier(.3,.9,.3,1),width .14s cubic-bezier(.3,.9,.3,1),height .14s cubic-bezier(.3,.9,.3,1),opacity .15s ease}
+.card.flip-hidden{opacity:0}
+.flip-ghost{position:fixed;left:0;top:0;z-index:5;pointer-events:none;margin:0;will-change:transform,opacity}
+.flip-ghost.selected{border-color:var(--ds-gray-400);background:var(--ds-background-100)}
+#fps{position:fixed;left:8px;bottom:8px;z-index:9;padding:2px 6px;font-family:var(--font-mono);font-size:11px;line-height:16px;color:var(--ds-gray-1000);background:var(--ds-background-100);border:1px solid var(--ds-gray-400);pointer-events:none}
+@media (prefers-reduced-motion:reduce){#selring{transition:opacity .15s ease}}
 .card:hover{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card.selected{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card[data-tone="amber"]{border-left-color:var(--ds-amber-700)}
@@ -406,8 +407,6 @@ aside{
 .panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-archive{display:none;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive:not([hidden]){display:inline-flex}
-.panel-usd{margin-left:auto;flex:none;font-family:var(--font-mono);font-size:11px;line-height:14px;color:var(--ds-gray-900)}
-.panel-usd:empty{margin-right:-10px}
 .panel-title{min-width:0}
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
@@ -591,6 +590,9 @@ aside{
   padding:8px 10px;max-width:85%;
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
+.msg.pending.sending .body{opacity:.6}
+.msg.pending.failed .ts{color:var(--ds-red-900)}
+.msg.pending.failed .body{border-color:var(--ds-red-700)}
 .msg.pr{align-items:stretch}
 .msg .body code{font-family:var(--font-mono);font-size:12px;color:var(--ds-blue-900);background:var(--ds-gray-200);padding:0 3px}
 .msg .body a{color:var(--ds-blue-900);text-decoration:none}
@@ -639,7 +641,6 @@ aside{
 .msg-btns .act.sent{opacity:1;border-color:var(--ds-blue-700);background:var(--ds-blue-100);color:var(--ds-blue-900)}
 .msg-btns .act.sent svg{color:var(--ds-blue-900)}
 .msg.user.local .body{opacity:.75}
-.msg.user .sending{font-size:10px;color:var(--ds-gray-600);font-family:var(--font-mono)}
 /* multiple-choice question, mirrors app.devin.ai: question, stacked option rows, free-text hint */
 .q-block{width:100%;max-width:420px;border:1px solid var(--ds-gray-400);background:var(--ds-background-200);padding:10px 10px 8px;display:flex;flex-direction:column;gap:8px}
 .q-block .q-text{font-size:12.5px;line-height:17px;font-weight:500;color:var(--ds-gray-1000)}
@@ -672,6 +673,7 @@ aside{
 .composer .row{display:flex;align-items:center;gap:8px}
 .composer .hint{font-size:11px;color:var(--ds-gray-600);display:flex;align-items:center;gap:6px}
 .composer .send{margin-left:auto}
+.composer .send kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:inherit;opacity:.7;background:transparent;border:1px solid currentColor}
 
 /* pasted / dropped attachments waiting to be sent */
 .att-tray{display:flex;flex-wrap:wrap;gap:6px}
@@ -762,12 +764,6 @@ aside{
       Attention
       <span class="variant">live</span>
     </div>
-    <div class="hdr-stats">
-      <span class="hdr-stat"><span class="dot amber"></span><span class="n" id="stat-needs">6</span> on you</span>
-      <span class="hdr-stat"><span class="dot blue"></span><span class="n" id="stat-working">6</span> moving</span>
-      <span class="hdr-stat"><span class="dot green"></span><span class="n" id="stat-ready">1</span> ready</span>
-      <span class="hdr-stat"><span class="dot grey"></span><span class="n" id="stat-idle">4</span> not started</span>
-    </div>
     <div class="hdr-right">
       <span class="hdr-sync" id="hdr-sync" aria-live="polite"><span class="dot grey"></span><span id="hdr-sync-txt">loading…</span></span>
       <div class="hdr-deploys" id="hdr-deploys" aria-label="Render deploy status"></div>
@@ -785,7 +781,6 @@ aside{
         <div class="t" id="panel-title">Board</div>
         <div class="s" id="panel-sub">operate the board</div>
       </div>
-      <span class="panel-usd" id="panel-usd" title="On-demand usage"></span>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close</span><kbd>⌫</kbd>
       </button>
@@ -804,10 +799,8 @@ aside{
       <textarea id="composer" placeholder="Message the board…" rows="3"></textarea>
       <div class="att-tray" id="composer-atts"></div>
       <div class="row">
-        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board · paste or drop files to attach</span>
-        <button class="act primary send" id="send-btn">Send
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
-        </button>
+        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board</span>
+        <button class="act primary send" id="send-btn">Send<kbd>⏎</kbd></button>
       </div>
     </div>
   </aside>
@@ -1066,11 +1059,10 @@ function progressOf(c){
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.filing&&!c.repo?`<span class="ref">filing issue\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:`<span class="ref">session</span>`;
+  const ref=c.pending?`<span class="ref">sending to devin\u2026</span>`:c.filing&&!c.repo?`<span class="ref">filing issue\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:'';
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
-  const age=c.age?`<span class="age">${escHTML(c.age)}</span>`:'';
   const live=activityLabel(c)?`<span class="ref live" title="Devin is running a browser test right now">${I.spinner}<span class="shimmer">${escHTML(activityLabel(c))}</span></span>`:'';
-  const meta=`<div class="cmeta">${ref}${prRef}${live}${age}</div>`;
+  const meta=`<div class="cmeta">${ref}${prRef}${live}</div>`;
   const pct=Math.max(progressOf(c),c.session_id?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
@@ -1130,21 +1122,74 @@ function emptyHTML(colId){
   }
   return ''; // empty columns stay empty
 }
-// the open card is tracked by key; re-resolve its index whenever `cards` is rebuilt
-function syncOpenCard(){
-  if(openCard==null||openCardKey==null)return;
-  const idx=cards.findIndex(c=>c.key===openCardKey);
-  if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
-  else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
+/* ---- FLIP: cards travel between slots/columns instead of teleporting ---- */
+const FLIP_EASE='cubic-bezier(.3,.9,.3,1)';
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
+let flipPrevLoaded=false,flipSkip=false;
+document.addEventListener('visibilitychange',()=>{if(document.hidden)flipSkip=true});
+function flipSnapshot(){
+  const ok=boardLoaded&&flipPrevLoaded&&!document.hidden&&!flipSkip&&!reduceMotion.matches;
+  flipPrevLoaded=boardLoaded; if(!document.hidden)flipSkip=false;
+  if(!ok)return null;
+  const m=new Map();
+  boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
+    m.set(el.dataset.key,{rect:el.getBoundingClientRect(),col:el.closest('.col').dataset.col,node:el});
+  });
+  return m;
 }
+function flipGhost(node,rect){
+  const g=node.cloneNode(true);
+  g.classList.add('flip-ghost'); g.classList.remove('flip-hidden');
+  g.removeAttribute('id'); g.removeAttribute('tabindex'); g.setAttribute('aria-hidden','true');
+  g.style.width=rect.width+'px'; g.style.height=rect.height+'px';
+  g.style.transform=`translate(${rect.left}px,${rect.top}px)`;
+  document.body.appendChild(g);
+  return g;
+}
+function flipPlay(prev){
+  if(!prev)return;
+  const mainR=boardEl.closest('main').getBoundingClientRect();
+  const seen=new Set();
+  boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
+    const key=el.dataset.key; seen.add(key);
+    const to=el.getBoundingClientRect();
+    if(!to.width)return;
+    const old=prev.get(key);
+    if(!old){
+      el.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:140,easing:FLIP_EASE});
+      return;
+    }
+    const dx=old.rect.left-to.left,dy=old.rect.top-to.top;
+    if(Math.abs(dx)<.5&&Math.abs(dy)<.5)return;
+    if(old.col===el.closest('.col').dataset.col){
+      el.animate([{transform:`translate(${dx}px,${dy}px)`},{transform:'none'}],{duration:140,easing:FLIP_EASE});
+      return;
+    }
+    // cross-column: columns clip overflow, so fly a fixed ghost over the board
+    el.classList.add('flip-hidden');
+    const g=flipGhost(el,to);
+    const anim=g.animate(
+      [{transform:`translate(${old.rect.left}px,${old.rect.top}px)`},{transform:`translate(${to.left}px,${to.top}px)`}],
+      {duration:200,easing:FLIP_EASE});
+    anim.onfinish=anim.oncancel=()=>{g.remove();el.classList.remove('flip-hidden')};
+  });
+  prev.forEach((old,key)=>{
+    if(seen.has(key)||old.rect.bottom<mainR.top||old.rect.top>mainR.bottom)return;
+    const g=flipGhost(old.node,old.rect);
+    const anim=g.animate([{opacity:1,transform:g.style.transform},{opacity:0,transform:g.style.transform+' scale(.96)'}],{duration:120,easing:FLIP_EASE});
+    anim.onfinish=anim.oncancel=()=>g.remove();
+  });
+}
+
 // force: repaint even while the user is typing (the composer lives outside the board)
 function renderBoard(force=false){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
   const focusSpot=focusKey?cardSpot(a):null;
   const wasAdd=a&&a.id==='add-issue';
-  if(!force&&a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard();return} // don't disturb typing
+  if(!force&&a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
   const scroll=captureScroll();
+  const flipPrev=flipSnapshot();
   boardEl.innerHTML='';
   columns.forEach(col=>{
     const colCards = cards.filter(c=>c.col===col.id);
@@ -1172,11 +1217,6 @@ function renderBoard(force=false){
     });
     boardEl.appendChild(el);
   });
-  const by=id=>cards.filter(c=>c.col===id).length;
-  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
-  const n=id=>boardLoaded?by(id):'\u2014';
-  set('stat-needs',n('needs-you')); set('stat-working',n('working'));
-  set('stat-ready',n('ready')); set('stat-idle',n('issues'));
   syncOpenCard();
   restoreScroll(scroll);
   restoringFocus=true;
@@ -1188,6 +1228,7 @@ function renderBoard(force=false){
     const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
   restoringFocus=false;
+  flipPlay(flipPrev); // after focus restore so moveRing reads the settled rect, not the first FLIP keyframe
 }
 
 let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false;
@@ -1205,6 +1246,13 @@ function renderSync(state){
   syncTxt.textContent=`data ${agoS(dataAt||lastSync)}`;
 }
 setInterval(()=>{if(lastSync&&!syncEl.classList.contains('busy'))renderSync()},1000);
+// cards was replaced by a fresh board: re-point openCard at the same key and refresh its panel/thread
+function syncOpenCard(typing=false){
+  if(openCard==null||openCardKey==null)return;
+  const idx=cards.findIndex(c=>c.key===openCardKey);
+  if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
+  else if(!typing){setBoardMode(); mode='closed'; app.dataset.mode='closed'}
+}
 async function fetchBoard(){
   renderSync('busy');
   let data;
@@ -1284,10 +1332,9 @@ async function prefetchThreads(){
     const pending=cards.filter(c=>c.session_id&&!threadCache[c.key]);
     for(const c of pending){
       try{
+        const reqAt=Date.now();
         const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-        const d={msgs:data.messages||[],status:data.status||null};
-        d.sig=threadSig(d);
-        threadCache[c.key]=d;
+        threadCache[c.key]=mergeThread(threadCache[c.key],data,reqAt);
       }catch(e){/* warm cache best-effort */}
     }
   }finally{prefetching=false}
@@ -1311,12 +1358,13 @@ function wireAddCard(addBtn){
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
       if(e.key==='Enter'){
+        e.preventDefault();
         const v=inp.value.trim();
         const start=e.metaKey||e.ctrlKey;
         if(tray.uploading()){showToast('Still uploading attachments…');return}
         const attachments=tray.urls();
         addToPlus();
-        addBtn.focus();
+        setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
         if(v||attachments.length){
           const pendingKey='pending:'+Date.now();
           const placeholder={id:pendingKey,kind:'issue',col:start?'working':'issues',tone:start?'blue':'grey',title:v||'(attached files)',pending:true};
@@ -1357,7 +1405,6 @@ function wireAddCard(addBtn){
 const app=document.getElementById('app');
 const threadEl=document.getElementById('thread');
 const panelList=document.getElementById('panel-list');
-const panelUsd=document.getElementById('panel-usd');
 const panelScroll=document.getElementById('panel-scroll');
 const panelTitle=document.getElementById('panel-title');
 const panelSub=document.getElementById('panel-sub');
@@ -1524,8 +1571,12 @@ function workingText(c){
   return nx?nx.text:'working\u2026';
 }
 function workingHTML(c){
-  if(!c||c.col!=='working'||c.pending)return '';
-  return `<div class="msg working${c.activity==='browser_test'?' test':''}"><span class="dot blue pulse"></span><span class="txt">${escHTML(workingText(c))}</span></div>`;
+  if(!c||c.pending)return '';
+  const awaiting=awaitingReply(c);
+  if(c.col!=='working'&&!awaiting)return '';
+  const test=c.activity==='browser_test';
+  const txt=!test&&awaiting&&(c.col!=='working'||/waiting|blocked/i.test(workingText(c)))?'Devin is on it\u2026':workingText(c);
+  return `<div class="msg working${test?' test':''}"><span class="dot blue pulse"></span><span class="txt">${escHTML(txt)}</span></div>`;
 }
 const OPT_LINE_RE=/^\s*(?:\*\*)?(?:\d+|[a-c])[.)]\s*(?:\*\*)?\s*(.+?)\s*$/;
 // fallback when the extractor hasn't produced options yet: the agent's own numbered list
@@ -1548,7 +1599,7 @@ function questionHTML(ctx,lastText){
 }
 // ctx: {options:[...], question, ask, waiting}
 function renderThread(msgs,ctx={}){
-  const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
+  const real=msgs.filter(m=>(m.who==='user'&&m.state!=='failed')||m.who==='devin');
   const last=real.at(-1);
   const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
   const lastIsDevin=last&&last.who==='devin';
@@ -1563,9 +1614,9 @@ function renderThread(msgs,ctx={}){
       if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
-    const sending=m.who==='user'&&m.sending?`<span class="sending">sending\u2026</span>`:'';
-    return `<div class="msg ${m.who}${m.sending?' local':''}">
-    ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${sending}${m.ts&&!m.sending?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
+    const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
+    return `<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
+    ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
     <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`;
   });
   const tail=[];
@@ -1588,43 +1639,10 @@ threadEl.addEventListener('click',async e=>{
   if(t.dataset.offer){
     t.closest('.msg-btns')?.querySelectorAll('.act').forEach(b=>{b.disabled=true});
     t.classList.add('sent');
-    await sendToSession(c,`Yes — go ahead: ${t.dataset.offer}`,[],`“${t.dataset.offer}”`);
+    const ok=await sendToSession(c,`Yes — go ahead: ${t.dataset.offer}`,[],`“${t.dataset.offer}”`);
+    if(!ok){t.classList.remove('sent');t.closest('.msg-btns')?.querySelectorAll('.act').forEach(b=>{b.disabled=false})}
   }
 });
-
-// Echo a message into the transcript right away, flip the card to running, then
-// deliver it; the echo is marked sent (or removed and reported) once the API answers.
-async function sendToSession(c,text,attachments=[],label=null){
-  const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
-  const msg={who:'user',ts:new Date().toISOString(),text:[text,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n'),sending:true};
-  th.msgs.push(msg);
-  th.status={...(th.status||{}),waiting:false,state:'running'};
-  th.sig=threadSig(th);
-  const prev={col:c.col,tone:c.tone,now:c.now,options:c.options,question:c.question};
-  const busyNow=c.col!=='working'&&!(c.pr&&(c.pr.ci==='failing'||c.pr.review==='changes_requested'));
-  if(busyNow){
-    Object.assign(c,{col:'working',tone:'blue',now:null,options:[],question:null});
-    renderBoard(true);
-  }
-  const paint=()=>{if(openCardKey===c.key){renderThread(th.msgs,threadCtx(c,th));scrollThreadToEnd()}};
-  paint();
-  try{
-    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text,attachments})});
-    delete msg.sending;
-    th.sig=threadSig(th);
-    paint();
-    showToast(`Devin received ${label||'your message'}`);
-    fetchBoard().catch(()=>{});
-    return true;
-  }catch(e){
-    th.msgs.splice(th.msgs.indexOf(msg),1);
-    th.sig=threadSig(th);
-    if(busyNow){const cur=cards.find(x=>x.key===c.key);if(cur)Object.assign(cur,prev);renderBoard(true)}
-    paint();
-    showToast('Send failed: '+e.message);
-    return false;
-  }
-}
 
 function todoRow(t,i,proposed){
   const stateCls=t.state==='done'?'done':(t.state==='active'?'active':'');
@@ -1791,21 +1809,18 @@ function setBoardMode(){
   panelSub.textContent='operate the board';
   composer.placeholder='Message the board…';
   panelList.innerHTML='';
-  panelUsd.textContent='';
   renderThread(boardThread);
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
 }
 
-const ACU_USD=2.25;
-function usdOf(c){return c.acus==null?'':`$${(c.acus*ACU_USD).toFixed(2)}`}
 const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple',ready:'green'};
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
   const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'in review',ready:'ready to merge'}[c.col]||c.col;
-  const ref=c.pending?'sending\u2026':c.filing&&!c.repo?'filing issue\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'session';
+  const ref=c.pending?'sending\u2026':c.filing&&!c.repo?'filing issue\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
   const stTxt=c.pending?'sending to devin':c.filing&&!c.repo?'filing':st;
-  return `<span class="dot ${tone}${c.col==='working'||c.pending||c.filing?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span><span>·</span><span>${ref}</span>${c.age?`<span>·</span><span>${escHTML(c.age)}</span>`:''}`;
+  return `<span class="dot ${tone}${c.col==='working'||c.pending||c.filing?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
 }
 function canRename(c){return !!c&&!c.pending&&(c.kind==='issue'||c.kind==='pr')&&!!c.repo}
 function refreshPanel(c){
@@ -1815,7 +1830,6 @@ function refreshPanel(c){
     panelTitle.title=canRename(c)?'Click to rename':'';
   }
   panelSub.innerHTML=panelSubHTML(c);
-  panelUsd.textContent=usdOf(c);
   if(isIssueView(c))app.dataset.view='issue';else delete app.dataset.view;
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+linksHTML(c);
   const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
@@ -1834,9 +1848,50 @@ function refreshPanel(c){
   panelHide.disabled=!!c.pending;
 }
 
-const threadCache={}; // card key -> {msgs, status, sig}
+const threadCache={}; // card key -> {msgs, status, sig, pending, sentAt}
+const PENDING_MAX_MS=10*60*1000;
+const msgId=m=>`${m.ts}|${m.text||''}`;
 function threadSig(d){
-  return JSON.stringify([d.msgs||[],d.status||null]);
+  return JSON.stringify([d.msgs||[],d.status||null,(d.pending||[]).map(p=>[p.state,p.text]),d.sentAt||null]);
+}
+// messages we sent that the Devin API hasn't echoed back yet stay in the thread
+function threadMsgs(d){
+  const all=[...(d.msgs||[]),...(d.pending||[])];
+  return all.length?all:[{who:'system',text:'No messages yet.'}];
+}
+// a pending entry is echoed by the first unclaimed server user message that wasn't already in the
+// thread when we sent, whose text starts with what we sent (or, for attachment-only sends, carries
+// the same attachment URLs)
+function echoes(p,m){
+  if(m.who!=='user'||(p.seen&&p.seen.has(msgId(m))))return false;
+  const t=(m.text||'').trim();
+  return p.match?t.startsWith(p.match):p.atts.every(u=>t.includes(u));
+}
+// reqAt: when the server request was issued. A send made before the thread ever loaded has no
+// baseline (seen=null); a response requested before that send, arriving while the POST is still
+// in flight, cannot contain the echo and so *is* its baseline. Once the POST has returned the
+// response may already include the echo, so it is matched normally.
+function reconcilePending(cached,msgs,reqAt){
+  const now=Date.now(),used=new Set();
+  return (cached?.pending||[]).filter(p=>{
+    if(now-p.at>=PENDING_MAX_MS)return false;
+    if(!p.seen&&reqAt<p.at&&p.state==='sending'){p.seen=new Set(msgs.filter(m=>m.who==='user').map(msgId));return true}
+    const m=msgs.find(m=>!used.has(m)&&echoes(p,m));
+    if(m)used.add(m);
+    return !m;
+  });
+}
+// server thread data + whatever optimistic state landed in the cache while the request was in flight
+function mergeThread(cur,data,reqAt){
+  const msgs=data.messages||[];
+  const d={msgs,status:data.status||null,pending:reconcilePending(cur,msgs,reqAt),sentAt:cur?.sentAt||null,loaded:true};
+  if(d.sentAt&&msgs.some(m=>m.who==='devin'&&tsMs(m.ts)>d.sentAt))d.sentAt=null;
+  d.sig=threadSig(d);
+  return d;
+}
+function awaitingReply(c){
+  const th=c&&threadCache[c.key];
+  return !!(th&&th.sentAt&&Date.now()-th.sentAt<PENDING_MAX_MS);
 }
 function threadCtx(c,d){
   const st=d.status||{};
@@ -1869,24 +1924,21 @@ async function loadThread(c,quiet=false){
   }
   const cached=threadCache[c.key];
   if(cached){
-    renderThread(cached.msgs.length?cached.msgs:[{who:'system',text:'No messages yet.'}],threadCtx(c,cached));
+    renderThread(threadMsgs(cached),threadCtx(c,cached));
     if(!quiet)scrollThreadToEnd();
   }else{
     renderThread([{who:'system',text:'Loading conversation…'}]);
   }
   try{
+    const reqAt=Date.now();
     const data=await api(`/api/card/${encodeURIComponent(c.key)}/messages`);
-    const d={msgs:data.messages||[],status:data.status||null};
-    // keep messages still being delivered until their POST has settled
-    const live=threadCache[c.key];
-    for(const m of (live&&live.msgs)||[])if(m.sending)d.msgs.push(m);
-    if(d.msgs.some(m=>m.sending)&&d.status)d.status={...d.status,waiting:false};
-    d.sig=threadSig(d);
-    const changed=!cached||cached.sig!==d.sig;
+    const cur=threadCache[c.key]; // re-read: a send may have landed while the request was in flight
+    const d=mergeThread(cur,data,reqAt);
+    const changed=!cur||cur.sig!==d.sig;
     threadCache[c.key]=d;
     if(openCardKey===c.key&&changed){
       const keep=quiet&&!atThreadEnd();
-      renderThread(d.msgs.length?d.msgs:[{who:'system',text:'No messages yet.'}],threadCtx(c,d));
+      renderThread(threadMsgs(d),threadCtx(c,d));
       if(!keep)scrollThreadToEnd();
     }
   }catch(e){
@@ -2005,7 +2057,7 @@ async function pickOption(id,i,override){
   const label=override||(c&&c.options&&c.options[i]);
   if(!c||!label)return;
   showToast(`Replying “${label}”…`);
-  await sendToSession(c,`${i+1}. ${label}`,[],`“${label}”`);
+  await sendToSession(c,text,[],`“${label}”`);
 }
 
 /* inline PR card merge: first click arms the button, second click within ARM_MS merges */
@@ -2210,6 +2262,43 @@ async function sendMsg(){
   const ok=await sendToSession(c,v,attachments);
   if(!ok){if(!composer.value)composer.value=v;composerTray.restore(kept)}
 }
+// optimistic send: the message shows up immediately as "sending…", flips to "sent" once the
+// board accepts it, and stays until the Devin API echoes it back; a shimmer line below it
+// says Devin is on it until a reply lands
+async function sendToSession(c,text,attachments=[],label=null){
+  const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
+  const loaded=!!th.loaded;
+  const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),atts:attachments,
+    seen:loaded?new Set(th.msgs.filter(m=>m.who==='user').map(msgId)):null,
+    text:[text,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')};
+  (th.pending||(th.pending=[])).push(p);
+  th.sentAt=p.at;
+  th.status={...(th.status||{}),waiting:false,state:'running'};
+  th.sig=threadSig(th);
+  // the card is busy again the moment we send: move it to WORKING now rather than on the next poll
+  const prev={col:c.col,tone:c.tone,now:c.now,options:c.options,question:c.question};
+  const busyNow=c.col!=='working'&&!(c.pr&&(c.pr.ci==='failing'||c.pr.review==='changes_requested'));
+  if(busyNow){Object.assign(c,{col:'working',tone:'blue',now:null,options:[],question:null});renderBoard(true)}
+  const show=()=>{const cur=threadCache[c.key];if(openCardKey===c.key&&cur){cur.sig=threadSig(cur);renderThread(threadMsgs(cur),threadCtx(c,cur))}};
+  show();
+  scrollThreadToEnd();
+  try{
+    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text,attachments})});
+    p.state='sent';
+    show();
+    showToast(`Devin received ${label||'your message'}`);
+    fetchBoard().catch(()=>{});
+    return true;
+  }catch(e){
+    p.state='failed';
+    const cur=threadCache[c.key];
+    if(cur&&cur.sentAt===p.at)cur.sentAt=null;
+    if(busyNow){const live=cards.find(x=>x.key===c.key);if(live)Object.assign(live,prev);renderBoard(true)}
+    show();
+    showToast('Send failed: '+e.message);
+    return false;
+  }
+}
 composer.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}
   if(e.key==='Escape'){e.stopPropagation();composer.blur();(openCard!=null?cardEl(openCard):focused()||firstCard())?.focus({preventScroll:true})}
@@ -2240,14 +2329,20 @@ function moveRing(el,instant){
   if(!el){selring.style.opacity=0;ringTarget=null;return}
   ringTarget=el;
   const r=el.getBoundingClientRect();
-  if(instant){
-    selring.style.transition='none';
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{selring.style.transition=''}));
-  }
+  if(instant)selring.style.transition='none';
   selring.style.width=r.width+'px';
   selring.style.height=r.height+'px';
   selring.style.transform=`translate(${r.left}px,${r.top}px)`;
   selring.style.opacity=1;
+  if(instant){void getComputedStyle(selring).transform;selring.style.transition=''} // flush so no transition is queued
+}
+
+/* dev-only frame counter: ?fps=1 */
+if(new URLSearchParams(location.search).get('fps')==='1'){
+  const fpsEl=document.createElement('div'); fpsEl.id='fps'; fpsEl.textContent='-- fps'; document.body.appendChild(fpsEl);
+  let frames=0,t0=performance.now();
+  const tick=t=>{frames++; if(t-t0>=500){fpsEl.textContent=Math.round(frames*1000/(t-t0))+' fps'; frames=0; t0=t} requestAnimationFrame(tick)};
+  requestAnimationFrame(tick);
 }
 document.addEventListener('focusin',e=>{
   if(e.target.classList&&e.target.classList.contains('card'))moveRing(e.target,pointerNav);
