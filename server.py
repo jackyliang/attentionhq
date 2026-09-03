@@ -5,6 +5,8 @@ exposes mutations: start session, chat, create issue, merge PR.
 """
 
 import asyncio
+import ctypes
+import ctypes.util
 import json
 import logging
 import os
@@ -124,11 +126,23 @@ gh_blocked_until = 0.0
 
 # ---------------------------------------------------------------- clients
 
-def devin_client():
-    return httpx.AsyncClient(base_url=DEVIN_BASE, headers={"Authorization": f"Bearer {DEVIN_API_KEY}"}, timeout=30)
+# One client per upstream, kept for the process lifetime: a client per call
+# builds a fresh TLS context and connection pool every few seconds, and the
+# native buffers behind those never come back to the allocator.
+_clients: dict[str, httpx.AsyncClient] = {}
 
-def gh_client():
-    return httpx.AsyncClient(
+def _client(name: str, **kwargs) -> httpx.AsyncClient:
+    cl = _clients.get(name)
+    if cl is None or cl.is_closed:
+        cl = _clients[name] = httpx.AsyncClient(**kwargs)
+    return cl
+
+def devin_client() -> httpx.AsyncClient:
+    return _client("devin", base_url=DEVIN_BASE, headers={"Authorization": f"Bearer {DEVIN_API_KEY}"}, timeout=30)
+
+def gh_client() -> httpx.AsyncClient:
+    return _client(
+        "github",
         base_url=GH_BASE,
         headers={
             "Authorization": f"Bearer {GITHUB_TOKEN}",
@@ -138,8 +152,32 @@ def gh_client():
         timeout=30,
     )
 
-def render_client():
-    return httpx.AsyncClient(base_url=RENDER_BASE, headers={"Authorization": f"Bearer {RENDER_API_KEY}", "Accept": "application/json"}, timeout=30)
+def render_client() -> httpx.AsyncClient:
+    return _client("render", base_url=RENDER_BASE, headers={"Authorization": f"Bearer {RENDER_API_KEY}", "Accept": "application/json"}, timeout=30)
+
+def openrouter_client() -> httpx.AsyncClient:
+    return _client("openrouter", base_url=OR_BASE, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"}, timeout=60)
+
+async def close_clients():
+    for cl in list(_clients.values()):
+        await cl.aclose()
+    _clients.clear()
+
+_libc = None
+if hasattr(ctypes, "CDLL"):
+    try:
+        _libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6")
+        _libc.malloc_trim(0)
+    except (OSError, AttributeError):
+        _libc = None
+
+def release_free_memory():
+    """Hand memory freed by the poll cycle back to the OS.
+
+    Each cycle parses megabytes of JSON; glibc keeps the freed arenas, so RSS
+    only ever climbs and the instance is eventually OOM-killed."""
+    if _libc is not None:
+        _libc.malloc_trim(0)
 
 # ---------------------------------------------------------------- github fetch
 
@@ -266,43 +304,43 @@ async def fetch_github():
     if gh_blocked():
         return
     issues, prs = {}, {}
-    async with gh_client() as gh:
-        for repo in REPOS:
-            r = await gh.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
-            r.raise_for_status()
-            now = time.time()
-            for key, ts in list(recently_closed.items()):
-                if now - ts > RECENT_ISSUE_TTL:
-                    recently_closed.pop(key, None)
-            for it in r.json():
-                if "pull_request" in it:
-                    continue
-                key = f"{repo}#{it['number']}"
-                if key in recently_closed:
-                    continue
-                issues[key] = issue_from_gh(repo, it)
-            for key, (ts, issue) in list(recent_issues.items()):
-                if now - ts > RECENT_ISSUE_TTL or key in issues:
-                    recent_issues.pop(key, None)
-                elif issue["repo"] == repo:
-                    issues[key] = issue
-            r = await gh.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
-            r.raise_for_status()
-            open_keys = set()
-            for pr in r.json():
-                key = f"{repo}#{pr['number']}"
-                open_keys.add(key)
-                detail, ci, review = await enrich_pr(gh, repo, pr)
-                prs[key] = {
-                    "repo": repo, "number": pr["number"], "title": pr["title"],
-                    "body": pr.get("body") or "", "url": pr["html_url"],
-                    "branch": pr["head"]["ref"], "created_at": pr["created_at"],
-                    "ci": ci, "review": review,
-                    "mergeable_state": detail.get("mergeable_state", "unknown"),
-                    "draft": pr.get("draft", False),
-                }
-            for key in [k for k in pr_enrich_cache if k.startswith(f"{repo}#") and k not in open_keys]:
-                pr_enrich_cache.pop(key, None)
+    gh = gh_client()
+    for repo in REPOS:
+        r = await gh.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
+        r.raise_for_status()
+        now = time.time()
+        for key, ts in list(recently_closed.items()):
+            if now - ts > RECENT_ISSUE_TTL:
+                recently_closed.pop(key, None)
+        for it in r.json():
+            if "pull_request" in it:
+                continue
+            key = f"{repo}#{it['number']}"
+            if key in recently_closed:
+                continue
+            issues[key] = issue_from_gh(repo, it)
+        for key, (ts, issue) in list(recent_issues.items()):
+            if now - ts > RECENT_ISSUE_TTL or key in issues:
+                recent_issues.pop(key, None)
+            elif issue["repo"] == repo:
+                issues[key] = issue
+        r = await gh.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
+        r.raise_for_status()
+        open_keys = set()
+        for pr in r.json():
+            key = f"{repo}#{pr['number']}"
+            open_keys.add(key)
+            detail, ci, review = await enrich_pr(gh, repo, pr)
+            prs[key] = {
+                "repo": repo, "number": pr["number"], "title": pr["title"],
+                "body": pr.get("body") or "", "url": pr["html_url"],
+                "branch": pr["head"]["ref"], "created_at": pr["created_at"],
+                "ci": ci, "review": review,
+                "mergeable_state": detail.get("mergeable_state", "unknown"),
+                "draft": pr.get("draft", False),
+            }
+        for key in [k for k in pr_enrich_cache if k.startswith(f"{repo}#") and k not in open_keys]:
+            pr_enrich_cache.pop(key, None)
     state["issues"], state["prs"] = issues, prs
     state["github_ok"] = True
 
@@ -351,17 +389,17 @@ async def fetch_render():
         state["deploys"] = []
         return
     out = []
-    async with render_client() as rc:
-        r = await rc.get("/services", params={"limit": 100})
-        r.raise_for_status()
-        services = [x.get("service", x) for x in r.json()]
-        for svc in services:
-            if svc.get("type") not in RENDER_SERVICE_TYPES or svc.get("suspended") == "suspended":
-                continue
-            d = await rc.get(f"/services/{svc['id']}/deploys", params={"limit": 10})
-            d.raise_for_status()
-            deploys = [x.get("deploy", x) for x in d.json()]
-            out.append(deploy_summary(svc, deploys))
+    rc = render_client()
+    r = await rc.get("/services", params={"limit": 100})
+    r.raise_for_status()
+    services = [x.get("service", x) for x in r.json()]
+    for svc in services:
+        if svc.get("type") not in RENDER_SERVICE_TYPES or svc.get("suspended") == "suspended":
+            continue
+        d = await rc.get(f"/services/{svc['id']}/deploys", params={"limit": 10})
+        d.raise_for_status()
+        deploys = [x.get("deploy", x) for x in d.json()]
+        out.append(deploy_summary(svc, deploys))
     def latest(s):
         return s["deploying_since"] or s["failed_at"] or s["last_deployed_at"] or ""
     out.sort(key=lambda s: (s["status"] == "deploying", latest(s)), reverse=True)
@@ -375,28 +413,35 @@ ACTIVE_STATUSES = {"running", "working", "resumed", "resume_requested", "resume_
 async def fetch_devin():
     cutoff = time.time() - DEVIN_LOOKBACK_DAYS * 86400
     sessions, cursor = [], None
-    async with devin_client() as dv:
-        for _ in range(DEVIN_MAX_PAGES):
-            params = {"limit": 100}
-            if cursor:
-                params["after"] = cursor
-            r = await dv.get("/sessions", params=params)
-            r.raise_for_status()
-            data = r.json()
-            items = data.get("items", [])
-            sessions.extend(
-                s for s in items
-                if not s.get("is_archived") and (SHOW_AUTOMATION_SESSIONS or not is_automation_session(s))
-            )
-            cursor = data.get("end_cursor")
-            if not items or not data.get("has_next_page") or not cursor:
-                break
-            ages = [_epoch(s.get("created_at")) for s in items if s.get("created_at")]
-            if ages and min(ages) < cutoff:
-                break
+    dv = devin_client()
+    for _ in range(DEVIN_MAX_PAGES):
+        params = {"limit": 100}
+        if cursor:
+            params["after"] = cursor
+        r = await dv.get("/sessions", params=params)
+        r.raise_for_status()
+        data = r.json()
+        items = data.get("items", [])
+        sessions.extend(
+            s for s in items
+            if not s.get("is_archived") and (SHOW_AUTOMATION_SESSIONS or not is_automation_session(s))
+        )
+        cursor = data.get("end_cursor")
+        if not items or not data.get("has_next_page") or not cursor:
+            break
+        ages = [_epoch(s.get("created_at")) for s in items if s.get("created_at")]
+        if ages and min(ages) < cutoff:
+            break
     state["sessions"] = sessions
     state["devin_ok"] = True
-    live = {s["session_id"] for s in sessions}
+    # Transcripts are only needed for sessions that can hold a card; holding one
+    # per session in the whole lookback window is most of the process's memory.
+    # A finished session only keeps a card while one of its PRs is still open.
+    open_prs = {pr["url"] for pr in state["prs"].values()}
+    live = {
+        s["session_id"] for s in sessions
+        if tracked_session(s) or open_prs.intersection(session_pr_urls(s))
+    }
     for cache in (session_msgs_cache, extract_cache):
         for sid in [sid for sid in cache if sid not in live]:
             del cache[sid]
@@ -418,29 +463,29 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
     if updated_at is not None and cached.get("updated_at") == updated_at:
         return cached["msgs"]
     msgs, cursor, seen = list(cached["msgs"]), cached["cursor"], set(cached["seen"])
-    async with devin_client() as dv:
-        for _ in range(20):
-            params = {"after": cursor} if cursor else {}
-            r = await dv.get(f"/sessions/{session_id}/messages", params=params)
-            r.raise_for_status()
-            page = r.json()
-            for m in page.get("items", []):
-                eid = m.get("event_id") or f"{m.get('created_at')}:{m.get('message')}"
-                if eid in seen:
-                    continue
-                seen.add(eid)
-                msgs.append({
-                    "who": "user" if m.get("source") == "user" else "devin",
-                    "ts": m.get("created_at", ""),
-                    "text": _clean_text(m.get("message") or ""),
-                    "origin": m.get("origin") or None,
-                    "name": m.get("username") or None,
-                })
-            # the final page carries no end_cursor, so it is re-read on the next
-            # call; `seen` keeps those items from being appended twice
-            cursor = page.get("end_cursor") or cursor
-            if not page.get("has_next_page"):
-                break
+    dv = devin_client()
+    for _ in range(20):
+        params = {"after": cursor} if cursor else {}
+        r = await dv.get(f"/sessions/{session_id}/messages", params=params)
+        r.raise_for_status()
+        page = r.json()
+        for m in page.get("items", []):
+            eid = m.get("event_id") or f"{m.get('created_at')}:{m.get('message')}"
+            if eid in seen:
+                continue
+            seen.add(eid)
+            msgs.append({
+                "who": "user" if m.get("source") == "user" else "devin",
+                "ts": m.get("created_at", ""),
+                "text": _clean_text(m.get("message") or ""),
+                "origin": m.get("origin") or None,
+                "name": m.get("username") or None,
+            })
+        # the final page carries no end_cursor, so it is re-read on the next
+        # call; `seen` keeps those items from being appended twice
+        cursor = page.get("end_cursor") or cursor
+        if not page.get("has_next_page"):
+            break
     session_msgs_cache[session_id] = {
         "msgs": msgs, "cursor": cursor, "seen": seen,
         "updated_at": updated_at if updated_at is not None else cached.get("updated_at"),
@@ -477,23 +522,21 @@ async def extract_session(session_id: str, messages: list[dict], context: str = 
     if context:
         transcript += f"\n[prs] {context}"
     try:
-        async with httpx.AsyncClient(timeout=60) as cl:
-            r = await cl.post(
-                f"{OR_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                json={
-                    "model": OPENROUTER_MODEL,
-                    "messages": [
-                        {"role": "system", "content": EXTRACT_PROMPT},
-                        {"role": "user", "content": transcript},
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0,
-                },
-            )
-            r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"]
-            data = json.loads(content)
+        r = await openrouter_client().post(
+            "/chat/completions",
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "system", "content": EXTRACT_PROMPT},
+                    {"role": "user", "content": transcript},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0,
+            },
+        )
+        r.raise_for_status()
+        content = r.json()["choices"][0]["message"]["content"]
+        data = json.loads(content)
     except Exception as e:  # noqa: BLE001 — extractor is best-effort by design
         log.warning("extractor failed for %s: %s", session_id, e)
         return None
@@ -562,6 +605,11 @@ def _short(text, limit: int = 90) -> str | None:
 
 def session_status(sess: dict) -> str:
     return (sess.get("status") or "").lower()
+
+def tracked_session(sess: dict) -> bool:
+    """Whether the board reads this session's transcript."""
+    st = session_status(sess)
+    return bool(st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess) or session_prompt(sess))
 
 def session_needs_user(sess: dict) -> bool:
     detail = (sess.get("status_detail") or "").lower()
@@ -775,8 +823,7 @@ async def poll_loop():
             await fetch_devin()
             # refresh messages for sessions that appear on the board
             for sess in state["sessions"]:
-                st = session_status(sess)
-                if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess) or session_prompt(sess):
+                if tracked_session(sess):
                     try:
                         await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
                     except httpx.HTTPStatusError as e:
@@ -796,6 +843,7 @@ async def poll_loop():
             await assemble_board()
         except Exception as e:  # noqa: BLE001
             log.exception("board assembly failed: %s", e)
+        release_free_memory()
         await asyncio.sleep(devin_sleep)
 
 @asynccontextmanager
@@ -803,6 +851,7 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(poll_loop())
     yield
     task.cancel()
+    await close_clients()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -856,26 +905,26 @@ async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
     try:
         if gh_blocked():
             raise httpx.TransportError("github rate limited")
-        async with gh_client() as gh:
-            r = await gh.get(f"/repos/{repo}/pulls/{number}")
-            r.raise_for_status()
-            p = r.json()
-            merged = bool(p.get("merged"))
-            pr_state = "merged" if merged else (p.get("state") or "open")
-            data = {
-                "title": p.get("title") or f"PR #{number}",
-                "state": pr_state,
-                "draft": bool(p.get("draft")),
-                "created": _epoch(p.get("created_at")),
-                "branch": p.get("head", {}).get("ref", ""),
-                "base": p.get("base", {}).get("ref", ""),
-                "additions": p.get("additions", 0),
-                "deletions": p.get("deletions", 0),
-                "changed_files": p.get("changed_files", 0),
-                "mergeable_state": p.get("mergeable_state", "unknown"),
-                "review": tracked["review"] if tracked else "none",
-                "ci": (tracked["ci"] if tracked else await commit_ci(gh, repo, p["head"]["sha"])) if pr_state == "open" else "none",
-            }
+        gh = gh_client()
+        r = await gh.get(f"/repos/{repo}/pulls/{number}")
+        r.raise_for_status()
+        p = r.json()
+        merged = bool(p.get("merged"))
+        pr_state = "merged" if merged else (p.get("state") or "open")
+        data = {
+            "title": p.get("title") or f"PR #{number}",
+            "state": pr_state,
+            "draft": bool(p.get("draft")),
+            "created": _epoch(p.get("created_at")),
+            "branch": p.get("head", {}).get("ref", ""),
+            "base": p.get("base", {}).get("ref", ""),
+            "additions": p.get("additions", 0),
+            "deletions": p.get("deletions", 0),
+            "changed_files": p.get("changed_files", 0),
+            "mergeable_state": p.get("mergeable_state", "unknown"),
+            "review": tracked["review"] if tracked else "none",
+            "ci": (tracked["ci"] if tracked else await commit_ci(gh, repo, p["head"]["sha"])) if pr_state == "open" else "none",
+        }
     except httpx.HTTPError as e:
         if _is_rate_limited(e):
             _note_gh_rate_limit(e)
@@ -941,8 +990,8 @@ async def get_messages(card_id: str):
 async def get_attachment(uuid: str, name: str):
     if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid) or name in (".", ".."):
         raise HTTPException(400, "bad attachment path")
-    async with devin_client() as dv:
-        r = await dv.get(f"/attachments/{uuid}/{name}", follow_redirects=True, timeout=60)
+    dv = devin_client()
+    r = await dv.get(f"/attachments/{uuid}/{name}", follow_redirects=True, timeout=60)
     if r.status_code >= 400:
         raise HTTPException(r.status_code, "attachment unavailable")
     return Response(
@@ -970,8 +1019,8 @@ async def upload_attachment(file: UploadFile):
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"file exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
     name = re.sub(r"[^\w.\-]+", "_", file.filename or "") or f"paste-{int(time.time())}.bin"
-    async with devin_client() as dv:
-        r = await dv.post("/attachments", files={"file": (name, data, file.content_type or "application/octet-stream")}, timeout=60)
+    dv = devin_client()
+    r = await dv.post("/attachments", files={"file": (name, data, file.content_type or "application/octet-stream")}, timeout=60)
     if r.status_code >= 400:
         raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     j = r.json()
@@ -992,10 +1041,10 @@ async def post_message(card_id: str, body: MessageIn):
     payload = {"message": body.text}
     if atts:
         payload["attachment_urls"] = atts
-    async with devin_client() as dv:
-        r = await dv.post(f"/sessions/{card['session_id']}/messages", json=payload)
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+    dv = devin_client()
+    r = await dv.post(f"/sessions/{card['session_id']}/messages", json=payload)
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     return {"ok": True}
 
 @app.exception_handler(httpx.HTTPError)
@@ -1010,16 +1059,16 @@ async def archive_card(card_id: str):
     card = find_card_or_stale(card_id)
     actions = []
     if card["session_id"]:
-        async with devin_client() as dv:
-            r = await dv.post(f"/sessions/{card['session_id']}/archive")
-            if r.status_code >= 400:
-                raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+        dv = devin_client()
+        r = await dv.post(f"/sessions/{card['session_id']}/archive")
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
         actions.append("archived")
     if card["kind"] == "issue":
-        async with gh_client() as gh:
-            r = await gh.patch(f"/repos/{card['repo']}/issues/{card['number']}", json={"state": "closed"})
-            if r.status_code >= 400:
-                raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
+        gh = gh_client()
+        r = await gh.patch(f"/repos/{card['repo']}/issues/{card['number']}", json={"state": "closed"})
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
         recently_closed[card_id] = time.time()
         recent_issues.pop(card_id, None)
         state["issues"].pop(card_id, None)
@@ -1089,11 +1138,11 @@ async def start_session(body: StartIn):
         f"# {issue['title']}\n\n{issue['body']}\n\n{issue['url']}\n\n"
         f"Implement it and open a PR that references the issue with 'Fixes #{body.number}'."
     )
-    async with devin_client() as dv:
-        r = await dv.post("/sessions", json={"prompt": prompt, "tags": [tag], "title": issue["title"]})
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
-        data = r.json()
+    dv = devin_client()
+    r = await dv.post("/sessions", json={"prompt": prompt, "tags": [tag], "title": issue["title"]})
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+    data = r.json()
     try:
         await fetch_devin()
         await assemble_board()
@@ -1134,14 +1183,14 @@ async def prompt_devin(body: PromptIn):
            "Do not start implementing it; filing the issue is the whole task.\n")
     )
     title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
-    async with devin_client() as dv:
-        payload = {"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title}
-        if atts:
-            payload["attachment_urls"] = atts
-        r = await dv.post("/sessions", json=payload)
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
-        data = r.json()
+    dv = devin_client()
+    payload = {"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title}
+    if atts:
+        payload["attachment_urls"] = atts
+    r = await dv.post("/sessions", json=payload)
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+    data = r.json()
     try:
         await fetch_devin()
         await assemble_board()
@@ -1157,11 +1206,11 @@ class IssueIn(BaseModel):
 @app.post("/api/issues")
 async def create_issue(body: IssueIn):
     repo = body.repo or REPOS[0]
-    async with gh_client() as gh:
-        r = await gh.post(f"/repos/{repo}/issues", json={"title": body.title, "body": body.body})
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
-        data = r.json()
+    gh = gh_client()
+    r = await gh.post(f"/repos/{repo}/issues", json={"title": body.title, "body": body.body})
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
+    data = r.json()
     key = f"{repo}#{data['number']}"
     issue = issue_from_gh(repo, data)
     recent_issues[key] = (time.time(), issue)
@@ -1186,11 +1235,11 @@ class MergeIn(BaseModel):
 
 @app.post("/api/pr/merge")
 async def merge_pr(body: MergeIn):
-    async with gh_client() as gh:
-        r = await gh.put(f"/repos/{body.repo}/pulls/{body.number}/merge", json={"merge_method": "squash"})
-        if r.status_code >= 400:
-            detail = r.json().get("message", r.text[:200]) if r.headers.get("content-type", "").startswith("application/json") else r.text[:200]
-            raise HTTPException(r.status_code, f"GitHub: {detail}")
+    gh = gh_client()
+    r = await gh.put(f"/repos/{body.repo}/pulls/{body.number}/merge", json={"merge_method": "squash"})
+    if r.status_code >= 400:
+        detail = r.json().get("message", r.text[:200]) if r.headers.get("content-type", "").startswith("application/json") else r.text[:200]
+        raise HTTPException(r.status_code, f"GitHub: {detail}")
     pr_meta_cache.pop(f"{body.repo}#{body.number}", None)
     try:
         await fetch_github()
