@@ -1110,7 +1110,7 @@ let flipPrevLoaded=false,flipSkip=false;
 document.addEventListener('visibilitychange',()=>{if(document.hidden)flipSkip=true});
 function flipSnapshot(){
   const ok=boardLoaded&&flipPrevLoaded&&!document.hidden&&!flipSkip&&!reduceMotion.matches;
-  flipPrevLoaded=boardLoaded; flipSkip=false;
+  flipPrevLoaded=boardLoaded; if(!document.hidden)flipSkip=false;
   if(!ok)return null;
   const m=new Map();
   boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
