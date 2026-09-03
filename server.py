@@ -721,8 +721,9 @@ async def assemble_board():
             ik = by_prompt.get(prompt[0])
             if not ik and (st not in ACTIVE_STATUSES or session_needs_user(sess)) and time.time() - _epoch(sess.get("created_at")) < 1800:
                 state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
-            # a file-only session is done once the issue exists; don't keep it on the card
-            if ik or (st not in ACTIVE_STATUSES and not session_pr_urls(sess)):
+            # a file-only session only exists to create the issue: show it just while it is
+            # busy filing, never once the issue exists or it stops and waits on you
+            if ik or st not in ACTIVE_STATUSES or session_needs_user(sess):
                 continue
         if ik and ik in cards:
             cards[ik]["sessions"].append(sess)
@@ -837,11 +838,11 @@ async def assemble_board():
 
     if gen != board_gen:
         return
-    # newest issues first; everything else oldest first
+    # newest issues first (with anything still being filed on top); everything else oldest first
     state["board"] = {
         "columns": [
             {"id": cid, "cards": sorted((c for c in out if c["col"] == cid),
-                                        key=lambda c: str(c["created_at"]), reverse=(cid == "issues"))}
+                                        key=lambda c: (c["filing"], _epoch_f(c["created_at"])), reverse=(cid == "issues"))}
             for cid in ("issues", "working", "needs-you", "review", "ready")
         ],
         "deploys": state["deploys"],
