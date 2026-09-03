@@ -1631,7 +1631,7 @@ function renderThread(msgs,ctx={}){
   if(lastIsDevin&&!(ctx.options||[]).length)ctx={...ctx,options:inlineOptions((lastDevin.text??'').toString()),inline:true};
   let qHTML=lastIsDevin?questionHTML(ctx,(lastDevin.text??'').toString()):'';
   const html=msgs.map(m=>{
-    if(m.who==='pr')return `<div class="msg pr">${prCardHTML(m.pr)}</div>`;
+    if(m.who==='pr')return [`pr:${m.pr.repo}#${m.pr.number}`,`<div class="msg pr">${prCardHTML(m.pr)}</div>`];
     const acts=[];
     const text=(m.text??'').toString();
     if(m===lastDevin&&lastIsDevin){
@@ -1640,31 +1640,39 @@ function renderThread(msgs,ctx={}){
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
     const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
-    return `<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
+    return [`${m.who}|${m.state?'pending|':''}${msgId(m)}`,`<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
     ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
-    <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`;
+    <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`];
   });
-  const tail=[];
-  if(mode==='card')tail.push(workingHTML(cards[openCard]));
-  patchThread([...html,...tail].filter(Boolean));
+  if(mode==='card'){const w=workingHTML(cards[openCard]);if(w)html.push(['working',w]);}
+  patchThread(html);
   threadEl.dataset.inlineOpts=ctx.inline?JSON.stringify(ctx.options):'';
 }
-// Replace only the entries whose markup changed so untouched nodes (a playing <video>, a focused
-// button) survive the periodic re-renders instead of being torn down and recreated.
-const threadNodeHTML=new WeakMap();
+// Reconcile thread entries by key and replace only those whose markup changed, so untouched nodes
+// (a playing <video>, a focused button) survive the periodic re-renders even when an entry is
+// inserted mid-thread (e.g. a PR card landing in earlier history).
+const threadNode={key:new WeakMap(),html:new WeakMap()};
 function patchThread(parts){
-  const old=[...threadEl.children];
-  const tpl=document.createElement('template');
-  parts.forEach((h,i)=>{
-    const cur=old[i];
-    if(cur&&threadNodeHTML.get(cur)===h)return;
-    tpl.innerHTML=h;
-    const node=tpl.content.firstElementChild;
-    if(!node)return;
-    threadNodeHTML.set(node,h);
-    if(cur)cur.replaceWith(node);else threadEl.appendChild(node);
+  const oldByKey=new Map();
+  for(const n of threadEl.children){const k=threadNode.key.get(n);if(k!=null&&!oldByKey.has(k))oldByKey.set(k,n)}
+  const seen=new Map(),tpl=document.createElement('template'),keep=new Set();
+  parts.forEach(([k0,h],i)=>{
+    const dup=seen.get(k0)||0;seen.set(k0,dup+1);
+    const k=dup?`${k0}#${dup}`:k0;
+    let node=oldByKey.get(k);
+    if(!node||threadNode.html.get(node)!==h){
+      tpl.innerHTML=h;
+      const fresh=tpl.content.firstElementChild;
+      if(!fresh)return;
+      threadNode.key.set(fresh,k);threadNode.html.set(fresh,h);
+      if(node)node.replaceWith(fresh);
+      node=fresh;
+    }
+    keep.add(node);
+    const at=threadEl.children[i];
+    if(at!==node)threadEl.insertBefore(node,at||null);
   });
-  for(let i=parts.length;i<old.length;i++)old[i].remove();
+  for(const n of [...threadEl.children])if(!keep.has(n))n.remove();
 }
 threadEl.addEventListener('click',async e=>{
   const t=e.target.closest('button');
@@ -1974,7 +1982,8 @@ async function loadThread(c,quiet=false){
   }
   const cached=threadCache[c.key];
   if(cached){
-    if(!quiet||openCardKey!==c.key){renderThread(threadMsgs(cached),threadCtx(c,cached));if(!quiet)scrollThreadToEnd();}
+    renderThread(threadMsgs(cached),threadCtx(c,cached));
+    if(!quiet)scrollThreadToEnd();
   }else{
     renderThread([{who:'system',text:'Loading conversation…'}]);
   }
