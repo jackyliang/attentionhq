@@ -10,7 +10,9 @@ import logging
 import os
 import re
 import time
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 import psycopg
@@ -34,6 +36,9 @@ RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES"
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
 GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "60"))
 RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
+# Automation-origin sessions (merged-PR review bots and the like) are background
+# chatter, not work the board tracks.
+SHOW_AUTOMATION_SESSIONS = os.environ.get("SHOW_AUTOMATION_SESSIONS", "").lower() in ("1", "true", "yes")
 
 DEVIN_BASE = f"https://api.devin.ai/v3/organizations/{DEVIN_ORG_ID}"
 GH_BASE = "https://api.github.com"
@@ -42,6 +47,11 @@ RENDER_BASE = "https://api.render.com/v1"
 
 ISSUE_TAG_RE = re.compile(r"issue:([\w.-]+/[\w.-]+)#(\d+)")
 PR_ISSUE_RE = re.compile(r"(?:#|issues/)(\d+)")
+# A session started from the prompt box is tagged prompt:<id>; Devin writes the
+# same id into the issue it files so the board can pair them up.
+PROMPT_TAG_RE = re.compile(r"^prompt:([0-9a-f]{12})$")
+PROMPT_MODE_TAG_RE = re.compile(r"^prompt-mode:(file|work)$")
+PROMPT_MARK_RE = re.compile(r"\s*<!--\s*attention:prompt:([0-9a-f]{12})\s*-->")
 
 # ---------------------------------------------------------------- state
 
@@ -55,6 +65,7 @@ state: dict = {
     "github_ok": True,
     "render_ok": True,
     "generated_at": 0,
+    "gh_refresh": False,  # pull GitHub on the next tick instead of waiting out the interval
 }
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -96,6 +107,8 @@ def save_dismissed(d: set):
 dismissed: set = load_dismissed()
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
+pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
+PR_META_TTL = 300
 
 # ---------------------------------------------------------------- clients
 
@@ -119,9 +132,12 @@ def render_client():
 # ---------------------------------------------------------------- github fetch
 
 def issue_from_gh(repo: str, it: dict) -> dict:
+    body = it.get("body") or ""
+    mark = PROMPT_MARK_RE.search(body)
     return {
         "repo": repo, "number": it["number"], "title": it["title"],
-        "body": it.get("body") or "", "url": it["html_url"],
+        "body": PROMPT_MARK_RE.sub("", body), "url": it["html_url"],
+        "prompt_id": mark.group(1) if mark else None,
         "labels": [l["name"] for l in it.get("labels", [])],
         "created_at": it["created_at"], "updated_at": it["updated_at"],
     }
@@ -132,6 +148,29 @@ RECENT_ISSUE_TTL = 300
 recent_issues: dict[str, tuple[float, dict]] = {}
 # ...and hide issues we just closed until the listing stops returning them.
 recently_closed: dict[str, float] = {}
+
+async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
+    try:
+        c = await gh.get(f"/repos/{repo}/commits/{sha}/check-runs", params={"per_page": 100})
+        c.raise_for_status()
+        runs = c.json().get("check_runs", [])
+        if not runs:
+            return "none"
+        if any(x["conclusion"] in ("failure", "timed_out", "cancelled") for x in runs if x["conclusion"]):
+            return "failing"
+        if all(x["status"] == "completed" for x in runs):
+            return "passing"
+        return "running"
+    except httpx.HTTPError:
+        try:
+            s = await gh.get(f"/repos/{repo}/commits/{sha}/status")
+            s.raise_for_status()
+            combined = s.json()
+            if not combined.get("statuses"):
+                return "none"
+            return {"success": "passing", "failure": "failing", "pending": "running"}.get(combined.get("state"), "unknown")
+        except httpx.HTTPError:
+            return "unknown"
 
 async def fetch_github():
     issues, prs = {}, {}
@@ -166,29 +205,7 @@ async def fetch_github():
                     detail = d.json()
                 except httpx.HTTPError:
                     pass
-                ci = "unknown"
-                try:
-                    c = await gh.get(f"/repos/{repo}/commits/{pr['head']['sha']}/check-runs", params={"per_page": 100})
-                    c.raise_for_status()
-                    runs = c.json().get("check_runs", [])
-                    if not runs:
-                        ci = "none"
-                    elif any(x["conclusion"] in ("failure", "timed_out", "cancelled") for x in runs if x["conclusion"]):
-                        ci = "failing"
-                    elif all(x["status"] == "completed" for x in runs):
-                        ci = "passing"
-                    else:
-                        ci = "running"
-                except httpx.HTTPError:
-                    try:
-                        s = await gh.get(f"/repos/{repo}/commits/{pr['head']['sha']}/status")
-                        s.raise_for_status()
-                        combined = s.json()
-                        ci = {"success": "passing", "failure": "failing", "pending": "running"}.get(combined.get("state"), "unknown")
-                        if not combined.get("statuses"):
-                            ci = "none"
-                    except httpx.HTTPError:
-                        pass
+                ci = await commit_ci(gh, repo, pr["head"]["sha"])
                 review = "none"
                 try:
                     rv = await gh.get(f"/repos/{repo}/pulls/{pr['number']}/reviews", params={"per_page": 100})
@@ -281,13 +298,19 @@ async def fetch_devin():
     async with devin_client() as dv:
         r = await dv.get("/sessions", params={"limit": 100})
         r.raise_for_status()
-        sessions = [s for s in r.json().get("items", []) if not s.get("is_archived")]
+        sessions = [
+            s for s in r.json().get("items", [])
+            if not s.get("is_archived") and (SHOW_AUTOMATION_SESSIONS or not is_automation_session(s))
+        ]
     state["sessions"] = sessions
     state["devin_ok"] = True
     live = {s["session_id"] for s in sessions}
     for cache in (session_msgs_cache, extract_cache):
         for sid in [sid for sid in cache if sid not in live]:
             del cache[sid]
+
+def is_automation_session(sess: dict) -> bool:
+    return sess.get("origin") == "automation" or bool(sess.get("automation_id"))
 
 def _clean_text(text: str) -> str:
     if text.startswith("SYSTEM:"):
@@ -318,6 +341,8 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
                     "who": "user" if m.get("source") == "user" else "devin",
                     "ts": m.get("created_at", ""),
                     "text": _clean_text(m.get("message") or ""),
+                    "origin": m.get("origin") or None,
+                    "name": m.get("username") or None,
                 })
             # the final page carries no end_cursor, so it is re-read on the next
             # call; `seen` keeps those items from being appended twice
@@ -384,8 +409,15 @@ async def extract_session(session_id: str, messages: list[dict], context: str = 
 
 # ---------------------------------------------------------------- board assembly
 
+def _epoch(ts: str | int | float | None) -> int:
+    if isinstance(ts, (int, float)):
+        return int(ts)
+    try:
+        return int(datetime.fromisoformat((ts or "").replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
+
 def humanize_age(ts: str | int | float) -> str:
-    from datetime import datetime, timezone
     if isinstance(ts, (int, float)):
         secs = time.time() - ts
     else:
@@ -406,6 +438,21 @@ def session_issue_key(sess: dict) -> str | None:
         if m:
             return f"{m.group(1)}#{m.group(2)}"
     return None
+
+def session_prompt(sess: dict) -> tuple[str, str] | None:
+    """(prompt id, mode) for sessions started from the prompt box."""
+    pid = mode = None
+    for tag in sess.get("tags") or []:
+        m = PROMPT_TAG_RE.match(tag)
+        if m:
+            pid = m.group(1)
+        m = PROMPT_MODE_TAG_RE.match(tag)
+        if m:
+            mode = m.group(1)
+    return (pid, mode or "file") if pid else None
+
+def issues_by_prompt() -> dict[str, str]:
+    return {issue["prompt_id"]: key for key, issue in state["issues"].items() if issue.get("prompt_id")}
 
 def pr_issue_key(pr: dict) -> str | None:
     for m in PR_ISSUE_RE.finditer(pr.get("body") or ""):
@@ -464,11 +511,20 @@ async def assemble_board():
                 "number": pr["number"], "url": pr["url"], "sessions": [],
                 "prs": [pr], "created_at": pr["created_at"],
             }
+    by_prompt = issues_by_prompt()
     for sess in sessions:
         st = session_status(sess)
         if st in ("finished", "expired", "suspended") and not session_pr_urls(sess):
             continue
         ik = session_issue_key(sess)
+        prompt = session_prompt(sess)
+        if prompt and not ik:
+            ik = by_prompt.get(prompt[0])
+            if not ik and st not in ACTIVE_STATUSES and time.time() - _epoch(sess.get("created_at")) < 1800:
+                state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
+            # a file-only session is done once the issue exists; don't keep it on the card
+            if prompt[1] == "file" and st not in ACTIVE_STATUSES and (ik or not session_pr_urls(sess)):
+                continue
         if ik and ik in cards:
             cards[ik]["sessions"].append(sess)
         else:
@@ -559,7 +615,7 @@ async def assemble_board():
             "col": col, "tone": tone,
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
-            "pr": {k: pr[k] for k in ("repo", "number", "url", "ci", "review", "mergeable_state")} if pr else None,
+            "pr": {k: pr.get(k) for k in ("repo", "number", "url", "ci", "review", "mergeable_state", "draft", "title", "branch", "created_at")} if pr else None,
             "now": ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text),
             "options": options if col == "needs-you" else [],
             "todos": (extract or {}).get("todos", []),
@@ -593,7 +649,8 @@ async def poll_loop():
     last_render = 0.0
     while True:
         try:
-            if time.time() - last_gh >= GITHUB_POLL_SECS:
+            if time.time() - last_gh >= GITHUB_POLL_SECS or state["gh_refresh"]:
+                state["gh_refresh"] = False
                 await fetch_github()
                 last_gh = time.time()
         except Exception as e:  # noqa: BLE001
@@ -611,7 +668,7 @@ async def poll_loop():
             # refresh messages for sessions that appear on the board
             for sess in state["sessions"]:
                 st = session_status(sess)
-                if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess):
+                if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess) or session_prompt(sess):
                     try:
                         await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
                     except httpx.HTTPError:
@@ -669,12 +726,92 @@ def find_card(card_id: str) -> dict:
                 return c
     raise HTTPException(404, "card not found")
 
+PR_META_EMPTY = {"branch": "", "base": "", "additions": 0, "deletions": 0, "changed_files": 0,
+                 "ci": "none", "review": "none", "mergeable_state": "unknown"}
+
+async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
+    """Title/state/CI/diff stats for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
+    key = f"{repo}#{number}"
+    hit = pr_meta_cache.get(key)
+    if hit and (hit["data"]["state"] != "open" or time.time() - hit["at"] < PR_META_TTL):
+        return hit["data"]
+    tracked = state["prs"].get(key)
+    try:
+        async with gh_client() as gh:
+            r = await gh.get(f"/repos/{repo}/pulls/{number}")
+            r.raise_for_status()
+            p = r.json()
+            merged = bool(p.get("merged"))
+            pr_state = "merged" if merged else (p.get("state") or "open")
+            data = {
+                "title": p.get("title") or f"PR #{number}",
+                "state": pr_state,
+                "draft": bool(p.get("draft")),
+                "created": _epoch(p.get("created_at")),
+                "branch": p.get("head", {}).get("ref", ""),
+                "base": p.get("base", {}).get("ref", ""),
+                "additions": p.get("additions", 0),
+                "deletions": p.get("deletions", 0),
+                "changed_files": p.get("changed_files", 0),
+                "mergeable_state": p.get("mergeable_state", "unknown"),
+                "review": tracked["review"] if tracked else "none",
+                "ci": (tracked["ci"] if tracked else await commit_ci(gh, repo, p["head"]["sha"])) if pr_state == "open" else "none",
+            }
+    except httpx.HTTPError:
+        if hit:
+            return hit["data"]
+        if tracked:
+            return {**PR_META_EMPTY, "title": tracked["title"], "state": "open", "draft": tracked["draft"],
+                    "created": _epoch(tracked["created_at"]), "branch": tracked["branch"],
+                    "ci": tracked["ci"], "review": tracked["review"], "mergeable_state": tracked["mergeable_state"]}
+        return {**PR_META_EMPTY, "title": f"PR #{number}", "state": fallback_state, "draft": False, "created": 0}
+    pr_meta_cache[key] = {"at": time.time(), "data": data}
+    return data
+
+async def with_pr_cards(sess: dict, msgs: list[dict]) -> list[dict]:
+    """Insert a card for each of the session's PRs where it entered the conversation:
+    after the first Devin message linking it, else at the PR's creation time."""
+    prs = session_prs(sess)
+    if not prs:
+        return msgs
+    metas = await asyncio.gather(*(pr_meta(p["repo"], p["number"], p["state"]) for p in prs))
+    cards = []
+    for p, meta in zip(prs, metas):
+        needle = re.escape(f"{p['repo']}/pull/{p['number']}") + r"(?!\d)"
+        anchor = next((i for i, m in enumerate(msgs) if m["who"] == "devin" and re.search(needle, m["text"])), None)
+        if anchor is None:
+            anchor = next((i for i, m in enumerate(msgs) if isinstance(m["ts"], (int, float)) and m["ts"] >= meta["created"]), len(msgs)) - 1
+        cards.append((anchor, {
+            "who": "pr",
+            "ts": msgs[anchor]["ts"] if 0 <= anchor < len(msgs) else meta["created"],
+            "text": "",
+            "pr": {
+                "repo": p["repo"], "number": p["number"], "url": p["url"],
+                "review_url": f"https://app.devin.ai/review/{p['repo']}/pull/{p['number']}",
+                **{k: meta[k] for k in ("title", "state", "draft", "branch", "base", "additions", "deletions",
+                                         "changed_files", "ci", "review", "mergeable_state")},
+            },
+        }))
+    out = list(msgs)
+    for anchor, card in sorted(cards, key=lambda ac: (ac[0], ac[1]["pr"]["number"]), reverse=True):
+        out.insert(anchor + 1, card)
+    return out
+
 @app.get("/api/card/{card_id:path}/messages")
 async def get_messages(card_id: str):
     card = find_card(card_id)
     if not card["session_id"]:
-        return {"messages": []}
-    return {"messages": await fetch_session_messages(card["session_id"])}
+        return {"messages": [], "status": None}
+    msgs = await fetch_session_messages(card["session_id"])
+    sess = next((s for s in state["sessions"] if s["session_id"] == card["session_id"]), None)
+    return {
+        "messages": await with_pr_cards(sess, msgs) if sess else msgs,
+        "status": {
+            "state": session_status(sess),
+            "detail": (sess.get("status_detail") or "").lower(),
+            "waiting": session_needs_user(sess),
+        } if sess else None,
+    }
 
 @app.get("/api/attachment/{uuid}/{name}")
 async def get_attachment(uuid: str, name: str):
@@ -807,6 +944,46 @@ async def start_session(body: StartIn):
         pass
     return {"ok": True, "session_id": data.get("session_id"), "url": data.get("url")}
 
+class PromptIn(BaseModel):
+    prompt: str
+    start: bool = False
+
+@app.post("/api/prompt")
+async def prompt_devin(body: PromptIn):
+    """The '+' box is a prompt: Devin picks the repo, writes and files the issue
+    (and, with start=True, goes on to implement it)."""
+    text = body.prompt.strip()
+    if not text:
+        raise HTTPException(400, "empty prompt")
+    pid = uuid.uuid4().hex[:12]
+    mode = "work" if body.start else "file"
+    repos = "\n".join(f"- {r}" for r in REPOS)
+    prompt = (
+        "A user typed this task into their Attention board's new-issue box:\n\n"
+        f"\"\"\"\n{text}\n\"\"\"\n\n"
+        "Turn it into a GitHub issue:\n"
+        f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+        "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
+        "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
+        "questions; make reasonable assumptions and note them in the issue.\n"
+        f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
+        "4. Create the issue in that repo and reply with just its URL.\n"
+        + ("5. Then implement the issue and open a PR that references it with 'Fixes #<number>'.\n" if body.start else
+           "Do not start implementing it; filing the issue is the whole task.\n")
+    )
+    title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
+    async with devin_client() as dv:
+        r = await dv.post("/sessions", json={"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title})
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+        data = r.json()
+    try:
+        await fetch_devin()
+        await assemble_board()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "session_id": data.get("session_id"), "url": data.get("url")}
+
 class IssueIn(BaseModel):
     title: str
     repo: str | None = None
@@ -849,6 +1026,7 @@ async def merge_pr(body: MergeIn):
         if r.status_code >= 400:
             detail = r.json().get("message", r.text[:200]) if r.headers.get("content-type", "").startswith("application/json") else r.text[:200]
             raise HTTPException(r.status_code, f"GitHub: {detail}")
+    pr_meta_cache.pop(f"{body.repo}#{body.number}", None)
     try:
         await fetch_github()
         await assemble_board()
