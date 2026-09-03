@@ -542,6 +542,9 @@ def test_board_color_roundtrip_and_validation(monkeypatch, client):
     assert r.json()["board"]["color"] == "teal"
     assert client.put(f"/api/boards/{bid}", json={"name": "Tinted", "repos": ["acme/one"], "color": "neon"}, headers=h).status_code == 400
     assert server.board_by_id(bid)["color"] == "teal"
+    # omitted color keeps the stored one; "" clears it
+    r = client.put(f"/api/boards/{bid}", json={"name": "Tinted!", "repos": ["acme/one"]}, headers=h)
+    assert r.json()["board"]["color"] == "teal" and r.json()["board"]["name"] == "Tinted!"
     r = client.put(f"/api/boards/{bid}", json={"name": "Tinted", "repos": ["acme/one"], "color": ""}, headers=h)
     assert r.json()["board"]["color"] == ""
     assert server.load_boards()[-1]["color"] == ""

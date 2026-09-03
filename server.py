@@ -1620,7 +1620,7 @@ async def get_board(board: str | None = None):
 class BoardIn(BaseModel):
     name: str
     repos: list[str] = []
-    color: str = ""
+    color: str | None = None  # omitted keeps the stored color; "" clears it
 
 class PinIn(BaseModel):
     board: str | None = None
@@ -1667,7 +1667,7 @@ async def create_board(body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    repos, color = clean_repos(body.repos), clean_color(body.color)
+    repos, color = clean_repos(body.repos), clean_color(body.color or "")
     async with _boards_lock:
         await _writable_boards()
         board = {"id": slugify(name), "name": name, "color": color, "repos": repos, "sessions": []}
@@ -1685,13 +1685,14 @@ async def update_board(board_id: str, body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    repos, color = clean_repos(body.repos), clean_color(body.color)
+    repos = clean_repos(body.repos)
     async with _boards_lock:
         await _writable_boards()
         board = board_by_id(board_id)
         if board is None:
             raise HTTPException(404, "board not found")
         prev = (board["name"], board["repos"], board.get("color", ""))
+        color = prev[2] if body.color is None else clean_color(body.color)
         board["name"], board["repos"], board["color"] = name, repos, color
         try:
             await _store(persist_boards, board)
