@@ -639,6 +639,20 @@ aside{
 .composer .hint{font-size:11px;color:var(--ds-gray-600);display:flex;align-items:center;gap:6px}
 .composer .send{margin-left:auto}
 
+/* pasted / dropped attachments waiting to be sent */
+.att-tray{display:flex;flex-wrap:wrap;gap:6px}
+.att-tray:empty{display:none}
+.att-chip{position:relative;display:inline-flex;align-items:center;gap:6px;max-width:220px;height:28px;padding:0 6px 0 4px;border:1px solid var(--ds-gray-400);background:var(--ds-background-200);font-size:11px;color:var(--ds-gray-900)}
+.att-chip img{width:20px;height:20px;object-fit:cover;border:1px solid var(--ds-gray-400);background:#000}
+.att-chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-chip .rm{border:none;background:transparent;color:var(--ds-gray-600);cursor:pointer;font:inherit;font-size:13px;line-height:1;padding:0 2px}
+.att-chip .rm:hover{color:var(--ds-gray-1000)}
+.att-chip.uploading{opacity:.6}
+.att-chip.uploading .nm::after{content:' · uploading…'}
+.att-chip.failed{border-color:var(--ds-red-700, #e5484d);color:var(--ds-red-700, #e5484d)}
+.add-card .att-tray{margin-top:6px}
+.drop-target{box-shadow:inset 0 0 0 1px var(--ds-gray-700)}
+
 .pl-link{
   display:inline-flex;align-items:center;gap:6px;
   font-family:var(--font-mono,ui-monospace,monospace);font-size:11px;
@@ -754,8 +768,9 @@ aside{
     </div>
     <div class="composer">
       <textarea id="composer" placeholder="Message the board…" rows="3"></textarea>
+      <div class="att-tray" id="composer-atts"></div>
       <div class="row">
-        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board</span>
+        <span class="hint"><kbd>⏎</kbd> focus · <kbd>Esc</kbd> back to board · paste or drop files to attach</span>
         <button class="act primary send" id="send-btn">Send
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
         </button>
@@ -1246,23 +1261,26 @@ function wireAddCard(addBtn){
   function addToInput(){
     if(addBtn.classList.contains('editing'))return;
     addBtn.classList.add('editing');
-    addBtn.innerHTML='<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ⇧↵ file & start" />';
+    addBtn.innerHTML=`<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ file & start · paste files to attach" /><div class="att-tray"></div>`;
     const inp=addBtn.querySelector('input');
+    const tray=attachTray(addBtn.querySelector('.att-tray'),inp);
     inp.focus();
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
       if(e.key==='Enter'){
         const v=inp.value.trim();
-        const start=e.shiftKey;
+        const start=e.metaKey||e.ctrlKey;
+        if(tray.uploading()){showToast('Still uploading attachments…');return}
+        const attachments=tray.urls();
         addToPlus();
         addBtn.focus();
-        if(v){
+        if(v||attachments.length){
           const pendingKey='pending:'+Date.now();
-          cards.unshift(mapCard({id:pendingKey,kind:'issue',col:'issues',tone:'grey',title:v,pending:true}));
+          cards.unshift(mapCard({id:pendingKey,kind:'issue',col:'issues',tone:'grey',title:v||'(attached files)',pending:true}));
           cards.forEach((c,i)=>c.id=i);
           renderBoard();
           try{
-            await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start})});
+            await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments})});
             showToast(start?'Sent to Devin — filing the issue, then starting on it':'Sent to Devin — filing the issue');
             await fetchBoard();
           }catch(err){
@@ -1277,7 +1295,7 @@ function wireAddCard(addBtn){
         addBtn.focus();
       }
     });
-    inp.addEventListener('blur',()=>{setTimeout(()=>{if(addBtn.classList.contains('editing'))addToPlus()},120)});
+    inp.addEventListener('blur',()=>{setTimeout(()=>{if(addBtn.classList.contains('editing')&&!addBtn.contains(document.activeElement)&&!tray.busy())addToPlus()},120)});
   }
   addBtn.addEventListener('click',addToInput);
   addBtn.addEventListener('keydown',e=>{if(e.key==='Enter'&&!addBtn.classList.contains('editing')){e.preventDefault();e.stopPropagation();addToInput();}});
@@ -1904,9 +1922,67 @@ async function startIssue(id){
   }catch(e){showToast('Start failed: '+e.message)}
 }
 
+const MOD=/Mac|iPhone|iPad/.test(navigator.platform)?'⌘':'Ctrl+';
+
+/* ---- attachments: paste / drop into an input, upload via the board, send URLs ---- */
+function attachTray(trayEl,inputEl){
+  const items=[]; // {file,url,name,el,state}
+  function render(){
+    trayEl.innerHTML='';
+    for(const it of items){
+      const chip=document.createElement('span');
+      chip.className='att-chip'+(it.state==='uploading'?' uploading':it.state==='failed'?' failed':'');
+      if(it.preview){const img=document.createElement('img');img.src=it.preview;img.alt='';chip.appendChild(img)}
+      const nm=document.createElement('span');nm.className='nm';nm.textContent=it.state==='failed'?`${it.name} — ${it.error}`:it.name;nm.title=it.name;chip.appendChild(nm);
+      const rm=document.createElement('button');rm.className='rm';rm.type='button';rm.title='Remove';rm.textContent='×';
+      rm.addEventListener('mousedown',e=>e.preventDefault()); // keep the input focused
+      rm.addEventListener('click',()=>{items.splice(items.indexOf(it),1);if(it.preview)URL.revokeObjectURL(it.preview);render();inputEl.focus()});
+      chip.appendChild(rm);
+      trayEl.appendChild(chip);
+    }
+  }
+  async function add(file){
+    if(!file)return;
+    if(file.size>10*1024*1024){showToast(`${file.name||'File'} is over 10 MB`);return}
+    const name=file.name||`paste-${Date.now()}.${(file.type.split('/')[1]||'bin').replace(/[^\w]/g,'')}`;
+    const it={file,name,url:null,state:'uploading',preview:file.type.startsWith('image/')?URL.createObjectURL(file):null};
+    items.push(it);render();
+    try{
+      const fd=new FormData();fd.append('file',file,name);
+      const headers={};if(BOARD_TOKEN)headers['X-Board-Token']=BOARD_TOKEN;
+      const r=await fetch('/api/upload',{method:'POST',body:fd,headers});
+      if(!r.ok){let msg='HTTP '+r.status;try{const j=await r.json();if(j.detail)msg=j.detail}catch(err){}throw new Error(msg)}
+      const j=await r.json();
+      it.url=j.url;it.name=j.name||name;it.state='ready';
+    }catch(e){it.state='failed';it.error=e.message}
+    render();
+  }
+  function addAll(files){for(const f of files||[])add(f)}
+  inputEl.addEventListener('paste',e=>{
+    const files=[...(e.clipboardData?.files||[])];
+    if(!files.length)return;
+    e.preventDefault();addAll(files);
+  });
+  for(const el of [inputEl,trayEl]){
+    el.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();inputEl.classList.add('drop-target')}});
+    el.addEventListener('dragleave',()=>inputEl.classList.remove('drop-target'));
+    el.addEventListener('drop',e=>{inputEl.classList.remove('drop-target');const files=[...(e.dataTransfer?.files||[])];if(!files.length)return;e.preventDefault();addAll(files);inputEl.focus()});
+  }
+  return {
+    urls:()=>items.filter(i=>i.state==='ready'&&i.url).map(i=>i.url),
+    uploading:()=>items.some(i=>i.state==='uploading'),
+    busy:()=>items.some(i=>i.state==='uploading'),
+    clear:()=>{for(const i of items)if(i.preview)URL.revokeObjectURL(i.preview);items.length=0;render()},
+  };
+}
+const composerTray=attachTray(document.getElementById('composer-atts'),composer);
+
 document.getElementById('send-btn').addEventListener('click',sendMsg);
 async function sendMsg(){
-  const v=composer.value.trim(); if(!v)return;
+  const v=composer.value.trim();
+  if(composerTray.uploading()){showToast('Still uploading attachments…');return}
+  const attachments=composerTray.urls();
+  if(!v&&!attachments.length)return;
   if(mode==='board'||openCard==null){
     boardThread.push({who:'user',ts:'',text:v});
     boardThread.push({who:'board',ts:'',text:'Board chat is local-only in v1. Open a card to message its Devin session.'});
@@ -1917,15 +1993,15 @@ async function sendMsg(){
   }
   const c=cards[openCard];
   if(!c.session_id){showToast('This card has no session yet — press E to start one');return}
-  composer.value='';
+  composer.value='';composerTray.clear();
   const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
-  th.msgs.push({who:'user',ts:new Date().toISOString(),text:v});
+  th.msgs.push({who:'user',ts:new Date().toISOString(),text:[v,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')});
   th.status={...(th.status||{}),waiting:false,state:'running'};
   th.sig=threadSig(th);
   renderThread(th.msgs,threadCtx(c,th));
   scrollThreadToEnd();
   try{
-    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v})});
+    await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text:v,attachments})});
   }catch(e){showToast('Send failed: '+e.message)}
 }
 composer.addEventListener('keydown',e=>{
