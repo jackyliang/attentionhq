@@ -114,6 +114,13 @@ extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
 PR_META_TTL = 300
+PR_META_FAIL_TTL = 60
+# Per-PR enrichment (detail, check-runs, reviews) is only refetched when the PR's head sha /
+# updated_at changes, CI is still in flight, or PR_ENRICH_TTL has passed.
+pr_enrich_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "sha": str, "updated_at": str, "detail": {}, "ci": str, "review": str}
+PR_ENRICH_TTL = int(os.environ.get("PR_ENRICH_TTL", "300"))
+# Epoch until which GitHub has told us to stop (X-RateLimit-Reset / Retry-After); all GitHub reads skip until then.
+gh_blocked_until = 0.0
 
 # ---------------------------------------------------------------- clients
 
@@ -166,7 +173,9 @@ async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
         if all(x["status"] == "completed" for x in runs):
             return "passing"
         return "running"
-    except httpx.HTTPError:
+    except httpx.HTTPError as e:
+        if _is_rate_limited(e):
+            raise
         try:
             s = await gh.get(f"/repos/{repo}/commits/{sha}/status")
             s.raise_for_status()
@@ -177,7 +186,78 @@ async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
         except httpx.HTTPError:
             return "unknown"
 
+def _is_rate_limited(e: Exception) -> bool:
+    if not isinstance(e, httpx.HTTPStatusError):
+        return False
+    r = e.response
+    # GitHub signals primary-limit exhaustion with 403 + X-RateLimit-Remaining: 0
+    return r.status_code == 429 or (r.status_code == 403 and r.headers.get("x-ratelimit-remaining") == "0")
+
+def _note_gh_rate_limit(e: Exception) -> float:
+    """Record GitHub's reset time from the response headers; returns seconds to wait."""
+    global gh_blocked_until
+    h = e.response.headers if isinstance(e, httpx.HTTPStatusError) else {}
+    wait = 60.0
+    if h.get("retry-after"):
+        wait = float(h["retry-after"])
+    elif h.get("x-ratelimit-reset"):
+        wait = max(5.0, float(h["x-ratelimit-reset"]) - time.time())
+    wait = min(wait, 3600.0)
+    gh_blocked_until = max(gh_blocked_until, time.time() + wait)
+    return wait
+
+def gh_blocked() -> bool:
+    return time.time() < gh_blocked_until
+
+async def enrich_pr(gh: httpx.AsyncClient, repo: str, pr: dict) -> tuple[dict, str, str]:
+    """Detail, CI and review state for an open PR, refetched only when something could have changed."""
+    key = f"{repo}#{pr['number']}"
+    sha = pr["head"]["sha"]
+    hit = pr_enrich_cache.get(key)
+    same_commit = bool(hit and hit["sha"] == sha)
+    stale = not hit or time.time() - hit["at"] >= PR_ENRICH_TTL
+    detail = hit["detail"] if same_commit else {}
+    review = hit["review"] if same_commit else "none"
+    ci = hit["ci"] if same_commit else "unknown"
+    # "none" right after a push usually means checks haven't registered yet; keep looking briefly.
+    fresh_push = time.time() - _epoch(pr["updated_at"]) < 600
+    need_detail = not same_commit or stale or hit["updated_at"] != pr["updated_at"]
+    need_ci = need_detail or ci in ("running", "unknown") or (ci == "none" and fresh_push)
+    if not need_detail and not need_ci:
+        return detail, ci, review
+    if need_detail:
+        try:
+            d = await gh.get(f"/repos/{repo}/pulls/{pr['number']}")
+            d.raise_for_status()
+            detail = d.json()
+        except httpx.HTTPStatusError as e:
+            if _is_rate_limited(e):
+                raise
+        except httpx.HTTPError:
+            pass
+        try:
+            rv = await gh.get(f"/repos/{repo}/pulls/{pr['number']}/reviews", params={"per_page": 100})
+            rv.raise_for_status()
+            states = [x["state"] for x in rv.json()]
+            review = "none"
+            if "CHANGES_REQUESTED" in states:
+                review = "changes_requested"
+            elif "APPROVED" in states:
+                review = "approved"
+        except httpx.HTTPStatusError as e:
+            if _is_rate_limited(e):
+                raise
+        except httpx.HTTPError:
+            pass
+    if need_ci:
+        ci = await commit_ci(gh, repo, sha)
+    pr_enrich_cache[key] = {"at": time.time(), "sha": sha, "updated_at": pr["updated_at"],
+                            "detail": detail, "ci": ci, "review": review}
+    return detail, ci, review
+
 async def fetch_github():
+    if gh_blocked():
+        return
     issues, prs = {}, {}
     async with gh_client() as gh:
         for repo in REPOS:
@@ -201,27 +281,11 @@ async def fetch_github():
                     issues[key] = issue
             r = await gh.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
             r.raise_for_status()
+            open_keys = set()
             for pr in r.json():
                 key = f"{repo}#{pr['number']}"
-                detail = {}
-                try:
-                    d = await gh.get(f"/repos/{repo}/pulls/{pr['number']}")
-                    d.raise_for_status()
-                    detail = d.json()
-                except httpx.HTTPError:
-                    pass
-                ci = await commit_ci(gh, repo, pr["head"]["sha"])
-                review = "none"
-                try:
-                    rv = await gh.get(f"/repos/{repo}/pulls/{pr['number']}/reviews", params={"per_page": 100})
-                    rv.raise_for_status()
-                    states = [x["state"] for x in rv.json()]
-                    if "CHANGES_REQUESTED" in states:
-                        review = "changes_requested"
-                    elif "APPROVED" in states:
-                        review = "approved"
-                except httpx.HTTPError:
-                    pass
+                open_keys.add(key)
+                detail, ci, review = await enrich_pr(gh, repo, pr)
                 prs[key] = {
                     "repo": repo, "number": pr["number"], "title": pr["title"],
                     "body": pr.get("body") or "", "url": pr["html_url"],
@@ -230,6 +294,8 @@ async def fetch_github():
                     "mergeable_state": detail.get("mergeable_state", "unknown"),
                     "draft": pr.get("draft", False),
                 }
+            for key in [k for k in pr_enrich_cache if k.startswith(f"{repo}#") and k not in open_keys]:
+                pr_enrich_cache.pop(key, None)
     state["issues"], state["prs"] = issues, prs
     state["github_ok"] = True
 
@@ -670,13 +736,6 @@ async def assemble_board():
 
 # ---------------------------------------------------------------- pollers
 
-def _is_rate_limited(e: Exception) -> bool:
-    if not isinstance(e, httpx.HTTPStatusError):
-        return False
-    r = e.response
-    # GitHub signals primary-limit exhaustion with 403 + X-RateLimit-Remaining: 0
-    return r.status_code == 429 or (r.status_code == 403 and r.headers.get("x-ratelimit-remaining") == "0")
-
 async def poll_loop():
     last_gh = 0.0
     last_render = 0.0
@@ -684,7 +743,7 @@ async def poll_loop():
     gh_every = GITHUB_POLL_SECS
     while True:
         try:
-            if time.time() - last_gh >= gh_every or state["gh_refresh"]:
+            if (time.time() - last_gh >= gh_every or state["gh_refresh"]) and not gh_blocked():
                 state["gh_refresh"] = False
                 await fetch_github()
                 last_gh = time.time()
@@ -693,8 +752,9 @@ async def poll_loop():
             state["github_ok"] = False
             last_gh = time.time()
             if _is_rate_limited(e):
-                gh_every = min(gh_every * 2, GITHUB_POLL_MAX_SECS)
-                log.warning("github rate limited; backing off to %ss", gh_every)
+                wait = _note_gh_rate_limit(e)
+                gh_every = max(GITHUB_POLL_SECS, min(wait, GITHUB_POLL_MAX_SECS))
+                log.warning("github rate limited; pausing GitHub reads for %ds", int(wait))
             else:
                 log.warning("github poll failed: %s", e)
         try:
@@ -782,10 +842,12 @@ async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
     """Title/state/CI/diff stats for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
     key = f"{repo}#{number}"
     hit = pr_meta_cache.get(key)
-    if hit and (hit["data"]["state"] != "open" or time.time() - hit["at"] < PR_META_TTL):
+    if hit and (hit["data"]["state"] != "open" or time.time() - hit["at"] < hit.get("ttl", PR_META_TTL)):
         return hit["data"]
     tracked = state["prs"].get(key)
     try:
+        if gh_blocked():
+            raise httpx.TransportError("github rate limited")
         async with gh_client() as gh:
             r = await gh.get(f"/repos/{repo}/pulls/{number}")
             r.raise_for_status()
@@ -806,14 +868,19 @@ async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
                 "review": tracked["review"] if tracked else "none",
                 "ci": (tracked["ci"] if tracked else await commit_ci(gh, repo, p["head"]["sha"])) if pr_state == "open" else "none",
             }
-    except httpx.HTTPError:
+    except httpx.HTTPError as e:
+        if _is_rate_limited(e):
+            _note_gh_rate_limit(e)
         if hit:
-            return hit["data"]
-        if tracked:
-            return {**PR_META_EMPTY, "title": tracked["title"], "state": "open", "draft": tracked["draft"],
+            data = hit["data"]
+        elif tracked:
+            data = {**PR_META_EMPTY, "title": tracked["title"], "state": "open", "draft": tracked["draft"],
                     "created": _epoch(tracked["created_at"]), "branch": tracked["branch"],
                     "ci": tracked["ci"], "review": tracked["review"], "mergeable_state": tracked["mergeable_state"]}
-        return {**PR_META_EMPTY, "title": f"PR #{number}", "state": fallback_state, "draft": False, "created": 0}
+        else:
+            data = {**PR_META_EMPTY, "title": f"PR #{number}", "state": fallback_state, "draft": False, "created": 0}
+        pr_meta_cache[key] = {"at": time.time(), "data": data, "ttl": PR_META_FAIL_TTL}
+        return data
     pr_meta_cache[key] = {"at": time.time(), "data": data}
     return data
 
