@@ -1123,8 +1123,8 @@ const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
 let wasHidden=false;
 document.addEventListener('visibilitychange',()=>{if(document.hidden)wasHidden=true});
 function snapshotCards(){
+  if(!boardLoaded||reduceMotion.matches||document.hidden)return null;
   const m=new Map();
-  if(!boardLoaded||reduceMotion.matches||document.hidden)return m;
   document.querySelectorAll('.card[data-key]').forEach(el=>{
     m.set(el.dataset.key,{rect:el.getBoundingClientRect(),col:el.closest('.col')?.dataset.col,el});
   });
@@ -1132,7 +1132,7 @@ function snapshotCards(){
 }
 function flipCards(before,focusEl){
   if(wasHidden){wasHidden=false;return}
-  if(!before.size||reduceMotion.matches||document.hidden)return;
+  if(!before||reduceMotion.matches||document.hidden)return;
   const seen=new Set();
   document.querySelectorAll('.card[data-key]').forEach(el=>{
     const key=el.dataset.key; seen.add(key);
