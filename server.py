@@ -183,7 +183,9 @@ async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
             if not combined.get("statuses"):
                 return "none"
             return {"success": "passing", "failure": "failing", "pending": "running"}.get(combined.get("state"), "unknown")
-        except httpx.HTTPError:
+        except httpx.HTTPError as e2:
+            if _is_rate_limited(e2):
+                raise
             return "unknown"
 
 def _is_rate_limited(e: Exception) -> bool:
@@ -225,6 +227,7 @@ async def enrich_pr(gh: httpx.AsyncClient, repo: str, pr: dict) -> tuple[dict, s
     need_ci = need_detail or ci in ("running", "unknown") or (ci == "none" and fresh_push)
     if not need_detail and not need_ci:
         return detail, ci, review
+    failed = False
     if need_detail:
         try:
             d = await gh.get(f"/repos/{repo}/pulls/{pr['number']}")
@@ -233,8 +236,9 @@ async def enrich_pr(gh: httpx.AsyncClient, repo: str, pr: dict) -> tuple[dict, s
         except httpx.HTTPStatusError as e:
             if _is_rate_limited(e):
                 raise
+            failed = True
         except httpx.HTTPError:
-            pass
+            failed = True
         try:
             rv = await gh.get(f"/repos/{repo}/pulls/{pr['number']}/reviews", params={"per_page": 100})
             rv.raise_for_status()
@@ -247,11 +251,14 @@ async def enrich_pr(gh: httpx.AsyncClient, repo: str, pr: dict) -> tuple[dict, s
         except httpx.HTTPStatusError as e:
             if _is_rate_limited(e):
                 raise
+            failed = True
         except httpx.HTTPError:
-            pass
+            failed = True
     if need_ci:
         ci = await commit_ci(gh, repo, sha)
-    pr_enrich_cache[key] = {"at": time.time(), "sha": sha, "updated_at": pr["updated_at"],
+    # A partial refresh is retried on the next poll rather than trusted for the full TTL.
+    at = time.time() - PR_ENRICH_TTL if failed else time.time()
+    pr_enrich_cache[key] = {"at": at, "sha": sha, "updated_at": pr["updated_at"],
                             "detail": detail, "ci": ci, "review": review}
     return detail, ci, review
 
@@ -842,7 +849,8 @@ async def pr_meta(repo: str, number: int, fallback_state: str) -> dict:
     """Title/state/CI/diff stats for any PR Devin opened, tracked repo or not. Merged/closed PRs cache forever."""
     key = f"{repo}#{number}"
     hit = pr_meta_cache.get(key)
-    if hit and (hit["data"]["state"] != "open" or time.time() - hit["at"] < hit.get("ttl", PR_META_TTL)):
+    if hit and (time.time() - hit["at"] < hit.get("ttl", PR_META_TTL) or
+                ("ttl" not in hit and hit["data"]["state"] != "open")):
         return hit["data"]
     tracked = state["prs"].get(key)
     try:
