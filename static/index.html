@@ -318,7 +318,7 @@ main{
 .act.amber svg{color:var(--ds-amber-900)}
 .act.amber:hover{background:var(--ds-amber-400)}
 .act.green{background:var(--ds-green-400);border-color:var(--ds-green-500);color:#fff}
-.act.green svg{color:var(--ds-green-900)}
+.act.green svg{color:#fff}
 .act.green:hover{background:var(--ds-green-500)}
 .card .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
 .card .opt{
@@ -1564,7 +1564,7 @@ function prHTML(c){
   bits.push(merge.label);
   const status=`<a href="${escHTML(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a> · ${escHTML(bits.join(' · '))}`;
   const action=v.merge
-    ?`<span class="act green merge-btn" role="button" tabindex="-1" data-merge><kbd>E</kbd>${armed&&armed.key===c.key&&armed.action==='merge'?'Confirm':'Merge'}</span>`
+    ?`<span class="act green merge-btn" role="button" tabindex="-1" data-merge><kbd>E</kbd>${I.merge}${armed&&armed.key===c.key&&armed.action==='merge'?'Confirm':'Merge'}</span>`
     :`<a class="act" href="${escHTML(pr.url)}" target="_blank" rel="noopener">${v.tone==='purple'?'Review':'Open'} ${I.external}</a>`;
   return `<div class="pl-pr"><div class="pr-verdict ${v.tone}">${v.icon}<span class="txt">${escHTML(v.head)}<small>${status}</small></span>${action}</div></div>`;
 }
