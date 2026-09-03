@@ -632,13 +632,18 @@ aside{
 .pr-card .act.merge.busy{opacity:.6;pointer-events:none}
 .msg-btns{display:flex;flex-wrap:wrap;gap:6px}
 .msg-btns .act{height:26px;font-size:12px;padding:0 10px;cursor:pointer}
-.msg-btns .act.opt-btn{border-color:var(--ds-amber-500);background:var(--ds-amber-100);color:var(--ds-amber-1000)}
-.msg-btns .act.opt-btn:hover{background:var(--ds-amber-300)}
-.msg-btns .act.opt-btn kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-amber-900);background:transparent;border:1px solid var(--ds-amber-500);display:inline-flex;align-items:center;justify-content:center}
 .msg-btns .act[disabled]{opacity:.5;cursor:default}
-.q-block{width:100%;border:1px solid var(--ds-amber-500);background:var(--ds-amber-100);padding:9px 10px;display:flex;flex-direction:column;gap:8px}
-.q-block .q-head{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-amber-900)}
-.q-block .q-text{font-size:12.5px;line-height:17px;color:var(--ds-amber-1000)}
+/* multiple-choice question, mirrors app.devin.ai: question, stacked option rows, free-text hint */
+.q-block{width:100%;max-width:420px;border:1px solid var(--ds-gray-400);background:var(--ds-background-200);padding:10px 10px 8px;display:flex;flex-direction:column;gap:8px}
+.q-block .q-text{font-size:12.5px;line-height:17px;font-weight:500;color:var(--ds-gray-1000)}
+.q-block .q-opts{display:flex;flex-direction:column;gap:4px}
+.q-block .opt-btn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;min-height:30px;padding:5px 8px;font:inherit;font-size:12.5px;line-height:17px;color:var(--ds-gray-1000);background:var(--ds-background-100);border:1px solid var(--ds-gray-400);cursor:pointer}
+.q-block .opt-btn:hover{border-color:var(--ds-gray-600);background:var(--ds-gray-200)}
+.q-block .opt-btn:focus-visible{outline:none;border-color:var(--ds-blue-700);box-shadow:0 0 0 1px var(--ds-blue-700)}
+.q-block .opt-btn kbd{flex:none;font-size:9px;line-height:12px;height:16px;min-width:16px;padding:0 4px;color:var(--ds-gray-800);background:var(--ds-gray-200);border:1px solid var(--ds-gray-400);display:inline-flex;align-items:center;justify-content:center}
+.q-block .opt-btn[disabled]{opacity:.5;cursor:default}
+.q-block .opt-btn.sent{border-color:var(--ds-blue-700);background:var(--ds-blue-100)}
+.q-block .q-hint{font-size:11px;line-height:15px;color:var(--ds-gray-700)}
 .msg .body img.att,.msg .body video.att{display:block;max-width:100%;max-height:260px;border:1px solid var(--ds-gray-400);margin-top:6px;background:#000}
 .msg .body a.att-link,.msg .body .att-name{display:flex;width:fit-content;align-items:center;gap:5px;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-900);text-decoration:none;border:1px solid var(--ds-gray-400);padding:4px 8px}
 .msg .body a.att-link:hover{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
@@ -801,7 +806,7 @@ aside{
         <div class="sc">Open board chat <span class="k"><kbd>B</kbd></span></div>
         <div class="sc">Merge a ready PR (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
-        <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span></div>
+        <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd>…<kbd>5</kbd></span></div>
         <div class="sc">Close issue / archive session (both if it has one) <span class="k"><kbd>C</kbd><kbd>C</kbd></span></div>
         <div class="sc">Hide card from board (nothing else) <span class="k"><kbd>H</kbd><kbd>H</kbd></span></div>
         <div class="sc">Cancel a pending confirmation <span class="k"><kbd>Esc</kbd></span></div>
@@ -987,7 +992,8 @@ function mapCard(c,i){
     session_id:c.session_id, session_url:c.session_url, pr:c.pr, acus:c.acus,
     body:c.body||'', labels:c.labels||[],
     now:c.now?{text:c.now}:null,
-    options:(c.options||[]).slice(0,3),
+    options:(c.options||[]).slice(0,5),
+    question:c.question||null,
     todos:c.todos||[],
     progress_pct:c.progress_pct,
     age:c.age||'',
@@ -1037,7 +1043,7 @@ function cardHTML(c){
   const mergeBtn=`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`;
   const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>working\u2026</span></div>`:'');
   const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on PR #${c.pr.number} · not ready to merge yet</span></div>`:'';
-  const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
+  const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.slice(0,3).map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
   return `<div class="title">${escHTML(c.title)}</div>${line}${ciLine}${opts}${foot}`;
 }
@@ -1437,13 +1443,35 @@ function workingHTML(c){
   if(!c||c.col!=='working'||c.pending)return '';
   return `<div class="msg working"><span class="dot blue pulse"></span><span class="txt">${escHTML(workingText(c))}</span></div>`;
 }
-// ctx: {options:[...], ask, waiting}
+const OPT_LINE_RE=/^\s*(?:\*\*)?(?:\d+|[a-c])[.)]\s*(?:\*\*)?\s*(.+?)\s*$/;
+// fallback when the extractor hasn't produced options yet: the agent's own numbered list
+function inlineOptions(text){
+  if(!/\?\s*$/.test(text.trim()))return [];
+  const out=[];
+  for(const line of text.split('\n')){
+    const m=line.match(OPT_LINE_RE);
+    if(!m){if(out.length)break;continue}
+    const label=m[1].replace(/\*\*/g,'').split(/(?<=[^0-9]):\s|\s[—–-]\s|\.\s/)[0].trim();
+    if(label)out.push(label.length>80?label.slice(0,77)+'\u2026':label);
+  }
+  return out.length>=2&&out.length<=5?out:[];
+}
+function questionHTML(ctx,lastText){
+  const opts=ctx.options||[];
+  if(!opts.length)return '';
+  const q=ctx.question&&!(lastText||'').includes(ctx.question)?`<div class="q-text">${escHTML(ctx.question)}</div>`:'';
+  return `<div class="q-block">${q}<div class="q-opts">${opts.map((o,i)=>`<button class="opt-btn" data-opt="${i}"><kbd>${i+1}</kbd><span>${escHTML(o)}</span></button>`).join('')}</div><div class="q-hint">Pick an option or reply below</div></div>`;
+}
+// ctx: {options:[...], question, ask, waiting}
 function renderThread(msgs,ctx={}){
   const convMeta=document.getElementById('conv-meta');
   const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
   const last=real.at(-1);
   convMeta.textContent=real.length?`${real.length} · last ${last&&last.ts?ago(tsMs(last.ts)):''}`.replace(/ · last $/,''):'';
   const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
+  const lastIsDevin=last&&last.who==='devin';
+  if(lastIsDevin&&!(ctx.options||[]).length)ctx={...ctx,options:inlineOptions((lastDevin.text??'').toString()),inline:true};
+  let qHTML=lastIsDevin?questionHTML(ctx,(lastDevin.text??'').toString()):'';
   const html=msgs.map(m=>{
     if(m.who==='pr')return `<div class="msg pr">${prCardHTML(m.pr)}</div>`;
     const acts=[];
@@ -1451,25 +1479,29 @@ function renderThread(msgs,ctx={}){
     if(m===lastDevin){
       const offers=[...text.matchAll(OFFER_RE)].map(x=>x[1].trim()).filter(Boolean);
       if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
+      if(qHTML){acts.push(qHTML);qHTML='';}
     }
     return `<div class="msg ${m.who}">
     ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:''}</div>`}
     <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`;
   });
   const tail=[];
-  if(ctx.waiting&&(ctx.options||[]).length){
-    tail.push(`<div class="msg devin"><div class="acts"><div class="q-block"><div class="q-head">${I.question} Devin is waiting on you</div>${ctx.ask?`<div class="q-text">${escHTML(ctx.ask)}</div>`:''}<div class="msg-btns">${ctx.options.map((o,i)=>`<button class="act opt-btn" data-opt="${i}"><kbd>${i+1}</kbd>${escHTML(o)}</button>`).join('')}</div></div></div></div>`);
-  }else if(mode==='card'){
-    tail.push(workingHTML(cards[openCard]));
-  }
+  if(mode==='card')tail.push(workingHTML(cards[openCard]));
   threadEl.innerHTML=html.join('')+tail.join('');
+  threadEl.dataset.inlineOpts=ctx.inline?JSON.stringify(ctx.options):'';
 }
 threadEl.addEventListener('click',async e=>{
   const t=e.target.closest('button');
   if(!t||openCard==null)return;
   const c=cards[openCard];
   if(!c)return;
-  if(t.dataset.opt!=null){pickOption(openCard,+t.dataset.opt);return}
+  if(t.dataset.opt!=null){
+    const inline=threadEl.dataset.inlineOpts?JSON.parse(threadEl.dataset.inlineOpts):null;
+    t.closest('.q-block')?.querySelectorAll('.opt-btn').forEach(b=>{b.disabled=true});
+    t.classList.add('sent');
+    pickOption(openCard,+t.dataset.opt,inline?inline[+t.dataset.opt]:undefined);
+    return;
+  }
   if(t.dataset.offer){
     t.disabled=true;
     const text=`Yes — go ahead: ${t.dataset.offer}`;
@@ -1586,6 +1618,7 @@ function threadCtx(c,d){
   const st=d.status||{};
   return {
     options:c.options||[],
+    question:c.question||null,
     ask:c.col==='needs-you'&&c.now?c.now.text:null,
     waiting:!!st.waiting,
   };
@@ -1705,14 +1738,15 @@ document.addEventListener('mousedown',e=>{
   closePanel();
 });
 
-async function pickOption(id,i){
+async function pickOption(id,i,override){
   const c=cards[id];
-  if(!c||!c.options||!c.options[i])return;
-  const text=c.options[i];
-  showToast(`Replying “${text}”…`);
+  const label=override||(c&&c.options&&c.options[i]);
+  if(!c||!label)return;
+  const text=`${i+1}. ${label}`;
+  showToast(`Replying “${label}”…`);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text})});
-    showToast(`Sent “${text}” — “${c.title}”`);
+    showToast(`Sent “${label}” — “${c.title}”`);
     if(openCardKey===c.key)loadThread(c);
   }catch(e){showToast('Send failed: '+e.message)}
 }
@@ -1968,7 +2002,12 @@ document.addEventListener('keydown',e=>{
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
     case 'c': case 'C': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
     case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(+f.dataset.id); e.preventDefault(); break}
-    case '1': case '2': case '3': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)pickOption(+f.dataset.id,+e.key-1); break}
+    case '1': case '2': case '3': case '4': case '5': {
+      const i=+e.key-1;
+      const btn=openCard!=null?threadEl.querySelector(`.opt-btn[data-opt="${i}"]`):null;
+      if(btn){btn.click();break}
+      const f=focused(); if(f&&f.dataset.id!=null&&cards[+f.dataset.id]?.col==='needs-you')pickOption(+f.dataset.id,i);
+      break}
   }
 });
 

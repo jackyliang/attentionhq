@@ -341,7 +341,8 @@ Return STRICT JSON (no markdown) with this shape:
  "current_activity":"one short line: what the agent is doing right now, present tense",
  "ask":"if the agent is waiting on the user, the user's next action in one short imperative line (e.g. 'Approve the blog PR' / 'Choose between A and B'), else null",
  "last_said":"the agent's most recent message to the user compressed to one line (<80 chars): the question it asked, or the answer/result it reported (e.g. 'Asked: keep Jinja or switch to Next?' / 'Reviewed #378: no dead code found')",
- "options":["short option labels if the agent offered numbered/discrete choices, max 3, else empty"],
+ "question":"if the agent's last message asks the user to choose or decide, that question copied verbatim in one line (<120 chars), else null",
+ "options":["the choices the agent offered, if any, each copied verbatim from the agent's own wording (the label/heading of each numbered or bulleted choice, without its explanation), in the agent's order, max 5, else empty"],
  "blocked":true|false,
  "progress_pct":0-100}
 Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you".
@@ -349,7 +350,7 @@ If the last message is the agent asking the user something or reporting completi
 "blocked": true only if the agent explicitly says it cannot continue until the user supplies something (a credential/token, a decision between alternatives, an approval). Examples of blocked=true: "blocked on you for the token", "which approach should I take?", "waiting for your approval to run X". Examples of blocked=false: "PR is up — want me to record a test?", "done; anything else?", "want me to also do X?" (delivered work + optional offer). If one of the offered choices is to skip / do nothing / proceed without it, blocked=false.
 A trailing [prs] line lists the session's pull requests and their current state. A PR that is already merged or closed needs nothing from the user: do not ask them to review or merge it, and set ask to null if that was the only pending action."""
 
-EXTRACT_VERSION = 4
+EXTRACT_VERSION = 5
 
 async def extract_session(session_id: str, messages: list[dict], context: str = "") -> dict | None:
     if not OPENROUTER_API_KEY or not messages:
@@ -570,10 +571,12 @@ async def assemble_board():
         now_text = None
         ask = None
         options = []
+        question = None
         if extract:
             now_text = extract.get("current_activity")
             ask = extract.get("ask")
-            options = extract.get("options") or []
+            options = [str(o).strip() for o in (extract.get("options") or []) if str(o).strip()][:5]
+            question = extract.get("question") or None
         if col == "needs-you" and not ask:
             if pr and pr["ci"] == "failing":
                 ask = "CI failed — take a look"
@@ -595,7 +598,8 @@ async def assemble_board():
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
             "pr": {k: pr.get(k) for k in ("repo", "number", "url", "ci", "review", "mergeable_state", "draft", "title", "branch", "created_at")} if pr else None,
             "now": ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text),
-            "options": options if col == "needs-you" else [],
+            "options": options,
+            "question": question,
             "todos": (extract or {}).get("todos", []),
             "progress_pct": (extract or {}).get("progress_pct"),
             "age": humanize_age(sess.get("created_at", "") if sess else c["created_at"]),
