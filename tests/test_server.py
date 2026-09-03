@@ -17,6 +17,7 @@ os.environ.update(
 )
 
 import httpx  # noqa: E402
+import psycopg  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -564,3 +565,22 @@ def test_settings_roundtrip(client):
     # partial / unknown keys leave the rest alone
     assert client.put("/api/settings", json={"bogus": 1}, headers=h).json()["settings"] == {"show_all": True}
     assert client.put("/api/settings", json={"show_all": False}, headers=h).json()["settings"]["show_all"] is False
+
+
+def test_settings_recover_after_storage_outage(monkeypatch, client):
+    h = {"x-board-token": "tok"}
+    monkeypatch.setattr(server, "settings_loaded", False)
+    server.settings.clear()
+    server.settings.update(server.DEFAULT_SETTINGS)
+
+    def down():
+        raise psycopg.OperationalError("db down")
+    monkeypatch.setattr(server, "load_settings", down)
+    # defaults are served, writes are refused rather than overwriting an unseen stored choice
+    assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is False
+    assert client.put("/api/settings", json={"show_all": True}, headers=h).status_code == 503
+    assert server.settings_loaded is False
+
+    monkeypatch.setattr(server, "load_settings", lambda: {"show_all": True})
+    assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is True
+    assert server.settings_loaded is True

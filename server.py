@@ -369,15 +369,12 @@ def clean_settings(raw) -> dict:
     return {"show_all": bool(raw.get("show_all", DEFAULT_SETTINGS["show_all"]))}
 
 def load_settings() -> dict:
+    """Raises psycopg.Error when the database is unreachable so callers can retry later."""
     if DATABASE_URL:
-        try:
-            with _db() as conn:
-                conn.execute("CREATE TABLE IF NOT EXISTS settings (account_id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())")
-                row = conn.execute("SELECT data FROM settings WHERE account_id = ''").fetchone()
-                return clean_settings(row[0] if row else None)
-        except psycopg.Error:
-            log.warning("could not load settings from db", exc_info=True)
-            return dict(DEFAULT_SETTINGS)
+        with _db() as conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS settings (account_id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())")
+            row = conn.execute("SELECT data FROM settings WHERE account_id = ''").fetchone()
+            return clean_settings(row[0] if row else None)
     try:
         with open(SETTINGS_FILE) as f:
             return clean_settings(json.load(f))
@@ -399,8 +396,37 @@ def save_settings(s: dict):
         json.dump(s, f, indent=1, sort_keys=True)
     os.replace(tmp, SETTINGS_FILE)
 
-settings: dict = load_settings()
 settings_lock = asyncio.Lock()
+settings_loaded = False  # False = storage unreachable at boot; defaults are served until a reload succeeds
+
+def _boot_settings() -> dict:
+    global settings_loaded
+    try:
+        s = load_settings()
+    except psycopg.Error:
+        log.warning("could not load settings from db; retrying on demand", exc_info=True)
+        return dict(DEFAULT_SETTINGS)
+    settings_loaded = True
+    return s
+
+settings: dict = _boot_settings()
+
+async def _ensure_settings():
+    """Retry the boot-time load once storage is back so a stored choice is never shadowed by the default."""
+    global settings_loaded
+    if settings_loaded:
+        return
+    async with settings_lock:
+        if settings_loaded:
+            return
+        try:
+            s = await asyncio.to_thread(load_settings)
+        except psycopg.Error:
+            log.warning("settings storage still unavailable", exc_info=True)
+            return
+        settings.clear()
+        settings.update(s)
+        settings_loaded = True
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -1657,6 +1683,7 @@ async def healthz():
 
 @app.get("/api/board")
 async def get_board(board: str | None = None):
+    await _ensure_settings()
     return board_view(board)
 
 # ---------------------------------------------------------------- boards api
@@ -1674,10 +1701,14 @@ class SettingsIn(BaseModel):
 
 @app.get("/api/settings")
 async def get_settings():
+    await _ensure_settings()
     return {"settings": dict(settings)}
 
 @app.put("/api/settings")
 async def update_settings(body: SettingsIn):
+    await _ensure_settings()
+    if not settings_loaded:
+        raise HTTPException(503, "settings storage unavailable; try again shortly")
     async with settings_lock:
         new = clean_settings({**settings, **body.model_dump(exclude_none=True)})
         if new != settings:
