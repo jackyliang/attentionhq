@@ -229,7 +229,14 @@ def init_boards():
 
 def reload_boards() -> bool:
     """Retry the boot-time load; True once the in-memory boards are authoritative."""
-    return boards_loaded or _adopt_boards(load_boards())
+    if boards_loaded:
+        return True
+    if not _adopt_boards(load_boards()):
+        return False
+    # cards fetched for the stand-in must not survive into the real boards as "unassigned"
+    prune_untracked_cards()
+    request_refresh()
+    return True
 
 def tracked_repos() -> list[str]:
     out: list[str] = []
@@ -238,6 +245,16 @@ def tracked_repos() -> list[str]:
             if r not in out:
                 out.append(r)
     return out
+
+def prune_untracked_cards():
+    """Drop issues/PRs of repos that are on no board (a repo that merely failed to fetch stays tracked and keeps its data)."""
+    tracked = set(tracked_repos())
+    for name in ("issues", "prs"):
+        stale = [k for k in state[name] if k.rsplit("#", 1)[0] not in tracked]
+        if stale:
+            state[name] = {k: v for k, v in state[name].items() if k not in stale}
+            for k in stale:
+                pr_meta_cache.pop(k, None)
 
 def board_by_id(board_id: str) -> dict | None:
     return next((b for b in state["boards"] if b["id"] == board_id), None)
@@ -640,15 +657,8 @@ async def _fetch_github_locked():
         if now - ts > RECENT_ISSUE_TTL:
             recently_closed.pop(key, None)
     failed = None
-    tracked = tracked_repos()
-    # repos that left every board: drop their cards now (a failed fetch below keeps last-known data only for tracked repos)
-    for name in ("issues", "prs"):
-        stale = [k for k in state[name] if k.rsplit("#", 1)[0] not in tracked]
-        if stale:
-            state[name] = {k: v for k, v in state[name].items() if k not in stale}
-            for k in stale:
-                pr_meta_cache.pop(k, None)
-    for repo in tracked:
+    prune_untracked_cards()
+    for repo in tracked_repos():
         prefix = f"{repo}#"
         _webhook_touched.difference_update({k for k in _webhook_touched if k.startswith(prefix)})
         try:
@@ -1428,10 +1438,8 @@ async def poll_loop():
         if not boards_loaded:
             try:
                 async with _boards_lock:
-                    back = await asyncio.to_thread(reload_boards)
-                if back:
-                    log.info("board storage is back; loaded %d boards", len(state["boards"]))
-                    state["gh_refresh"] = True
+                    if await asyncio.to_thread(reload_boards):
+                        log.info("board storage is back; loaded %d boards", len(state["boards"]))
             except Exception as e:  # noqa: BLE001
                 log.warning("board reload failed: %s", e)
         try:
