@@ -13,3 +13,6 @@ dependencies = [
 
 [tool.setuptools]
 py-modules = ["server"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
