@@ -411,22 +411,21 @@ def _boot_settings() -> dict:
 
 settings: dict = _boot_settings()
 
-async def _ensure_settings():
-    """Retry the boot-time load once storage is back so a stored choice is never shadowed by the default."""
+async def reload_settings() -> bool:
+    """Retry the boot-time load from the poll loop (never from a request) so a stored choice is not shadowed by the default."""
     global settings_loaded
     if settings_loaded:
-        return
+        return True
+    try:
+        s = await asyncio.to_thread(load_settings)
+    except psycopg.Error as e:
+        log.warning("settings storage still unavailable: %s", e)
+        return False
     async with settings_lock:
-        if settings_loaded:
-            return
-        try:
-            s = await asyncio.to_thread(load_settings)
-        except psycopg.Error:
-            log.warning("settings storage still unavailable", exc_info=True)
-            return
         settings.clear()
         settings.update(s)
         settings_loaded = True
+    return True
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -1521,6 +1520,8 @@ async def poll_loop():
                         log.info("board storage is back; loaded %d boards", len(state["boards"]))
             except Exception as e:  # noqa: BLE001
                 log.warning("board reload failed: %s", e)
+        if not settings_loaded and await reload_settings():
+            log.info("settings storage is back")
         try:
             now = time.time()
             if (now >= gh_next or state["gh_refresh"]) and now >= (state["github_rate"]["retry_at"] or 0):
@@ -1683,7 +1684,6 @@ async def healthz():
 
 @app.get("/api/board")
 async def get_board(board: str | None = None):
-    await _ensure_settings()
     return board_view(board)
 
 # ---------------------------------------------------------------- boards api
@@ -1701,15 +1701,14 @@ class SettingsIn(BaseModel):
 
 @app.get("/api/settings")
 async def get_settings():
-    await _ensure_settings()
     return {"settings": dict(settings)}
 
 @app.put("/api/settings")
 async def update_settings(body: SettingsIn):
-    await _ensure_settings()
-    if not settings_loaded:
-        raise HTTPException(503, "settings storage unavailable; try again shortly")
     async with settings_lock:
+        if not settings_loaded:
+            wake.set()  # poll loop retries the load right away
+            raise HTTPException(503, "settings storage unavailable; try again shortly")
         new = clean_settings({**settings, **body.model_dump(exclude_none=True)})
         if new != settings:
             try:

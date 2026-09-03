@@ -579,8 +579,11 @@ def test_settings_recover_after_storage_outage(monkeypatch, client):
     # defaults are served, writes are refused rather than overwriting an unseen stored choice
     assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is False
     assert client.put("/api/settings", json={"show_all": True}, headers=h).status_code == 503
+    assert asyncio.run(server.reload_settings()) is False
     assert server.settings_loaded is False
 
+    # the poll loop's retry adopts the stored value once the db answers
     monkeypatch.setattr(server, "load_settings", lambda: {"show_all": True})
-    assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is True
+    assert asyncio.run(server.reload_settings()) is True
     assert server.settings_loaded is True
+    assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is True

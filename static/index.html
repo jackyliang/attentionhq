@@ -124,7 +124,10 @@ svg{display:block;flex:none}
 .rail .group.bottom{border-top:1px solid var(--ds-gray-300)}
 .slot{position:relative;width:100%;height:42px;flex:none;display:flex;align-items:center;justify-content:center}
 .slot.active::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:2px;background:var(--ds-gray-1000)}
+.tile .hk{position:absolute;right:-1px;bottom:-1px;padding:0 3px;font-size:8px;line-height:10px;letter-spacing:0;color:var(--ds-gray-700);background:var(--ds-background-100);border:1px solid var(--ds-gray-400);pointer-events:none}
+.slot.active .tile .hk,.tile:hover .hk{color:var(--ds-gray-1000);border-color:var(--ds-gray-500)}
 .tile{
+  position:relative;
   width:34px;height:34px;
   display:flex;align-items:center;justify-content:center;
   font-family:var(--font-mono);font-size:11px;line-height:14px;font-weight:500;letter-spacing:.04em;
@@ -1022,6 +1025,7 @@ aside{
         <div class="sc">Move between columns <span class="k"><kbd>A</kbd><kbd>D</kbd></span></div>
         <div class="sc">First / last card in column <span class="k"><kbd>Home</kbd><kbd>End</kbd></span></div>
         <div class="sc">Previous / next board <span class="k"><kbd>[</kbd><kbd>]</kbd></span></div>
+        <div class="sc">Jump to board <span class="k"><kbd>1</kbd>…<kbd>9</kbd><kbd>0</kbd></span></div>
         <div class="sc">Boards settings <span class="k"><kbd>,</kbd></span></div>
         <h3>Cards</h3>
         <div class="sc">Open selected card <span class="k"><kbd>Enter</kbd></span></div>
@@ -1251,10 +1255,13 @@ const BOARD_COLORS=['red','orange','amber','lime','green','teal','cyan','blue','
 function tint(c){return BOARD_COLORS.includes(c)?` style="--c:var(--bc-${c})"`:''}
 const railBoards=document.getElementById('rail-boards');
 const crumbName=document.getElementById('crumb-name');
+function railIds(){return [...(allHidden()?[]:[null]),...boards.map(b=>b.id)]}
+function hotkey(i){return i<9?String(i+1):(i===9?'0':'')}
 function renderRail(){
-  const slots=[...(allHidden()?[]:[{id:null,name:'All'}]),...boards].map(b=>{
+  const slots=[...(allHidden()?[]:[{id:null,name:'All'}]),...boards].map((b,i)=>{
     const active=view==='board'&&(b.id||null)===boardId;
-    return `<div class="slot${active?' active':''}"><button class="tile"${tint(b.color)} data-board="${escHTML(b.id||'')}" title="${escHTML(b.name)}" aria-label="${escHTML(b.name)}">${escHTML(initials(b.name))}</button></div>`;
+    const k=hotkey(i);
+    return `<div class="slot${active?' active':''}"><button class="tile"${tint(b.color)} data-board="${escHTML(b.id||'')}" title="${escHTML(b.name)}${k?` (${k})`:''}" aria-label="${escHTML(b.name)}">${escHTML(initials(b.name))}${k?`<span class="hk" aria-hidden="true">${k}</span>`:''}</button></div>`;
   });
   slots.push(`<div class="slot"><button class="tile plus" id="rail-new" title="New board" aria-label="New board"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12M2 8h12"/></svg></button></div>`);
   railBoards.innerHTML=slots.join('');
@@ -1279,9 +1286,13 @@ function gotoBoard(id,{replace=false}={}){
   fetchBoard().then(()=>{const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();if(c)c.focus()}).catch(()=>{});
 }
 function cycleBoard(d){
-  const ids=[...(allHidden()?[]:[null]),...boards.map(b=>b.id)];
+  const ids=railIds();
   const i=ids.indexOf(boardId);
   gotoBoard(ids[(i+d+ids.length)%ids.length]);
+}
+function jumpBoard(n){
+  const id=railIds()[n];
+  if(id!==undefined&&!(view==='board'&&id===boardId))gotoBoard(id);
 }
 
 /* ---- boards settings: list on the left, one editor on the right ---- */
@@ -1330,15 +1341,17 @@ document.getElementById('blist-rows').addEventListener('click',e=>{
   if(e.target.closest('[data-toggle-all]')){toggleShowAll();return}
   const r=e.target.closest('[data-edit]'); if(r)editBoard(r.dataset.edit);
 });
-/* saves run one at a time in click order; each one sends the latest desired value */
-let allSaves=0, allQueue=Promise.resolve();
+/* saves run one at a time; every click is a new generation, and only the newest one
+   is sent / may roll back — superseded clicks are skipped, never reversed */
+let allSaves=0, allGen=0, allQueue=Promise.resolve();
 function toggleShowAll(){
   showAll=!showAll; renderBoardList(); renderRail();
+  const gen=++allGen, want=showAll;
   allSaves++;
   allQueue=allQueue.then(async()=>{
-    const want=showAll;
-    try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify({show_all:want})});if(showAll===want)showAll=!!d.settings.show_all}
-    catch(e){if(showAll===want){showAll=!want;showToast('Save failed: '+e.message)}}
+    if(gen!==allGen){allSaves--;return}
+    try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify({show_all:want})});if(gen===allGen)showAll=!!d.settings.show_all}
+    catch(e){if(gen===allGen){showAll=!want;showToast('Save failed: '+e.message)}}
     finally{allSaves--}
     renderBoardList(); renderRail();
   });
@@ -2947,6 +2960,7 @@ document.addEventListener('keydown',e=>{
   if(view==='settings'){
     if(e.key==='Escape'||e.key===','){closeSettings();e.preventDefault()}
     else if(e.key==='?'){toggleOverlay(true);e.preventDefault()}
+    else if(/^[0-9]$/.test(e.key)){jumpBoard(e.key==='0'?9:+e.key-1);e.preventDefault()}
     return;
   }
   switch(e.key){
@@ -2971,11 +2985,16 @@ document.addEventListener('keydown',e=>{
     case 'r': case 'R': refreshNow(); e.preventDefault(); break;
     case 'Backspace': case 'Delete': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(idOf(f)); e.preventDefault(); break}
     case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(idOf(f)); e.preventDefault(); break}
-    case '1': case '2': case '3': case '4': case '5': {
-      const i=+e.key-1;
-      const btn=openCard!=null?threadEl.querySelector(`.opt-btn[data-opt="${i}"]`):null;
-      if(btn){btn.click();break}
-      const f=focused(); if(f&&f.dataset.id!=null&&cards[idOf(f)]?.col==='needs-you')pickOption(idOf(f),i);
+    case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9': case '0': {
+      /* a suggested option on the open / focused needs-you card wins; otherwise jump to that board */
+      const i=e.key==='0'?9:+e.key-1;
+      if(i<5){
+        const btn=openCard!=null?threadEl.querySelector(`.opt-btn[data-opt="${i}"]`):null;
+        if(btn){btn.click();break}
+        const f=focused(); const c=f&&f.dataset.id!=null?cards[idOf(f)]:null;
+        if(c&&c.col==='needs-you'&&c.options&&c.options[i]){pickOption(idOf(f),i);break}
+      }
+      jumpBoard(i); e.preventDefault();
       break}
   }
 });
