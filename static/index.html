@@ -360,21 +360,15 @@ main{
   display:flex;flex-direction:column;gap:7px;
   text-align:left;width:100%;
 }
-/* Selection ring: four 1px-thin edge bars, each moved/scaled with transform only so the
-   whole ring stays on the compositor thread (no layout/paint per frame). */
-#selring{position:fixed;left:0;top:0;width:0;height:0;z-index:4;pointer-events:none;opacity:0;transition:opacity .15s ease;--ring-ease:cubic-bezier(.3,.9,.3,1);--ring-dur:.14s}
-#selring i{position:absolute;left:0;top:0;display:block;transform-origin:0 0;will-change:transform;transition:transform var(--ring-dur) var(--ring-ease)}
-#selring i.t,#selring i.b{width:1px;height:4px}
-#selring i.l,#selring i.r{width:4px;height:1px}
-#selring i.t{background:linear-gradient(to bottom,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
-#selring i.b{background:linear-gradient(to top,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
-#selring i.l{background:linear-gradient(to right,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
-#selring i.r{background:linear-gradient(to left,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
-#selring.instant i{transition:none}
+/* Selection ring: one fixed box drawn with a real 1px border (never a scaled bitmap), moved with
+   translate and resized via width/height. It is a lone fixed-position element, so the resize
+   layout is trivial and the border stays a crisp continuous 1px line at every frame. */
+#selring{position:fixed;left:0;top:0;width:0;height:0;z-index:4;pointer-events:none;opacity:0;box-sizing:border-box;border:1px solid var(--ds-gray-alpha-600);box-shadow:0 0 0 3px #ffffff1f;will-change:transform;--ring-ease:cubic-bezier(.3,.9,.3,1);--ring-dur:.14s;transition:opacity .15s ease,transform var(--ring-dur) var(--ring-ease),width var(--ring-dur) var(--ring-ease),height var(--ring-dur) var(--ring-ease)}
+#selring.instant{transition:opacity .15s ease}
 .card.flip{will-change:transform,opacity}
 .card-ghost{position:fixed;z-index:3;pointer-events:none;margin:0}
 #fps{position:fixed;right:8px;bottom:8px;z-index:50;padding:2px 6px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-1000);background:var(--ds-gray-200);border:1px solid var(--ds-gray-400);pointer-events:none}
-@media (prefers-reduced-motion:reduce){#selring,#selring i{transition:none}}
+@media (prefers-reduced-motion:reduce){#selring{transition:none}}
 .card:hover{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card.selected{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card[data-tone="amber"]{border-left-color:var(--ds-amber-700)}
@@ -2804,23 +2798,20 @@ function firstCard(){return document.querySelector('.card')}
 /* ---- animated selection ring ---- */
 const selring=document.createElement('div');
 selring.id='selring';
-selring.innerHTML='<i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i>';
 document.body.appendChild(selring);
-const ringBars={t:selring.children[0],b:selring.children[1],l:selring.children[2],r:selring.children[3]};
 let ringTarget=null,pointerNav=false,ringFlightUntil=0;
 document.addEventListener('pointermove',()=>{pointerNav=true},{passive:true,capture:true});
 document.addEventListener('keydown',()=>{pointerNav=false},{capture:true});
-/* Position the ring around a client rect using transform-only edge bars.
+/* Position the ring 1px outside a client rect (integer-snapped so the border lands on whole pixels).
    `instant` snaps by toggling a no-transition class and flushing style synchronously
    (no rAF juggling, so no dropped frames). `dur` overrides the transition length in ms. */
 function ringTo(r,instant,dur){
   const x=Math.round(r.left),y=Math.round(r.top),w=Math.round(r.width),h=Math.round(r.height);
   if(instant)selring.classList.add('instant');
   selring.style.setProperty('--ring-dur',dur?dur+'ms':'');
-  ringBars.t.style.transform=`translate(${x-4}px,${y-4}px) scaleX(${w+8})`;
-  ringBars.b.style.transform=`translate(${x-4}px,${y+h}px) scaleX(${w+8})`;
-  ringBars.l.style.transform=`translate(${x-4}px,${y}px) scaleY(${h})`;
-  ringBars.r.style.transform=`translate(${x+w}px,${y}px) scaleY(${h})`;
+  selring.style.transform=`translate(${x-1}px,${y-1}px)`;
+  selring.style.width=(w+2)+'px';
+  selring.style.height=(h+2)+'px';
   selring.style.opacity=1;
   if(instant){void selring.offsetWidth;selring.classList.remove('instant')}
 }
