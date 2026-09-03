@@ -624,7 +624,12 @@ def session_prs(sess: dict) -> list[dict]:
                         "state": (p.get("pr_state") or "open").lower()})
     return out
 
+# bumped whenever a card is removed out-of-band (archive/hide) so an assembly that
+# started before the removal cannot commit a board that still shows the card
+board_gen = 0
+
 async def assemble_board():
+    gen = board_gen
     issues, prs, sessions = state["issues"], state["prs"], state["sessions"]
     cards = {}
 
@@ -771,6 +776,8 @@ async def assemble_board():
             "created_at": c["created_at"],
         })
 
+    if gen != board_gen:
+        return
     # newest issues first; everything else oldest first
     state["board"] = {
         "columns": [
@@ -1045,8 +1052,12 @@ async def post_message(card_id: str, body: MessageIn):
     # assembly (which may call the extractor) happens in the background
     cols = {col["id"]: col for col in (state["board"] or {"columns": []})["columns"]}
     if "needs-you" in cols and "working" in cols:
-        moved = [c for c in cols["needs-you"]["cards"] if c["id"] == card_id]
-        cols["needs-you"]["cards"] = [c for c in cols["needs-you"]["cards"] if c["id"] != card_id]
+        # same guard as the client: a PR with failing CI / requested changes stays put
+        def stuck(c):
+            pr = c.get("pr") or {}
+            return pr.get("ci") == "failing" or pr.get("review") == "changes_requested"
+        moved = [c for c in cols["needs-you"]["cards"] if c["id"] == card_id and not stuck(c)]
+        cols["needs-you"]["cards"] = [c for c in cols["needs-you"]["cards"] if c not in moved]
         for c in moved:
             c.update({"col": "working", "tone": "blue", "now": None, "options": [], "question": None})
             cols["working"]["cards"].append(c)
@@ -1145,6 +1156,8 @@ async def archive_card(card_id: str):
     elif card["kind"] != "session":
         dismissed.add(card_id)
         await asyncio.to_thread(save_dismissed, dismissed)
+    global board_gen
+    board_gen += 1
     if card["session_id"]:
         recent_sessions.pop(card["session_id"], None)
         recent_replies.pop(card["session_id"], None)
@@ -1158,6 +1171,8 @@ async def archive_card(card_id: str):
 async def hide_card(card_id: str):
     """Drop the card from the board without touching the Devin session or the
     GitHub issue."""
+    global board_gen
+    board_gen += 1
     dismissed.add(card_id)
     await asyncio.to_thread(save_dismissed, dismissed)
     for col in (state["board"] or {"columns": []})["columns"]:
