@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import httpx
 import psycopg
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -540,10 +540,10 @@ async def assemble_board():
         prompt = session_prompt(sess)
         if prompt and not ik:
             ik = by_prompt.get(prompt[0])
-            if not ik and st not in ACTIVE_STATUSES and time.time() - _epoch(sess.get("created_at")) < 1800:
+            if not ik and (st not in ACTIVE_STATUSES or session_needs_user(sess)) and time.time() - _epoch(sess.get("created_at")) < 1800:
                 state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
             # a file-only session is done once the issue exists; don't keep it on the card
-            if prompt[1] == "file" and st not in ACTIVE_STATUSES and (ik or not session_pr_urls(sess)):
+            if prompt[1] == "file" and (ik or (st not in ACTIVE_STATUSES and not session_pr_urls(sess))):
                 continue
         if ik and ik in cards:
             cards[ik]["sessions"].append(sess)
@@ -566,6 +566,7 @@ async def assemble_board():
                     "repo": None, "number": None,
                     "url": sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}",
                     "sessions": [sess], "prs": [], "created_at": sess.get("created_at", ""),
+                    "filing": bool(prompt) and prompt[1] == "file",
                 }
 
     out = []
@@ -602,6 +603,8 @@ async def assemble_board():
             col, tone = "ready", "green"
         elif pr and not pr["draft"]:
             col, tone = "review", "purple"
+        elif c.get("filing"):
+            col, tone = "issues", "grey"  # Devin is only filing the issue, not working on it
         elif st in ACTIVE_STATUSES:
             col, tone = "working", "blue"
         elif c["kind"] == "issue":
@@ -873,16 +876,49 @@ async def get_attachment(uuid: str, name: str):
         headers={"Cache-Control": "private, max-age=86400", "Content-Disposition": "inline"},
     )
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+DEVIN_ATT_RE = re.compile(r"^https://app\.devin\.ai/attachments/[0-9a-fA-F-]{36}/[^/?#]+$")
+
+def clean_attachments(urls: list[str] | None) -> list[str]:
+    out = [u for u in (urls or []) if isinstance(u, str) and DEVIN_ATT_RE.match(u)]
+    if len(out) != len(urls or []):
+        raise HTTPException(400, "attachments must be Devin attachment URLs")
+    return out[:10]
+
+@app.post("/api/upload")
+async def upload_attachment(file: UploadFile):
+    """Proxy a pasted/dropped file to Devin's attachment store so the browser
+    never holds the Devin API key. Returns the app.devin.ai attachment URL."""
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if not data:
+        raise HTTPException(400, "empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"file exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
+    name = re.sub(r"[^\w.\-]+", "_", file.filename or "") or f"paste-{int(time.time())}.bin"
+    async with devin_client() as dv:
+        r = await dv.post("/attachments", files={"file": (name, data, file.content_type or "application/octet-stream")}, timeout=60)
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+    j = r.json()
+    return {"url": j.get("url"), "name": j.get("name") or name}
+
 class MessageIn(BaseModel):
-    text: str
+    text: str = ""
+    attachments: list[str] = []
 
 @app.post("/api/card/{card_id:path}/message")
 async def post_message(card_id: str, body: MessageIn):
     card = find_card(card_id)
     if not card["session_id"]:
         raise HTTPException(400, "card has no session")
+    atts = clean_attachments(body.attachments)
+    if not body.text.strip() and not atts:
+        raise HTTPException(400, "empty message")
+    payload = {"message": body.text}
+    if atts:
+        payload["attachment_urls"] = atts
     async with devin_client() as dv:
-        r = await dv.post(f"/sessions/{card['session_id']}/messages", json={"message": body.text})
+        r = await dv.post(f"/sessions/{card['session_id']}/messages", json=payload)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
     return {"ok": True}
@@ -993,14 +1029,17 @@ async def start_session(body: StartIn):
 class PromptIn(BaseModel):
     prompt: str
     start: bool = False
+    attachments: list[str] = []
 
 @app.post("/api/prompt")
 async def prompt_devin(body: PromptIn):
     """The '+' box is a prompt: Devin picks the repo, writes and files the issue
     (and, with start=True, goes on to implement it)."""
     text = body.prompt.strip()
-    if not text:
+    atts = clean_attachments(body.attachments)
+    if not text and not atts:
         raise HTTPException(400, "empty prompt")
+    text = text or "(see attached files)"
     pid = uuid.uuid4().hex[:12]
     mode = "work" if body.start else "file"
     repos = "\n".join(f"- {r}" for r in REPOS)
@@ -1014,12 +1053,17 @@ async def prompt_devin(body: PromptIn):
         "questions; make reasonable assumptions and note them in the issue.\n"
         f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
         "4. Create the issue in that repo and reply with just its URL.\n"
+        + ("The user attached files to this task (see the session attachments). Embed the image attachments in the issue body "
+           "and link any others, so they are visible on GitHub.\n" if atts else "")
         + ("5. Then implement the issue and open a PR that references it with 'Fixes #<number>'.\n" if body.start else
            "Do not start implementing it; filing the issue is the whole task.\n")
     )
     title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
     async with devin_client() as dv:
-        r = await dv.post("/sessions", json={"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title})
+        payload = {"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title}
+        if atts:
+            payload["attachment_urls"] = atts
+        r = await dv.post("/sessions", json=payload)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
         data = r.json()
