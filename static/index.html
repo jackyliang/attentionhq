@@ -1480,7 +1480,7 @@ function questionHTML(ctx,lastText){
 }
 // ctx: {options:[...], question, ask, waiting}
 function renderThread(msgs,ctx={}){
-  const real=msgs.filter(m=>m.who==='user'||m.who==='devin');
+  const real=msgs.filter(m=>(m.who==='user'&&m.state!=='failed')||m.who==='devin');
   const last=real.at(-1);
   const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
   const lastIsDevin=last&&last.who==='devin';
@@ -1616,7 +1616,8 @@ function refreshPanel(c){
 }
 
 const threadCache={}; // card key -> {msgs, status, sig, pending, sentAt}
-const PENDING_MAX_MS=10*60*1000, PENDING_ECHO_SLACK_MS=30*1000;
+const PENDING_MAX_MS=10*60*1000;
+const msgId=m=>`${m.ts}|${m.text||''}`;
 function threadSig(d){
   return JSON.stringify([d.msgs||[],d.status||null,(d.pending||[]).map(p=>[p.state,p.text]),d.sentAt||null]);
 }
@@ -1625,10 +1626,11 @@ function threadMsgs(d){
   const all=[...(d.msgs||[]),...(d.pending||[])];
   return all.length?all:[{who:'system',text:'No messages yet.'}];
 }
-// a pending entry is echoed by the first unclaimed server user message sent around the same time
-// whose text starts with what we sent (or, for attachment-only sends, carries the same attachment URLs)
+// a pending entry is echoed by the first unclaimed server user message that wasn't already in the
+// thread when we sent, whose text starts with what we sent (or, for attachment-only sends, carries
+// the same attachment URLs)
 function echoes(p,m){
-  if(m.who!=='user'||!(tsMs(m.ts)>=p.at-PENDING_ECHO_SLACK_MS))return false;
+  if(m.who!=='user'||p.seen.has(msgId(m)))return false;
   const t=(m.text||'').trim();
   return p.match?t.startsWith(p.match):p.atts.every(u=>t.includes(u));
 }
@@ -2021,6 +2023,7 @@ async function sendMsg(){
 async function sendToSession(c,text,attachments=[]){
   const th=threadCache[c.key]||(threadCache[c.key]={msgs:[],status:null,sig:''});
   const p={who:'user',ts:new Date().toISOString(),at:Date.now(),state:'sending',match:text.trim(),atts:attachments,
+    seen:new Set(th.msgs.filter(m=>m.who==='user').map(msgId)),
     text:[text,...attachments.map(u=>`ATTACHMENT:"${u}"`)].filter(Boolean).join('\n')};
   (th.pending||(th.pending=[])).push(p);
   th.sentAt=p.at;
