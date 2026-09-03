@@ -1110,6 +1110,12 @@ function wireCard(el){
     focusByMouse(el);
   });
   el.addEventListener('focus',()=>{if(!restoringFocus&&!mouseFocusing)ensureVisible(el)});
+  // take over the browser's default mousedown focus, which would scroll the card into view
+  el.addEventListener('mousedown',e=>{
+    if(e.button!==0||e.target.closest('a, input, textarea'))return;
+    e.preventDefault();
+    focusByMouse(el);
+  });
   el.addEventListener('mouseenter',()=>{
     if(performance.now()-lastMouseMove>150)return;
     const a=document.activeElement;
