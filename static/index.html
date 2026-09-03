@@ -241,12 +241,21 @@ main{
   display:flex;flex-direction:column;gap:7px;
   text-align:left;width:100%;
 }
-#selring{position:fixed;left:0;top:0;z-index:4;pointer-events:none;box-shadow:var(--ds-focus-border);opacity:0;will-change:transform;transition:transform .14s cubic-bezier(.3,.9,.3,1),width .14s cubic-bezier(.3,.9,.3,1),height .14s cubic-bezier(.3,.9,.3,1),opacity .15s ease}
-.card.flip-hidden{opacity:0}
-.flip-ghost{position:fixed;left:0;top:0;z-index:5;pointer-events:none;margin:0;will-change:transform,opacity}
-.flip-ghost.selected{border-color:var(--ds-gray-400);background:var(--ds-background-100)}
-#fps{position:fixed;left:8px;bottom:8px;z-index:9;padding:2px 6px;font-family:var(--font-mono);font-size:11px;line-height:16px;color:var(--ds-gray-1000);background:var(--ds-background-100);border:1px solid var(--ds-gray-400);pointer-events:none}
-@media (prefers-reduced-motion:reduce){#selring{transition:opacity .15s ease}}
+/* Selection ring: four 1px-thin edge bars, each moved/scaled with transform only so the
+   whole ring stays on the compositor thread (no layout/paint per frame). */
+#selring{position:fixed;left:0;top:0;width:0;height:0;z-index:4;pointer-events:none;opacity:0;transition:opacity .15s ease;--ring-ease:cubic-bezier(.3,.9,.3,1);--ring-dur:.14s}
+#selring i{position:absolute;left:0;top:0;display:block;transform-origin:0 0;will-change:transform;transition:transform var(--ring-dur) var(--ring-ease)}
+#selring i.t,#selring i.b{width:1px;height:4px}
+#selring i.l,#selring i.r{width:4px;height:1px}
+#selring i.t{background:linear-gradient(to bottom,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
+#selring i.b{background:linear-gradient(to top,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
+#selring i.l{background:linear-gradient(to right,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
+#selring i.r{background:linear-gradient(to left,#ffffff3d 3px,var(--ds-gray-alpha-600) 3px)}
+#selring.instant i{transition:none}
+.card.flip{will-change:transform,opacity}
+.card-ghost{position:fixed;z-index:3;pointer-events:none;margin:0}
+#fps{position:fixed;right:8px;bottom:8px;z-index:50;padding:2px 6px;font-family:var(--font-mono);font-size:10px;line-height:14px;color:var(--ds-gray-1000);background:var(--ds-gray-200);border:1px solid var(--ds-gray-400);pointer-events:none}
+@media (prefers-reduced-motion:reduce){#selring,#selring i{transition:none}}
 .card:hover{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card.selected{border-color:var(--ds-gray-500);background:var(--ds-gray-100)}
 .card[data-tone="amber"]{border-left-color:var(--ds-amber-700)}
@@ -1091,65 +1100,70 @@ function emptyHTML(colId){
   const [e1,e2]=EMPTY_COPY[colId];
   return `<div class="col-empty"><span class="e1">${e1}</span><span class="e2">${e2}</span></div>`;
 }
-/* ---- FLIP: cards travel between slots/columns instead of teleporting ---- */
+/* ---- FLIP card moves ----
+   Before a re-render we snapshot every card's rect (and column); afterwards each card that
+   still exists is animated from its old rect to its new one with transform only, so a
+   status change visibly travels between columns instead of teleporting. New cards fade/scale
+   in; removed cards leave a fading ghost. Uses the selection-ring curve for consistency. */
 const FLIP_EASE='cubic-bezier(.3,.9,.3,1)';
+const FLIP_DUR={shift:140,move:200,enter:160,exit:140};
 const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
-let flipPrevLoaded=false,flipSkip=false;
-document.addEventListener('visibilitychange',()=>{if(document.hidden)flipSkip=true});
-function flipSnapshot(){
-  const ok=boardLoaded&&flipPrevLoaded&&!document.hidden&&!flipSkip&&!reduceMotion.matches;
-  flipPrevLoaded=boardLoaded; if(!document.hidden)flipSkip=false;
-  if(!ok)return null;
+let wasHidden=false;
+document.addEventListener('visibilitychange',()=>{if(document.hidden)wasHidden=true});
+function snapshotCards(){
+  if(!boardLoaded||reduceMotion.matches||document.hidden)return null;
   const m=new Map();
-  boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
-    m.set(el.dataset.key,{rect:el.getBoundingClientRect(),col:el.closest('.col').dataset.col,node:el});
+  document.querySelectorAll('.card[data-key]').forEach(el=>{
+    m.set(el.dataset.key,{rect:el.getBoundingClientRect(),col:el.closest('.col')?.dataset.col,el});
   });
   return m;
 }
-function flipGhost(node,rect){
-  const g=node.cloneNode(true);
-  g.classList.add('flip-ghost'); g.classList.remove('flip-hidden');
-  g.removeAttribute('id'); g.removeAttribute('tabindex'); g.setAttribute('aria-hidden','true');
-  g.style.width=rect.width+'px'; g.style.height=rect.height+'px';
-  g.style.transform=`translate(${rect.left}px,${rect.top}px)`;
-  document.body.appendChild(g);
-  return g;
-}
-function flipPlay(prev){
-  if(!prev)return;
-  const mainR=boardEl.closest('main').getBoundingClientRect();
+function flipCards(before,focusEl){
+  if(wasHidden){wasHidden=false;return}
+  if(!before||reduceMotion.matches||document.hidden)return;
   const seen=new Set();
-  boardEl.querySelectorAll('.card[data-key]').forEach(el=>{
+  document.querySelectorAll('.card[data-key]').forEach(el=>{
     const key=el.dataset.key; seen.add(key);
+    const old=before.get(key);
     const to=el.getBoundingClientRect();
-    if(!to.width)return;
-    const old=prev.get(key);
     if(!old){
-      el.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:140,easing:FLIP_EASE});
+      el.classList.add('flip');
+      el.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:FLIP_DUR.enter,easing:FLIP_EASE}).onfinish=()=>el.classList.remove('flip');
       return;
     }
-    const dx=old.rect.left-to.left,dy=old.rect.top-to.top;
-    if(Math.abs(dx)<.5&&Math.abs(dy)<.5)return;
-    if(old.col===el.closest('.col').dataset.col){
-      el.animate([{transform:`translate(${dx}px,${dy}px)`},{transform:'none'}],{duration:140,easing:FLIP_EASE});
-      return;
+    const from=old.rect;
+    const dx=from.left-to.left,dy=from.top-to.top;
+    const sx=to.width?from.width/to.width:1,sy=to.height?from.height/to.height:1;
+    if(Math.abs(dx)<.5&&Math.abs(dy)<.5&&Math.abs(sx-1)<.01&&Math.abs(sy-1)<.01)return;
+    const cross=old.col!==el.closest('.col')?.dataset.col;
+    const dur=cross?FLIP_DUR.move:FLIP_DUR.shift;
+    if(cross){
+      // column bodies clip overflow, so a cross-column move travels as a fixed-position
+      // ghost above the board while the real card waits (invisible) in its new slot
+      const ghost=el.cloneNode(true);
+      ghost.classList.add('card-ghost','flip'); ghost.removeAttribute('data-key'); ghost.tabIndex=-1;
+      Object.assign(ghost.style,{left:to.left+'px',top:to.top+'px',width:to.width+'px',height:to.height+'px',transformOrigin:'0 0',zIndex:3});
+      document.body.appendChild(ghost);
+      el.style.opacity=0;
+      ghost.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE}).onfinish=()=>{ghost.remove();el.style.opacity=''};
+    }else{
+      el.classList.add('flip');
+      el.style.transformOrigin='0 0';
+      el.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE}).onfinish=()=>{el.classList.remove('flip');el.style.transformOrigin=''};
     }
-    // cross-column: columns clip overflow, so fly a fixed ghost over the board
-    el.classList.add('flip-hidden');
-    const g=flipGhost(el,to);
-    const anim=g.animate(
-      [{transform:`translate(${old.rect.left}px,${old.rect.top}px)`},{transform:`translate(${to.left}px,${to.top}px)`}],
-      {duration:200,easing:FLIP_EASE});
-    anim.onfinish=anim.oncancel=()=>{g.remove();el.classList.remove('flip-hidden')};
+    if(el===focusEl){ringFlightUntil=performance.now()+dur+50;ringTo(from,true);requestAnimationFrame(()=>{if(ringTarget===el)ringTo(to,false,dur)})}
   });
-  prev.forEach((old,key)=>{
-    if(seen.has(key)||old.rect.bottom<mainR.top||old.rect.top>mainR.bottom)return;
-    const g=flipGhost(old.node,old.rect);
-    const anim=g.animate([{opacity:1,transform:g.style.transform},{opacity:0,transform:g.style.transform+' scale(.96)'}],{duration:120,easing:FLIP_EASE});
-    anim.onfinish=anim.oncancel=()=>g.remove();
+  before.forEach((old,key)=>{
+    if(seen.has(key))return;
+    const r=old.rect;
+    if(r.bottom<0||r.right<0||r.top>innerHeight||r.left>innerWidth)return;
+    const ghost=old.el.cloneNode(true);
+    ghost.classList.add('card-ghost'); ghost.classList.remove('selected'); ghost.removeAttribute('data-key'); ghost.tabIndex=-1;
+    Object.assign(ghost.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});
+    document.body.appendChild(ghost);
+    ghost.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.96)'}],{duration:FLIP_DUR.exit,easing:FLIP_EASE}).onfinish=()=>ghost.remove();
   });
 }
-
 function renderBoard(){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
@@ -1157,7 +1171,7 @@ function renderBoard(){
   const wasAdd=a&&a.id==='add-issue';
   if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput){syncOpenCard(true);return} // don't disturb typing, but keep the open thread fresh
   const scroll=captureScroll();
-  const flipPrev=flipSnapshot();
+  const before=snapshotCards();
   boardEl.innerHTML='';
   columns.forEach(col=>{
     const colCards = cards.filter(c=>c.col===col.id);
@@ -1188,15 +1202,16 @@ function renderBoard(){
   syncOpenCard();
   restoreScroll(scroll);
   restoringFocus=true;
+  let focusEl=null;
   if(focusKey){
     const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`)||spotCard(focusSpot);
-    if(el)el.focus({preventScroll:true});
+    if(el){el.focus({preventScroll:true});focusEl=el}
     else moveRing(null);
   }else if(wasAdd){
     const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
   restoringFocus=false;
-  flipPlay(flipPrev); // after focus restore so moveRing reads the settled rect, not the first FLIP keyframe
+  flipCards(before,focusEl);
 }
 
 let lastSync=0,dataAt=0,upstreamDown=[],fetchFailed=false;
@@ -2135,27 +2150,39 @@ function firstCard(){return document.querySelector('.card')}
 /* ---- animated selection ring ---- */
 const selring=document.createElement('div');
 selring.id='selring';
+selring.innerHTML='<i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i>';
 document.body.appendChild(selring);
-let ringTarget=null,pointerNav=false;
+const ringBars={t:selring.children[0],b:selring.children[1],l:selring.children[2],r:selring.children[3]};
+let ringTarget=null,pointerNav=false,ringFlightUntil=0;
 document.addEventListener('pointermove',()=>{pointerNav=true},{passive:true,capture:true});
 document.addEventListener('keydown',()=>{pointerNav=false},{capture:true});
+/* Position the ring around a client rect using transform-only edge bars.
+   `instant` snaps by toggling a no-transition class and flushing style synchronously
+   (no rAF juggling, so no dropped frames). `dur` overrides the transition length in ms. */
+function ringTo(r,instant,dur){
+  const x=Math.round(r.left),y=Math.round(r.top),w=Math.round(r.width),h=Math.round(r.height);
+  if(instant)selring.classList.add('instant');
+  selring.style.setProperty('--ring-dur',dur?dur+'ms':'');
+  ringBars.t.style.transform=`translate(${x-4}px,${y-4}px) scaleX(${w+8})`;
+  ringBars.b.style.transform=`translate(${x-4}px,${y+h}px) scaleX(${w+8})`;
+  ringBars.l.style.transform=`translate(${x-4}px,${y}px) scaleY(${h})`;
+  ringBars.r.style.transform=`translate(${x+w}px,${y}px) scaleY(${h})`;
+  selring.style.opacity=1;
+  if(instant){void selring.offsetWidth;selring.classList.remove('instant')}
+}
 function moveRing(el,instant){
   if(!el){selring.style.opacity=0;ringTarget=null;return}
   ringTarget=el;
-  const r=el.getBoundingClientRect();
-  if(instant)selring.style.transition='none';
-  selring.style.width=r.width+'px';
-  selring.style.height=r.height+'px';
-  selring.style.transform=`translate(${r.left}px,${r.top}px)`;
-  selring.style.opacity=1;
-  if(instant){void getComputedStyle(selring).transform;selring.style.transition=''} // flush so no transition is queued
+  // scroll/resize snaps fired by the re-render itself must not interrupt a FLIP ring flight
+  if(instant&&performance.now()<ringFlightUntil)return;
+  ringTo(el.getBoundingClientRect(),instant);
 }
 
-/* dev-only frame counter: ?fps=1 */
+/* ---- dev-only FPS readout (?fps=1) ---- */
 if(new URLSearchParams(location.search).get('fps')==='1'){
   const fpsEl=document.createElement('div'); fpsEl.id='fps'; fpsEl.textContent='-- fps'; document.body.appendChild(fpsEl);
-  let frames=0,t0=performance.now();
-  const tick=t=>{frames++; if(t-t0>=500){fpsEl.textContent=Math.round(frames*1000/(t-t0))+' fps'; frames=0; t0=t} requestAnimationFrame(tick)};
+  let frames=0,last=performance.now();
+  const tick=now=>{frames++; if(now-last>=500){fpsEl.textContent=`${Math.round(frames*1000/(now-last))} fps`;frames=0;last=now} requestAnimationFrame(tick)};
   requestAnimationFrame(tick);
 }
 document.addEventListener('focusin',e=>{
