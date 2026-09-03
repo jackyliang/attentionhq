@@ -1620,17 +1620,14 @@ async def edit_card(card_id: str, body: EditIn):
             raise HTTPException(400, "nothing to change")
         sid = card["session_id"]
         async with session_titles_lock:
-            previous = session_titles.get(sid)
-            session_titles[sid] = patch["title"]
+            titles = dict(session_titles)
+            titles[sid] = patch["title"]
             try:
-                await asyncio.to_thread(save_session_titles, dict(session_titles), sid)
+                await asyncio.to_thread(save_session_titles, titles, sid)
             except (psycopg.Error, OSError) as e:
-                if previous is None:
-                    session_titles.pop(sid, None)
-                else:
-                    session_titles[sid] = previous
                 log.warning("could not persist session title", exc_info=True)
                 raise HTTPException(500, f"could not save title: {e.__class__.__name__}")
+            session_titles[sid] = patch["title"]
         for s in state["sessions"]:
             if s["session_id"] == sid:
                 s["title"] = patch["title"]
