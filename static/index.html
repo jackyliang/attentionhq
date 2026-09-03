@@ -1124,20 +1124,33 @@ function wireCard(el){
     if(e.target.closest('.close-hint')){archiveCard(idOf(el));e.stopPropagation();return}
     const act=e.target.closest('.act');
     if(act){triggerAction(idOf(el));e.stopPropagation();return}
-    setCardMode(idOf(el));
-    el.focus();
+    setCardMode(idOf(el),{scroll:false});
+    focusByMouse(el);
   });
-  el.addEventListener('focus',()=>{if(!restoringFocus)ensureVisible(el)});
+  el.addEventListener('focus',()=>{if(!restoringFocus&&!mouseFocusing)ensureVisible(el)});
+  // take over the browser's default mousedown focus, which would scroll the card into view
+  el.addEventListener('mousedown',e=>{
+    if(e.button!==0||e.target.closest('a, input, textarea'))return;
+    e.preventDefault();
+    focusByMouse(el);
+  });
   el.addEventListener('mouseenter',()=>{
     if(performance.now()-lastMouseMove>150)return;
     const a=document.activeElement;
     if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'))return;
-    el.focus();
+    focusByMouse(el);
   });
   el.addEventListener('dblclick',e=>{
     if(e.target.closest('.act'))return;
     composer.focus();
   });
+}
+
+/* pointer-driven focus never scrolls the board; only keyboard nav pulls cards into view */
+let mouseFocusing=false;
+function focusByMouse(el){
+  mouseFocusing=true;
+  try{el.focus({preventScroll:true})}finally{mouseFocusing=false}
 }
 
 let boardLoaded=false;
@@ -1368,11 +1381,15 @@ async function fetchBoard(){
   if(data.loading&&cards.length){renderSync('busy');return} // fresh instance still warming up; keep the last board
   const flat=[];
   for(const col of data.columns)for(const c of col.cards)flat.push(c);
-  // prompts still in flight keep their placeholder until /api/prompt returns —
+  // prompts still in flight keep their placeholder until the board shows the session they became —
   // unless the server already shows the card it produced (same title, just created)
   const stems=flat.filter(c=>c.session_id&&c.title).map(c=>c.title.replace(/[\u2026.]+$/,''));
   const dup=p=>{const t=p.title.replace(/\s+/g,' ');return stems.some(s=>s&&t.startsWith(s)&&(t===s||s.length>=40))};
-  for(const p of inFlightPrompts)if(!dup(p))flat.unshift(p);
+  const landed=p=>!!p.session_id&&(flat.some(c=>c.session_id===p.session_id)||dup(p)||Date.now()-p.sentAt>60000);
+  for(const p of [...inFlightPrompts]){
+    if(landed(p))dropInFlight(p);
+    else if(!dup(p))flat.unshift(p);
+  }
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
   lastSync=Date.now();
@@ -1451,6 +1468,7 @@ async function prefetchThreads(){
 
 /* ---- add-task (prompt) card ---- */
 const inFlightPrompts=[]; // raw placeholder cards for prompts awaiting /api/prompt
+function dropInFlight(p){const i=inFlightPrompts.indexOf(p);if(i>=0)inFlightPrompts.splice(i,1)}
 const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new task</span></span>';
 function wireAddCard(addBtn){
   function addToPlus(){
@@ -1460,7 +1478,7 @@ function wireAddCard(addBtn){
   function addToInput(){
     if(addBtn.classList.contains('editing'))return;
     addBtn.classList.add('editing');
-    addBtn.innerHTML=`<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ file & start · paste files to attach" /><div class="att-tray"></div>`;
+    addBtn.innerHTML=`<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ start Devin (no issue) · paste files to attach" /><div class="att-tray"></div>`;
     const inp=addBtn.querySelector('input');
     const tray=attachTray(addBtn.querySelector('.att-tray'),inp);
     inp.focus();
@@ -1481,18 +1499,20 @@ function wireAddCard(addBtn){
           cards.unshift(mapCard(placeholder));
           cards.forEach((c,i)=>c.id=i);
           renderBoard();
-          showToast(start?'Sending to Devin — will file the issue and start on it\u2026':'Sending to Devin — will file the issue\u2026');
+          showToast(start?'Sending to Devin — starting on it now\u2026':'Sending to Devin — will file the issue\u2026');
           try{
             const r=await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments})});
-            inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
-            showToast(start?'Devin received it — filing the issue, then starting on it':'Devin received it — filing the issue');
+            // keep the placeholder until the board actually shows the session it became
+            placeholder.session_id=r.session_id||null; placeholder.sentAt=Date.now();
+            if(!r.session_id)dropInFlight(placeholder);
+            showToast(start?'Devin is on it — card will update as it works':'Devin received it — filing the issue');
             const newKey=r.session_id?`session:${r.session_id}`:null;
             if(openCardKey===pendingKey&&newKey)openCardKey=newKey;
             const hadFocus=document.activeElement===cardEl(cards.findIndex(c=>c.key===pendingKey));
             await fetchBoard();
             if(hadFocus&&newKey)focusCardByKey(newKey);
           }catch(err){
-            inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
+            dropInFlight(placeholder);
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
             showToast('Send failed: '+err.message);
@@ -1715,7 +1735,7 @@ function renderThread(msgs,ctx={}){
   if(lastIsDevin&&!(ctx.options||[]).length)ctx={...ctx,options:inlineOptions((lastDevin.text??'').toString()),inline:true};
   let qHTML=lastIsDevin?questionHTML(ctx,(lastDevin.text??'').toString()):'';
   const html=msgs.map(m=>{
-    if(m.who==='pr')return `<div class="msg pr">${prCardHTML(m.pr)}</div>`;
+    if(m.who==='pr')return [`pr:${m.pr.repo}#${m.pr.number}`,`<div class="msg pr">${prCardHTML(m.pr)}</div>`];
     const acts=[];
     const text=(m.text??'').toString();
     if(m===lastDevin&&lastIsDevin){
@@ -1724,14 +1744,39 @@ function renderThread(msgs,ctx={}){
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
     const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
-    return `<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
+    return [`${m.who}|${m.state?'pending|':''}${msgId(m)}`,`<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
     ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
-    <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`;
+    <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`];
   });
-  const tail=[];
-  if(mode==='card')tail.push(workingHTML(cards[openCard]));
-  threadEl.innerHTML=html.join('')+tail.join('');
+  if(mode==='card'){const w=workingHTML(cards[openCard]);if(w)html.push(['working',w]);}
+  patchThread(html);
   threadEl.dataset.inlineOpts=ctx.inline?JSON.stringify(ctx.options):'';
+}
+// Reconcile thread entries by key and replace only those whose markup changed, so untouched nodes
+// (a playing <video>, a focused button) survive the periodic re-renders even when an entry is
+// inserted mid-thread (e.g. a PR card landing in earlier history).
+const threadNode={key:new WeakMap(),html:new WeakMap()};
+function patchThread(parts){
+  const oldByKey=new Map();
+  for(const n of threadEl.children){const k=threadNode.key.get(n);if(k!=null&&!oldByKey.has(k))oldByKey.set(k,n)}
+  const seen=new Map(),tpl=document.createElement('template'),keep=new Set();
+  parts.forEach(([k0,h],i)=>{
+    const dup=seen.get(k0)||0;seen.set(k0,dup+1);
+    const k=dup?`${k0}#${dup}`:k0;
+    let node=oldByKey.get(k);
+    if(!node||threadNode.html.get(node)!==h){
+      tpl.innerHTML=h;
+      const fresh=tpl.content.firstElementChild;
+      if(!fresh)return;
+      threadNode.key.set(fresh,k);threadNode.html.set(fresh,h);
+      if(node)node.replaceWith(fresh);
+      node=fresh;
+    }
+    keep.add(node);
+    const at=threadEl.children[i];
+    if(at!==node)threadEl.insertBefore(node,at||null);
+  });
+  for(const n of [...threadEl.children])if(!keep.has(n))n.remove();
 }
 threadEl.addEventListener('click',async e=>{
   const t=e.target.closest('button');
@@ -2063,7 +2108,7 @@ async function loadThread(c,quiet=false){
   }
 }
 
-function setCardMode(id){
+function setCardMode(id,{scroll=true}={}){
   const c=cards[id];
   if(!c)return;
   mode='card'; openCard=id; openCardKey=c.key;
@@ -2074,7 +2119,7 @@ function setCardMode(id){
   scrollThreadToEnd();
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
   const el=cardEl(id);
-  if(el){el.classList.add('selected');ensureVisible(el)}
+  if(el){el.classList.add('selected');if(scroll)ensureVisible(el)}
   requestAnimationFrame(()=>moveRing(ringTarget,true));
 }
 // DOM ids can lag behind `cards` while a poll was deferred; resolve by key
