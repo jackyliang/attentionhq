@@ -1283,10 +1283,10 @@ async function fetchBoard(){
   // unless the server already shows the card it produced (same title, just created)
   const stems=flat.filter(c=>c.session_id&&c.title).map(c=>c.title.replace(/[\u2026.]+$/,''));
   const dup=p=>{const t=p.title.replace(/\s+/g,' ');return stems.some(s=>s&&t.startsWith(s)&&(t===s||s.length>=40))};
-  const landed=p=>(p.session_id&&flat.some(c=>c.session_id===p.session_id))||dup(p)||(p.session_id&&Date.now()-p.sentAt>60000);
+  const landed=p=>!!p.session_id&&(flat.some(c=>c.session_id===p.session_id)||dup(p)||Date.now()-p.sentAt>60000);
   for(const p of [...inFlightPrompts]){
-    if(landed(p))inFlightPrompts.splice(inFlightPrompts.indexOf(p),1);
-    else flat.unshift(p);
+    if(landed(p))dropInFlight(p);
+    else if(!dup(p))flat.unshift(p);
   }
   cards=flat.map(mapCard);
   boardLoaded=!data.loading||flat.length>0;
@@ -1364,6 +1364,7 @@ async function prefetchThreads(){
 
 /* ---- add-task (prompt) card ---- */
 const inFlightPrompts=[]; // raw placeholder cards for prompts awaiting /api/prompt
+function dropInFlight(p){const i=inFlightPrompts.indexOf(p);if(i>=0)inFlightPrompts.splice(i,1)}
 const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new task</span></span>';
 function wireAddCard(addBtn){
   function addToPlus(){
@@ -1399,7 +1400,7 @@ function wireAddCard(addBtn){
             const r=await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments})});
             // keep the placeholder until the board actually shows the session it became
             placeholder.session_id=r.session_id||null; placeholder.sentAt=Date.now();
-            if(!r.session_id)inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
+            if(!r.session_id)dropInFlight(placeholder);
             showToast(start?'Devin is on it — card will update as it works':'Devin received it — filing the issue');
             const newKey=r.session_id?`session:${r.session_id}`:null;
             if(openCardKey===pendingKey&&newKey)openCardKey=newKey;
@@ -1407,7 +1408,7 @@ function wireAddCard(addBtn){
             await fetchBoard();
             if(hadFocus&&newKey)focusCardByKey(newKey);
           }catch(err){
-            inFlightPrompts.splice(inFlightPrompts.indexOf(placeholder),1);
+            dropInFlight(placeholder);
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
             showToast('Send failed: '+err.message);
