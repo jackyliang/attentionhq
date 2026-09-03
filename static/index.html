@@ -1726,7 +1726,15 @@ function startTitleEdit(){
     const cur=cards.find(x=>x.key===key);
     if(cur&&openCardKey===key)refreshPanel(cur);
     if(!save||!v||v===original)return;
-    const setTitle=t=>{const x=cards.find(x=>x.key===key);if(x){x.title=t;if(openCardKey===key)refreshPanel(x);renderBoard()}};
+    // patch the card in place: a full renderBoard() here would swap out the
+    // element the user may be mid-click on (blur fires before click)
+    const setTitle=t=>{
+      const x=cards.find(x=>x.key===key);if(!x)return;
+      x.title=t;
+      if(openCardKey===key)refreshPanel(x);
+      const el=boardEl.querySelector(`.card[data-key="${CSS.escape(key)}"] .title`);
+      if(el)el.textContent=t;
+    };
     setTitle(v);
     panelTitle.classList.add('saving');
     try{

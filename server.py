@@ -1170,6 +1170,8 @@ async def edit_card(card_id: str, body: EditIn):
         for c in col["cards"]:
             if c["id"] == card_id:
                 c.update({k: v for k, v in shown.items() if k in c})
+    global board_gen
+    board_gen += 1
     try:
         await assemble_board()
     except Exception:  # noqa: BLE001
