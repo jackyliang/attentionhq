@@ -764,7 +764,7 @@ aside{
         <div class="s" id="panel-sub">operate the board</div>
       </div>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close issue</span><kbd>⌫</kbd>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close</span><kbd>⌫</kbd>
       </button>
       <button class="panel-close panel-archive" id="panel-hide" aria-label="Hide card from board">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4zM3 13L13 3"/></svg><span id="panel-hide-label">Hide</span><kbd>H</kbd>
@@ -806,7 +806,7 @@ aside{
         <div class="sc">Merge a ready PR (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd>…<kbd>5</kbd></span></div>
-        <div class="sc">Close issue — Issues column only (press twice) <span class="k"><kbd>⌫</kbd><kbd>⌫</kbd></span></div>
+        <div class="sc">Close — Issues column only (press twice) <span class="k"><kbd>⌫</kbd><kbd>⌫</kbd></span></div>
         <div class="sc">Hide card from board, nothing else (press twice) <span class="k"><kbd>H</kbd><kbd>H</kbd></span></div>
         <div class="sc">Cancel a pending confirmation <span class="k"><kbd>Esc</kbd></span></div>
       </div>
@@ -1634,7 +1634,7 @@ function refreshPanel(c){
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
   const mergeBtn=panelList.querySelector('[data-merge]');
   if(mergeBtn)mergeBtn.addEventListener('click',()=>{if(openCard!=null)triggerAction(openCard)});
-  const lbl='Close issue';
+  const lbl='Close';
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
   panelArchive.hidden=!canClose(c);
   panelArchiveLabel.textContent=isArmed('archive')?'Press again to confirm':lbl;
