@@ -1269,12 +1269,13 @@ function wireAddCard(addBtn){
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
       if(e.key==='Enter'){
+        e.preventDefault();
         const v=inp.value.trim();
         const start=e.metaKey||e.ctrlKey;
         if(tray.uploading()){showToast('Still uploading attachments…');return}
         const attachments=tray.urls();
         addToPlus();
-        addBtn.focus();
+        setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
         if(v||attachments.length){
           const pendingKey='pending:'+Date.now();
           cards.unshift(mapCard({id:pendingKey,kind:'issue',col:'issues',tone:'grey',title:v||'(attached files)',pending:true}));
