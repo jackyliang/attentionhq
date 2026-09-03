@@ -459,3 +459,72 @@ def test_board_digest_ignores_card_age():
     board["columns"][0]["cards"][0]["title"] = "changed"
     server._note_board_changed(board)
     assert server.board_version == v + 1
+
+
+def test_deleted_issue_removed_even_if_payload_says_open():
+    server.apply_webhook("issues", issue_payload())
+    assert "acme/one#3" in server.state["issues"]
+    p = issue_payload()
+    p["action"] = "deleted"
+    server.apply_webhook("issues", p)
+    assert "acme/one#3" not in server.state["issues"]
+
+
+def test_refresh_pr_write_survives_overlapping_reconcile(monkeypatch):
+    server.state["prs"]["acme/one#1"] = {"repo": "acme/one", "number": 1, "review": "none"}
+    server._webhook_touched.clear()
+
+    async def fake_refresh():
+        # a review webhook's targeted re-read commits while the reconcile is mid-fetch
+        server._webhook_touched.add("acme/one#1")
+        server.state["prs"]["acme/one#1"] = {"repo": "acme/one", "number": 1, "review": "approved"}
+
+    async def fake_repo(gh, repo):
+        if repo == "acme/one":
+            await fake_refresh()
+            return {}, {"acme/one#1": {"repo": "acme/one", "number": 1, "review": "none"}}
+        return {}, {}
+
+    monkeypatch.setattr(server, "fetch_github_repo", fake_repo)
+    monkeypatch.setattr(server, "gh_client", lambda: None)
+    asyncio.run(server.fetch_github())
+    assert server.state["prs"]["acme/one#1"]["review"] == "approved"
+
+
+def test_refresh_pr_marks_key_touched(monkeypatch):
+    server._webhook_touched.clear()
+    server.state["prs"].clear()
+
+    def handler(req):
+        p = req.url.path
+        if p == "/repos/acme/one/pulls/7":
+            return httpx.Response(200, json={"number": 7, "state": "open", "title": "t", "html_url": "u", "mergeable_state": "clean",
+                                             "head": {"ref": "b", "sha": "s"}, "created_at": "2026-01-01T00:00:00Z"})
+        if p.endswith("/check-runs"):
+            return httpx.Response(200, json={"check_runs": []})
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(server, "gh_client", lambda: make_gh(handler))
+    asyncio.run(server.refresh_pr("acme/one", 7))
+    assert "acme/one#7" in server._webhook_touched
+    assert server.state["prs"]["acme/one#7"]["review"] == "none"
+
+
+def test_archive_publishes_board_change_before_devin_refresh(monkeypatch, client):
+    server.state["board"] = {"columns": [{"id": "c", "cards": [{"id": "session:abc", "kind": "session", "session_id": "abc", "repo": None, "number": None}]}]}
+    server._note_board_changed(server.state["board"])
+    before = server.board_version
+
+    class FakeDevin:
+        async def post(self, path):
+            return httpx.Response(200, json={})
+
+    async def failing_refresh(had_session):
+        raise RuntimeError("devin down")
+
+    monkeypatch.setattr(server, "devin_client", lambda: FakeDevin())
+    monkeypatch.setattr(server, "_refresh_after_archive", failing_refresh)
+    r = client.post("/api/card/session:abc/archive", headers={"x-board-token": "tok"})
+    assert r.status_code == 200
+    assert server.board_version == before + 1
+    assert server.state["board"]["columns"][0]["cards"] == []

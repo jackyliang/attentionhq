@@ -475,14 +475,19 @@ async def refresh_pr(repo: str, number: int):
             pr = await gh_get(gh, f"/repos/{repo}/pulls/{number}")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
+                _webhook_touched.add(key)
                 state["prs"].pop(key, None)
                 return
             raise
         if pr.get("state") != "open":
+            _webhook_touched.add(key)
             state["prs"].pop(key, None)
             pr_meta_cache.pop(key, None)
             return
-        state["prs"][key] = await enrich_pr(gh, repo, pr)
+        fresh = await enrich_pr(gh, repo, pr)
+        # marked at commit time so a reconcile that started earlier can't undo this write
+        _webhook_touched.add(key)
+        state["prs"][key] = fresh
         pr_meta_cache.pop(key, None)
     finally:
         _background_sync.reset(tok)
@@ -510,9 +515,12 @@ def apply_webhook(event: str, payload: dict) -> set[tuple[str, int]]:
             return set()
         key = f"{repo}#{it['number']}"
         _webhook_touched.add(key)
-        if payload.get("action") == "reopened":
+        action = payload.get("action")
+        if action == "reopened":
             recently_closed.pop(key, None)
-        if it.get("state") == "open" and "pull_request" not in it:
+        # deleted/transferred payloads still carry state=open; the issue is gone for us
+        gone = action in ("deleted", "transferred")
+        if not gone and it.get("state") == "open" and "pull_request" not in it:
             if key not in recently_closed:
                 state["issues"][key] = issue_from_gh(repo, it)
                 recent_issues.pop(key, None)
@@ -1647,6 +1655,8 @@ async def archive_card(card_id: str):
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
+    if state["board"]:
+        _note_board_changed(state["board"])
     asyncio.create_task(_refresh_after_archive(bool(card["session_id"])))
     return {"ok": True, "actions": actions}
 
