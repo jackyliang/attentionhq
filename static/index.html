@@ -1106,6 +1106,7 @@ function emptyHTML(colId){
 function renderBoard(){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
+  const focusSpot=focusKey?cardSpot(a):null;
   const wasAdd=a&&a.id==='add-issue';
   if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput)return; // don't disturb typing
   const scroll=captureScroll();
@@ -1149,8 +1150,9 @@ function renderBoard(){
   restoreScroll(scroll);
   restoringFocus=true;
   if(focusKey){
-    const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`);
+    const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`)||spotCard(focusSpot);
     if(el)el.focus({preventScroll:true});
+    else moveRing(null);
   }else if(wasAdd){
     const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
@@ -1713,6 +1715,21 @@ function confirmArm(c,action,hint){
 document.addEventListener('focusin',e=>{
   if(armed&&e.target.classList&&e.target.classList.contains('card')&&e.target.dataset.key!==armed.key)disarm();
 });
+
+/* the card that took the place of a card that left the board, so focus and the ring stay put */
+function cardSpot(el){
+  const col=el.closest('.col');
+  if(!col)return null;
+  const siblings=[...col.querySelectorAll('.card:not(.add-card)')];
+  return {col:col.dataset.col,i:siblings.indexOf(el)};
+}
+function spotCard(spot){
+  if(!spot)return null;
+  const col=document.querySelector(`.col[data-col="${spot.col}"]`);
+  if(!col)return null;
+  const siblings=[...col.querySelectorAll('.card:not(.add-card)')];
+  return siblings[Math.min(spot.i,siblings.length-1)]||null;
+}
 
 /* after removing a card, stay in its column instead of jumping to the leftmost card */
 function neighborKey(c){
