@@ -38,6 +38,14 @@ description: How to run and test the AttentionHQ session board (FastAPI + static
 - Inline title/body editing (`/api/card/{key}/edit`) needs `c.repo`, which is only present when the GitHub poll succeeds. GitHub can hit a *secondary* rate limit for the token's user (403 "API rate limit exceeded", while `/rate_limit` still shows 5000 remaining); the header then says "github unreachable", the Issues column is empty and cards show plain "session" refs — issue view / rename can't be tested until it clears (can take 30+ min). Snapshot the original body (`curl .../issues/N > /tmp/orig.txt`) before any save test so it can be restored exactly.
 - Thread `<img>` attachments load `/api/attachment/<uuid>/<name>?t=<BOARD_TOKEN>`; any request without `?t=` shows as a 401 in the console (not a JS exception).
 
+## Testing webhooks / SSE / sync pill (PR #76+)
+- Start with `GITHUB_WEBHOOK_SECRET=whsec` to enable `POST /api/github/webhook` (no board token; HMAC only). Sign with `sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac whsec | awk '{print $2}')` and send `-H 'x-github-event: issues' -H "x-hub-signature-256: sha256=$sig"`. Repo must be in `REPOS` (default includes jackyliang/attentionhq). Unsigned → 401.
+- Fake webhook issues are removed again by the next GitHub reconcile (GitHub doesn't know them). Reconciles run far more often than GITHUB_POLL_SECS whenever a recent Devin "filing issue" session without a matched issue exists (`request_refresh()` in assemble_board) — so screenshot within a few seconds. Use a current `created_at` so the card sorts to the top of Issues (column sorts newest first).
+- SSE stream: `curl -sN "localhost:8420/api/events?t=testtoken123"` shows `hello`/`board`/`sync` events. Killing the server turns the pill red ("sync failed") and popover "Live updates: reconnecting… (polling)"; restarting reconnects without reload.
+- The sync pill (`#hdr-sync`) popover only shows on hover of the text itself (x≈895,y≈104 in a 1024-wide maximized window); hover the dot/left area misses it.
+- `?` via `shift+slash` may not open the overlay when focus is off; click the "? shortcuts" header button instead.
+- uvicorn access log has no timestamps; wrap `tail -f` with `while read l; do echo "$(date +%T) $l"; done` to measure poll cadence.
+
 ## Cleanup after tests
 - Close test issues: `curl -X PATCH -H "Authorization: Bearer $ATTENTIONHQ_GITHUB_TOKEN" https://api.github.com/repos/jackyliang/answer-hq/issues/<n> -d '{"state":"closed"}'`
 - Archive (Backspace on non-session cards) persists to `dismissed.json` in the repo dir — delete it and restart the server to un-archive.
