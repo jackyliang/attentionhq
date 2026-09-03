@@ -13,9 +13,11 @@ os.environ.update(
     DISMISSED_FILE="/tmp/attentionhq-test-dismissed.json",
     BOARDS_FILE="/tmp/attentionhq-test-boards.json",
     PROMPTS_FILE="/tmp/attentionhq-test-prompts.json",
+    SETTINGS_FILE="/tmp/attentionhq-test-settings.json",
 )
 
 import httpx  # noqa: E402
+import psycopg  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -529,3 +531,59 @@ def test_archive_publishes_board_change_before_devin_refresh(monkeypatch, client
     assert r.status_code == 200
     assert server.board_version == before + 1
     assert server.state["board"]["columns"][0]["cards"] == []
+
+
+def test_board_color_roundtrip_and_validation(monkeypatch, client):
+    async def noop():
+        return None
+    monkeypatch.setattr(server, "_refresh_after_board_change", noop)
+    h = {"x-board-token": "tok"}
+    r = client.post("/api/boards", json={"name": "Tinted", "repos": ["acme/one"], "color": "teal"}, headers=h)
+    assert r.status_code == 200
+    bid = r.json()["board"]["id"]
+    assert r.json()["board"]["color"] == "teal"
+    assert client.put(f"/api/boards/{bid}", json={"name": "Tinted", "repos": ["acme/one"], "color": "neon"}, headers=h).status_code == 400
+    assert server.board_by_id(bid)["color"] == "teal"
+    # omitted color keeps the stored one; "" clears it
+    r = client.put(f"/api/boards/{bid}", json={"name": "Tinted!", "repos": ["acme/one"]}, headers=h)
+    assert r.json()["board"]["color"] == "teal" and r.json()["board"]["name"] == "Tinted!"
+    r = client.put(f"/api/boards/{bid}", json={"name": "Tinted", "repos": ["acme/one"], "color": ""}, headers=h)
+    assert r.json()["board"]["color"] == ""
+    assert server.load_boards()[-1]["color"] == ""
+    client.delete(f"/api/boards/{bid}", headers=h)
+
+
+def test_settings_roundtrip(client):
+    h = {"x-board-token": "tok"}
+    server.settings.clear()
+    server.settings.update(server.DEFAULT_SETTINGS)
+    assert client.get("/api/settings", headers=h).json() == {"settings": {"show_all": False}}
+    assert client.put("/api/settings", json={"show_all": True}, headers=h).json()["settings"]["show_all"] is True
+    assert server.load_settings() == {"show_all": True}
+    server.state["board"] = None
+    assert client.get("/api/board", headers=h).json()["settings"] == {"show_all": True}
+    # partial / unknown keys leave the rest alone
+    assert client.put("/api/settings", json={"bogus": 1}, headers=h).json()["settings"] == {"show_all": True}
+    assert client.put("/api/settings", json={"show_all": False}, headers=h).json()["settings"]["show_all"] is False
+
+
+def test_settings_recover_after_storage_outage(monkeypatch, client):
+    h = {"x-board-token": "tok"}
+    monkeypatch.setattr(server, "settings_loaded", False)
+    server.settings.clear()
+    server.settings.update(server.DEFAULT_SETTINGS)
+
+    def down():
+        raise psycopg.OperationalError("db down")
+    monkeypatch.setattr(server, "load_settings", down)
+    # defaults are served, writes are refused rather than overwriting an unseen stored choice
+    assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is False
+    assert client.put("/api/settings", json={"show_all": True}, headers=h).status_code == 503
+    assert asyncio.run(server.reload_settings()) is False
+    assert server.settings_loaded is False
+
+    # the poll loop's retry adopts the stored value once the db answers
+    monkeypatch.setattr(server, "load_settings", lambda: {"show_all": True})
+    assert asyncio.run(server.reload_settings()) is True
+    assert server.settings_loaded is True
+    assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is True

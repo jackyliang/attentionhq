@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 import httpx
 import psycopg
+from psycopg.types.json import Jsonb
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -116,6 +117,7 @@ BOARDS_DDL = (
         name text NOT NULL,
         position integer NOT NULL DEFAULT 0,
         created_at timestamptz DEFAULT now())""",
+    "ALTER TABLE boards ADD COLUMN IF NOT EXISTS color text NOT NULL DEFAULT ''",
     """CREATE TABLE IF NOT EXISTS board_repos (
         board_id text REFERENCES boards(id) ON DELETE CASCADE,
         repo text NOT NULL,
@@ -133,8 +135,8 @@ def load_boards() -> list[dict] | None:
             with _db() as conn:
                 for ddl in BOARDS_DDL:
                     conn.execute(ddl)
-                boards = {r[0]: {"id": r[0], "name": r[1], "repos": [], "sessions": []}
-                          for r in conn.execute("SELECT id, name FROM boards ORDER BY position, created_at")}
+                boards = {r[0]: {"id": r[0], "name": r[1], "color": r[2], "repos": [], "sessions": []}
+                          for r in conn.execute("SELECT id, name, color FROM boards ORDER BY position, created_at")}
                 for bid, repo in conn.execute("SELECT board_id, repo FROM board_repos ORDER BY position"):
                     boards[bid]["repos"].append(repo)
                 for bid, sid in conn.execute("SELECT board_id, session_id FROM board_sessions"):
@@ -146,7 +148,7 @@ def load_boards() -> list[dict] | None:
     try:
         with open(BOARDS_FILE) as f:
             data = json.load(f)
-        return [{"id": b["id"], "name": b["name"], "repos": list(b.get("repos", [])), "sessions": list(b.get("sessions", []))} for b in data]
+        return [{"id": b["id"], "name": b["name"], "color": b.get("color", ""), "repos": list(b.get("repos", [])), "sessions": list(b.get("sessions", []))} for b in data]
     except FileNotFoundError:
         return []
     except (OSError, ValueError, KeyError, TypeError):
@@ -175,9 +177,9 @@ def persist_boards(*boards: dict):
             for board in boards:
                 position = next((i for i, b in enumerate(state["boards"]) if b["id"] == board["id"]), len(state["boards"]))
                 conn.execute(
-                    "INSERT INTO boards (id, name, position) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, position = EXCLUDED.position",
-                    (board["id"], board["name"], position),
+                    "INSERT INTO boards (id, name, color, position) VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, color = EXCLUDED.color, position = EXCLUDED.position",
+                    (board["id"], board["name"], board.get("color", ""), position),
                 )
                 conn.execute("DELETE FROM board_repos WHERE board_id = %s", (board["id"],))
                 for i, repo in enumerate(board["repos"]):
@@ -260,7 +262,15 @@ def board_by_id(board_id: str) -> dict | None:
     return next((b for b in state["boards"] if b["id"] == board_id), None)
 
 def public_board(b: dict) -> dict:
-    return {"id": b["id"], "name": b["name"], "repos": list(b["repos"])}
+    return {"id": b["id"], "name": b["name"], "color": b.get("color", ""), "repos": list(b["repos"])}
+
+# Swatch keys the UI knows how to paint; "" is the neutral default.
+BOARD_COLORS = ("red", "orange", "amber", "lime", "green", "teal", "cyan", "blue", "indigo", "purple", "pink", "rose")
+
+def clean_color(color: str) -> str:
+    if color and color not in BOARD_COLORS:
+        raise HTTPException(400, f"unknown color {color!r}")
+    return color
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "board"
@@ -349,6 +359,73 @@ def save_session_titles(titles: dict[str, str], session_id: str):
 
 session_titles: dict[str, str] = load_session_titles()
 session_titles_lock = asyncio.Lock()
+
+# UI preferences shared by everyone on this board token (one row per account for later).
+SETTINGS_FILE = os.environ.get("SETTINGS_FILE", "settings.json")
+DEFAULT_SETTINGS = {"show_all": False}
+
+def clean_settings(raw) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    return {"show_all": bool(raw.get("show_all", DEFAULT_SETTINGS["show_all"]))}
+
+def load_settings() -> dict:
+    """Raises psycopg.Error when the database is unreachable so callers can retry later."""
+    if DATABASE_URL:
+        with _db() as conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS settings (account_id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())")
+            row = conn.execute("SELECT data FROM settings WHERE account_id = ''").fetchone()
+            return clean_settings(row[0] if row else None)
+    try:
+        with open(SETTINGS_FILE) as f:
+            return clean_settings(json.load(f))
+    except (OSError, ValueError):
+        return dict(DEFAULT_SETTINGS)
+
+def save_settings(s: dict):
+    """Durably store the settings; raises on failure so the caller can roll back."""
+    if DATABASE_URL:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO settings (account_id, data) VALUES ('', %s) "
+                "ON CONFLICT (account_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
+                (Jsonb(s),),
+            )
+        return
+    tmp = SETTINGS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=1, sort_keys=True)
+    os.replace(tmp, SETTINGS_FILE)
+
+settings_lock = asyncio.Lock()
+settings_loaded = False  # False = storage unreachable at boot; defaults are served until a reload succeeds
+
+def _boot_settings() -> dict:
+    global settings_loaded
+    try:
+        s = load_settings()
+    except psycopg.Error:
+        log.warning("could not load settings from db; retrying on demand", exc_info=True)
+        return dict(DEFAULT_SETTINGS)
+    settings_loaded = True
+    return s
+
+settings: dict = _boot_settings()
+
+async def reload_settings() -> bool:
+    """Retry the boot-time load from the poll loop (never from a request) so a stored choice is not shadowed by the default."""
+    global settings_loaded
+    if settings_loaded:
+        return True
+    try:
+        s = await asyncio.to_thread(load_settings)
+    except psycopg.Error as e:
+        log.warning("settings storage still unavailable: %s", e)
+        return False
+    async with settings_lock:
+        settings.clear()
+        settings.update(s)
+        settings_loaded = True
+    return True
 extract_cache: dict = {}  # session_id -> {"key": last_msg_key, "data": {...}}
 session_msgs_cache: dict = {}  # session_id -> {"msgs": [...], "cursor": str|None, "seen": {event_id}}
 pr_meta_cache: dict = {}  # "owner/repo#n" -> {"at": epoch, "data": {title, state, draft}}
@@ -1408,13 +1485,14 @@ def board_view(board_id: str | None) -> dict:
         return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
                 "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
                 "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0,
-                "board": current, "boards": boards, "sync": sync_status()}
+                "board": current, "boards": boards, "settings": dict(settings), "sync": sync_status()}
     return {
         **full,
         "columns": [{"id": col["id"], "cards": [c for c in col["cards"] if card_on_board(c, board)]} for col in full["columns"]],
         "deploys": [d for d in full["deploys"] if board is None or d["repo"] in board["repos"]],
         "board": current,
         "boards": boards,
+        "settings": dict(settings),
         "sync": sync_status(),
     }
 
@@ -1442,6 +1520,8 @@ async def poll_loop():
                         log.info("board storage is back; loaded %d boards", len(state["boards"]))
             except Exception as e:  # noqa: BLE001
                 log.warning("board reload failed: %s", e)
+        if not settings_loaded and await reload_settings():
+            log.info("settings storage is back")
         try:
             now = time.time()
             if (now >= gh_next or state["gh_refresh"]) and now >= (state["github_rate"]["retry_at"] or 0):
@@ -1611,9 +1691,34 @@ async def get_board(board: str | None = None):
 class BoardIn(BaseModel):
     name: str
     repos: list[str] = []
+    color: str | None = None  # omitted keeps the stored color; "" clears it
 
 class PinIn(BaseModel):
     board: str | None = None
+
+class SettingsIn(BaseModel):
+    show_all: bool | None = None
+
+@app.get("/api/settings")
+async def get_settings():
+    return {"settings": dict(settings)}
+
+@app.put("/api/settings")
+async def update_settings(body: SettingsIn):
+    async with settings_lock:
+        if not settings_loaded:
+            wake.set()  # poll loop retries the load right away
+            raise HTTPException(503, "settings storage unavailable; try again shortly")
+        new = clean_settings({**settings, **body.model_dump(exclude_none=True)})
+        if new != settings:
+            try:
+                await asyncio.to_thread(save_settings, new)
+            except (psycopg.Error, OSError) as e:
+                log.warning("settings storage failed: %s", e, exc_info=True)
+                raise HTTPException(503, f"could not save settings: {e}") from e
+            settings.clear()
+            settings.update(new)
+    return {"settings": dict(settings)}
 
 def _boards_payload() -> dict:
     return {"boards": [public_board(b) for b in state["boards"]]}
@@ -1657,10 +1762,10 @@ async def create_board(body: BoardIn):
     name = " ".join(body.name.split())
     if not name:
         raise HTTPException(400, "name required")
-    repos = clean_repos(body.repos)
+    repos, color = clean_repos(body.repos), clean_color(body.color or "")
     async with _boards_lock:
         await _writable_boards()
-        board = {"id": slugify(name), "name": name, "repos": repos, "sessions": []}
+        board = {"id": slugify(name), "name": name, "color": color, "repos": repos, "sessions": []}
         state["boards"].append(board)
         try:
             await _store(persist_boards, board)
@@ -1681,12 +1786,13 @@ async def update_board(board_id: str, body: BoardIn):
         board = board_by_id(board_id)
         if board is None:
             raise HTTPException(404, "board not found")
-        prev = (board["name"], board["repos"])
-        board["name"], board["repos"] = name, repos
+        prev = (board["name"], board["repos"], board.get("color", ""))
+        color = prev[2] if body.color is None else clean_color(body.color)
+        board["name"], board["repos"], board["color"] = name, repos, color
         try:
             await _store(persist_boards, board)
         except HTTPException:
-            board["name"], board["repos"] = prev
+            board["name"], board["repos"], board["color"] = prev
             raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
