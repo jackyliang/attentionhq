@@ -33,3 +33,5 @@ Open http://localhost:8000. If `BOARD_TOKEN` is set, the UI prompts for it once.
 `render.yaml` defines a single Render web service (`uvicorn server:app`). Set the env vars above in the Render dashboard.
 
 See `plan/` for the discovery brief and build spec, `plans/` for the functional plan, `CHANGELOGS.md` for history.
+
+attachment test
