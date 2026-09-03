@@ -153,11 +153,10 @@ main{
 .board{
   display:grid;
   grid-template-columns:repeat(5,minmax(216px,1fr));
-  width:100vw;
+  width:100%;
   height:100%;
   align-items:stretch;
 }
-#app[data-mode="closed"] main{overflow-x:hidden}
 #app:not([data-mode="closed"]) main{padding-right:var(--panel-w)}
 .col{
   border-right:1px solid var(--ds-gray-400);
@@ -1005,6 +1004,27 @@ function mapCard(c,i){
 
 /* ================= render ================= */
 const boardEl = document.getElementById('board');
+const mainEl = document.querySelector('main');
+
+/* the board keeps its scroll offsets across re-renders and panel open/close */
+let restoringFocus=false;
+function captureScroll(){
+  const cols={};
+  document.querySelectorAll('.col').forEach(col=>{
+    const body=col.querySelector('.col-body');
+    if(body)cols[col.dataset.col]=body.scrollTop;
+  });
+  return {left:mainEl.scrollLeft,cols};
+}
+function restoreScroll(s){
+  if(!s)return;
+  mainEl.scrollLeft=s.left;
+  document.querySelectorAll('.col').forEach(col=>{
+    const body=col.querySelector('.col-body');
+    const top=s.cols[col.dataset.col];
+    if(body&&top)body.scrollTop=top;
+  });
+}
 
 function counts(c){
   const done=c.todos.filter(t=>t.state==='done').length;
@@ -1060,7 +1080,7 @@ function wireCard(el){
     setCardMode(+el.dataset.id);
     el.focus();
   });
-  el.addEventListener('focus',()=>ensureVisible(el));
+  el.addEventListener('focus',()=>{if(!restoringFocus)ensureVisible(el)});
   el.addEventListener('mouseenter',()=>{
     if(performance.now()-lastMouseMove>150)return;
     const a=document.activeElement;
@@ -1092,8 +1112,10 @@ function emptyHTML(colId){
 function renderBoard(){
   const a=document.activeElement;
   const focusKey=(a&&a.classList&&a.classList.contains('card')&&a.dataset.key)?a.dataset.key:null;
+  const focusSpot=focusKey?cardSpot(a):null;
   const wasAdd=a&&a.id==='add-issue';
   if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a!==gateInput)return; // don't disturb typing
+  const scroll=captureScroll();
   boardEl.innerHTML='';
   columns.forEach(col=>{
     const colCards = cards.filter(c=>c.col===col.id);
@@ -1131,12 +1153,16 @@ function renderBoard(){
     if(idx>=0){openCard=idx; refreshPanel(cards[idx]); loadThread(cards[idx],true)}
     else{setBoardMode(); mode='closed'; app.dataset.mode='closed'}
   }
+  restoreScroll(scroll);
+  restoringFocus=true;
   if(focusKey){
-    const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`);
-    if(el)el.focus();
+    const el=document.querySelector(`.card[data-key="${CSS.escape(focusKey)}"]`)||spotCard(focusSpot);
+    if(el)el.focus({preventScroll:true});
+    else moveRing(null);
   }else if(wasAdd){
-    const el=document.getElementById('add-issue'); if(el)el.focus();
+    const el=document.getElementById('add-issue'); if(el)el.focus({preventScroll:true});
   }
+  restoringFocus=false;
 }
 
 let lastSync=0;
@@ -1678,9 +1704,9 @@ function setCardMode(id){
   document.querySelectorAll('.card.selected').forEach(e=>e.classList.remove('selected'));
   const el=cardEl(id);
   if(el){el.classList.add('selected');ensureVisible(el)}
+  requestAnimationFrame(()=>moveRing(ringTarget,true));
 }
 function cardEl(id){return document.querySelector(`.card[data-id="${id}"]`)}
-const mainEl=document.querySelector('main');
 function ensureVisible(el){
   if(!el)return;
   const r=el.getBoundingClientRect();
@@ -1723,10 +1749,42 @@ document.addEventListener('focusin',e=>{
   if(armed&&e.target.classList&&e.target.classList.contains('card')&&e.target.dataset.key!==armed.key)disarm();
 });
 
+/* the card that took the place of a card that left the board, so focus and the ring stay put */
+function cardSpot(el){
+  const col=el.closest('.col');
+  if(!col)return null;
+  const siblings=[...col.querySelectorAll('.card:not(.add-card)')];
+  return {col:col.dataset.col,i:siblings.indexOf(el)};
+}
+function spotCard(spot){
+  if(!spot)return null;
+  const col=document.querySelector(`.col[data-col="${spot.col}"]`);
+  if(!col)return null;
+  const siblings=[...col.querySelectorAll('.card:not(.add-card)')];
+  return siblings[Math.min(spot.i,siblings.length-1)]||null;
+}
+
+/* after removing a card, stay in its column instead of jumping to the leftmost card */
+function neighborKey(c){
+  const col=cards.filter(x=>x.col===c.col);
+  const i=col.findIndex(x=>x.key===c.key);
+  return (col[i+1]||col[i-1]||null)?.key||null;
+}
+function focusCardByKey(key){
+  const el=key?document.querySelector(`.card[data-key="${CSS.escape(key)}"]`):null;
+  const target=el||firstCard();
+  target?.focus({preventScroll:true});
+  ensureVisible(target);
+}
+
 function closePanel(){
   const el=openCard!=null?cardEl(openCard):focused();
+  const scroll=captureScroll();
   setBoardMode(); mode='closed'; app.dataset.mode='closed';
-  el?.focus();
+  restoreScroll(scroll);
+  el?.focus({preventScroll:true});
+  ensureVisible(el);
+  requestAnimationFrame(()=>moveRing(ringTarget,true));
 }
 document.getElementById('panel-close').addEventListener('click',closePanel);
 document.addEventListener('mousedown',e=>{
@@ -1818,12 +1876,13 @@ async function archiveCard(id){
   if(!c||c.pending||archiving||!canClose(c))return;
   if(!confirmArm(c,'archive',`Press C again to close ${shortRepo(c.repo)}#${c.num}`))return;
   archiving=true;
+  const nextKey=neighborKey(c);
   showToast(`Closing ${shortRepo(c.repo)}#${c.num}…`);
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
   const snapshot=cards;
   cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
   renderBoard();
-  firstCard()?.focus();
+  focusCardByKey(nextKey);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
     showToast(`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`);
@@ -1841,11 +1900,12 @@ async function hideCard(id){
   if(!c||c.pending||archiving)return;
   if(!confirmArm(c,'hide','Press H again to hide this card from the board'))return;
   archiving=true;
+  const nextKey=neighborKey(c);
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
   const snapshot=cards;
   cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
   renderBoard();
-  firstCard()?.focus();
+  focusCardByKey(nextKey);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/hide`,{method:'POST'});
     showToast(`Hidden — “${c.title}”`);
@@ -1898,7 +1958,7 @@ async function sendMsg(){
 }
 composer.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}
-  if(e.key==='Escape'){e.stopPropagation();composer.blur();(openCard!=null?cardEl(openCard):focused()||firstCard())?.focus()}
+  if(e.key==='Escape'){e.stopPropagation();composer.blur();(openCard!=null?cardEl(openCard):focused()||firstCard())?.focus({preventScroll:true})}
 });
 
 /* ---- overlay ---- */
