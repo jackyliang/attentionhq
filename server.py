@@ -195,6 +195,8 @@ recently_closed: dict[str, float] = {}
 # board until the listing catches up.
 RECENT_SESSION_TTL = 300
 recent_sessions: dict[str, tuple[float, dict]] = {}
+# first line of the prompt, shown until Devin assigns the session its own title
+provisional_titles: dict[str, tuple[float, str]] = {}
 # ...and treat a session we just replied to as running until Devin's status catches up.
 RECENT_REPLY_TTL = 120
 recent_replies: dict[str, float] = {}
@@ -220,6 +222,7 @@ def remember_session(data: dict, tags: list[str], title: str) -> dict:
         "created_at": datetime.now(timezone.utc).isoformat(), "pull_requests": [],
     }
     recent_sessions[sid] = (time.time(), sess)
+    provisional_titles[sid] = (time.time(), title)
     return sess
 
 async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
@@ -402,6 +405,14 @@ async def fetch_devin():
     for s in sessions:
         if s["session_id"] in recent_replies:
             mark_running(s)
+        if s["session_id"] in provisional_titles:
+            if s.get("title"):
+                provisional_titles.pop(s["session_id"], None)
+            else:
+                s["title"] = provisional_titles[s["session_id"]][1]
+    for sid, (ts, _) in list(provisional_titles.items()):
+        if now - ts > RECENT_SESSION_TTL and sid not in live:
+            provisional_titles.pop(sid, None)
     state["sessions"] = sessions
     state["devin_ok"] = True
     # Transcripts are only needed for sessions that can hold a card; holding one
@@ -706,13 +717,13 @@ async def assemble_board():
             continue
         ik = session_issue_key(sess)
         prompt = session_prompt(sess)
-        if prompt and not ik:
+        if prompt and not ik and prompt[1] == "file":
             ik = by_prompt.get(prompt[0])
             if not ik and (st not in ACTIVE_STATUSES or session_needs_user(sess)) and time.time() - _epoch(sess.get("created_at")) < 1800:
                 state["gh_refresh"] = True  # Devin just filed the issue; pick it up now
             # a file-only session only exists to create the issue: show it just while it is
             # busy filing, never once the issue exists or it stops and waits on you
-            if prompt[1] == "file" and (ik or st not in ACTIVE_STATUSES or session_needs_user(sess)):
+            if ik or st not in ACTIVE_STATUSES or session_needs_user(sess):
                 continue
         if ik and ik in cards:
             cards[ik]["sessions"].append(sess)
@@ -1231,6 +1242,7 @@ async def archive_card(card_id: str):
     if card["session_id"]:
         recent_sessions.pop(card["session_id"], None)
         recent_replies.pop(card["session_id"], None)
+        provisional_titles.pop(card["session_id"], None)
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
@@ -1314,34 +1326,50 @@ class PromptIn(BaseModel):
 
 @app.post("/api/prompt")
 async def prompt_devin(body: PromptIn):
-    """The '+' box is a prompt: Devin picks the repo, writes and files the issue
-    (and, with start=True, goes on to implement it)."""
+    """The '+' box is a prompt: Devin picks the repo and either files it as a
+    GitHub issue (Enter) or just starts working on it, no issue (start=True)."""
     text = body.prompt.strip()
     atts = clean_attachments(body.attachments)
     if not text and not atts:
         raise HTTPException(400, "empty prompt")
+    typed = bool(text)
     text = text or "(see attached files)"
     pid = uuid.uuid4().hex[:12]
     mode = "work" if body.start else "file"
     repos = "\n".join(f"- {r}" for r in REPOS)
-    prompt = (
-        "A user typed this task into their Attention board's new-issue box:\n\n"
-        f"\"\"\"\n{text}\n\"\"\"\n\n"
-        "Turn it into a GitHub issue:\n"
-        f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
-        "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
-        "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
-        "questions; make reasonable assumptions and note them in the issue.\n"
-        f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
-        "4. Create the issue in that repo and reply with just its URL.\n"
-        + ("The user attached files to this task (see the session attachments). Embed the image attachments in the issue body "
-           "and link any others, so they are visible on GitHub.\n" if atts else "")
-        + ("5. Then implement the issue and open a PR that references it with 'Fixes #<number>'.\n" if body.start else
-           "Do not start implementing it; filing the issue is the whole task.\n")
-    )
+    attached = ("The user attached files to this task (see the session attachments)." if atts else "")
+    if body.start:
+        prompt = (
+            "A user typed this task into their Attention board and asked you to start on it right away:\n\n"
+            f"\"\"\"\n{text}\n\"\"\"\n\n"
+            f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+            "2. Implement it and open a PR. Do not file a GitHub issue for it; the PR is the tracking artifact. "
+            "Do not ask clarifying questions up front; make reasonable assumptions and note them in the PR.\n"
+            + ("   Quote the user's request above verbatim in the PR description under `## Original request`.\n" if typed else "")
+            + (attached + " Use them as part of the task.\n" if atts else "")
+        )
+    else:
+        prompt = (
+            "A user typed this task into their Attention board's new-issue box:\n\n"
+            f"\"\"\"\n{text}\n\"\"\"\n\n"
+            "Turn it into a GitHub issue:\n"
+            f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+            "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
+            "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
+            "questions; make reasonable assumptions and note them in the issue.\n"
+            + ("   The issue body MUST also include the user's original prompt above, verbatim and unedited, under a "
+               "heading `## Original request` (quoted). Your summary may miss details; the verbatim prompt is the "
+               "source of truth for whoever implements the issue.\n" if typed else "")
+            + f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
+            "4. Create the issue in that repo and reply with just its URL.\n"
+            + (attached + " Embed the image attachments in the issue body and link any others, so they are visible on GitHub.\n" if atts else "")
+            + "Do not start implementing it; filing the issue is the whole task.\n"
+        )
     title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
     dv = devin_client()
-    payload = {"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"], "title": title}
+    payload = {"prompt": prompt, "tags": [f"prompt:{pid}", f"prompt-mode:{mode}"]}
+    if not body.start:
+        payload["title"] = title  # work sessions keep Devin's own title once it assigns one
     if atts:
         payload["attachment_urls"] = atts
     r = await dv.post("/sessions", json=payload)
