@@ -230,8 +230,13 @@ main{
 .brow:hover{background:var(--ds-gray-100)}
 .brow.active{background:var(--ds-gray-100);color:var(--ds-gray-1000)}
 .brow.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ds-gray-1000)}
-.brow.locked{cursor:default;color:var(--ds-gray-700)}
-.brow.locked:hover{background:none}
+.brow.all{grid-template-columns:28px 1fr auto}
+.brow.all.off{color:var(--ds-gray-700)}
+.brow.all.off .mini{color:var(--ds-gray-600);border-style:dashed}
+.brow .tg{width:22px;height:12px;border:1px solid var(--ds-gray-500);position:relative;background:var(--ds-gray-100)}
+.brow .tg::after{content:"";position:absolute;top:2px;left:2px;width:6px;height:6px;background:var(--ds-gray-600)}
+.brow.all:not(.off) .tg{border-color:var(--ds-gray-1000)}
+.brow.all:not(.off) .tg::after{left:12px;background:var(--ds-gray-1000)}
 .brow .mini{width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;font-weight:500;letter-spacing:.04em;color:var(--ds-gray-800);background:var(--ds-gray-100);border:1px solid var(--ds-gray-400)}
 .brow.active .mini{color:var(--ds-gray-1000);background:var(--ds-gray-300);border-color:var(--ds-gray-500)}
 .brow .t{font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1227,6 +1232,10 @@ function mapCard(c,i){
 /* ================= boards ================= */
 /* boards live server-side; the URL picks one: / = all, /b/<id> = one board, /settings = editor */
 let boards=[], boardId=null, boardMeta=null, view='board';
+/* the All view is opt-in per browser; with it off, / lands on the first board */
+let showAll=localStorage.getItem('show_all')==='1';
+function allHidden(){return !showAll&&boards.length>0}
+function homeBoard(){return allHidden()?boards[0].id:null}
 function routeFromURL(){
   const p=location.pathname;
   if(p==='/settings')return {view:'settings'};
@@ -1243,7 +1252,7 @@ function tint(c){return BOARD_COLORS.includes(c)?` style="--c:var(--bc-${c})"`:'
 const railBoards=document.getElementById('rail-boards');
 const crumbName=document.getElementById('crumb-name');
 function renderRail(){
-  const slots=[{id:null,name:'All'},...boards].map(b=>{
+  const slots=[...(allHidden()?[]:[{id:null,name:'All'}]),...boards].map(b=>{
     const active=view==='board'&&(b.id||null)===boardId;
     return `<div class="slot${active?' active':''}"><button class="tile"${tint(b.color)} data-board="${escHTML(b.id||'')}" title="${escHTML(b.name)}" aria-label="${escHTML(b.name)}">${escHTML(initials(b.name))}</button></div>`;
   });
@@ -1259,6 +1268,7 @@ railBoards.addEventListener('click',e=>{
 });
 document.getElementById('rail-settings').addEventListener('click',()=>view==='settings'?closeSettings():openSettings());
 function gotoBoard(id,{replace=false}={}){
+  if(id===null&&allHidden())id=homeBoard();
   const url=boardURL(id);
   if(location.pathname!==url)history[replace?'replaceState':'pushState'](null,'',url);
   boardId=id; boardMeta=boards.find(b=>b.id===id)||null;
@@ -1269,7 +1279,7 @@ function gotoBoard(id,{replace=false}={}){
   fetchBoard().then(()=>{const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();if(c)c.focus()}).catch(()=>{});
 }
 function cycleBoard(d){
-  const ids=[null,...boards.map(b=>b.id)];
+  const ids=[...(allHidden()?[]:[null]),...boards.map(b=>b.id)];
   const i=ids.indexOf(boardId);
   gotoBoard(ids[(i+d+ids.length)%ids.length]);
 }
@@ -1290,7 +1300,7 @@ function openSettings(which){
   renderRail();
 }
 function closeSettings(){
-  gotoBoard(boards.some(b=>b.id===returnBoard)?returnBoard:null);
+  gotoBoard(boards.some(b=>b.id===returnBoard)?returnBoard:homeBoard());
 }
 async function loadRepoList(){
   if(Date.now()-repoListAt<120000)return;
@@ -1311,12 +1321,16 @@ function editBoard(id){
 function renderBoardList(){
   const rows=document.getElementById('blist-rows');
   rows.innerHTML=[
-    `<button class="brow locked" tabindex="-1"><span class="mini">AL</span><span class="t">All</span></button>`,
+    `<button class="brow all${showAll?'':' off'}" data-toggle-all role="switch" aria-checked="${showAll}" title="${showAll?'Hide All':'Show All'}"><span class="mini">AL</span><span class="t">All</span><span class="tg"></span></button>`,
     ...boards.map(b=>`<button class="brow${editing===b.id?' active':''}" data-edit="${escHTML(b.id)}"><span class="mini"${tint(b.color)}>${escHTML(initials(b.name))}</span><span class="t">${escHTML(b.name)}</span></button>`),
     `<button class="brow badd${editing==='new'?' active':''}" data-edit="new"><span class="mini">+</span><span class="t">New board</span></button>`,
   ].join('');
 }
 document.getElementById('blist-rows').addEventListener('click',e=>{
+  if(e.target.closest('[data-toggle-all]')){
+    showAll=!showAll; localStorage.setItem('show_all',showAll?'1':'0');
+    renderBoardList(); renderRail(); return;
+  }
   const r=e.target.closest('[data-edit]'); if(r)editBoard(r.dataset.edit);
 });
 function renderSwatches(){
@@ -1728,6 +1742,7 @@ async function fetchBoard(){
   if(want!==boardId)return; // switched boards while this was in flight
   fetchFailed=false;
   boards=data.boards||[]; boardMeta=data.board&&data.board.id!=='all'?data.board:null;
+  if(boardId===null&&view==='board'&&allHidden()){gotoBoard(homeBoard(),{replace:true});return}
   renderRail();
   if(view==='settings')renderBoardList();
   if(data.loading&&cards.length){renderSync('busy');return} // fresh instance still warming up; keep the last board
