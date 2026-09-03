@@ -196,7 +196,7 @@ recently_closed: dict[str, float] = {}
 RECENT_SESSION_TTL = 300
 recent_sessions: dict[str, tuple[float, dict]] = {}
 # first line of the prompt, shown until Devin assigns the session its own title
-provisional_titles: dict[str, str] = {}
+provisional_titles: dict[str, tuple[float, str]] = {}
 # ...and treat a session we just replied to as running until Devin's status catches up.
 RECENT_REPLY_TTL = 120
 recent_replies: dict[str, float] = {}
@@ -222,7 +222,7 @@ def remember_session(data: dict, tags: list[str], title: str) -> dict:
         "created_at": datetime.now(timezone.utc).isoformat(), "pull_requests": [],
     }
     recent_sessions[sid] = (time.time(), sess)
-    provisional_titles[sid] = title
+    provisional_titles[sid] = (time.time(), title)
     return sess
 
 async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
@@ -409,7 +409,10 @@ async def fetch_devin():
             if s.get("title"):
                 provisional_titles.pop(s["session_id"], None)
             else:
-                s["title"] = provisional_titles[s["session_id"]]
+                s["title"] = provisional_titles[s["session_id"]][1]
+    for sid, (ts, _) in list(provisional_titles.items()):
+        if now - ts > RECENT_SESSION_TTL and sid not in live:
+            provisional_titles.pop(sid, None)
     state["sessions"] = sessions
     state["devin_ok"] = True
     # Transcripts are only needed for sessions that can hold a card; holding one
@@ -1238,6 +1241,7 @@ async def archive_card(card_id: str):
     if card["session_id"]:
         recent_sessions.pop(card["session_id"], None)
         recent_replies.pop(card["session_id"], None)
+        provisional_titles.pop(card["session_id"], None)
         state["sessions"] = [s for s in state["sessions"] if s["session_id"] != card["session_id"]]
     for col in (state["board"] or {"columns": []})["columns"]:
         col["cards"] = [c for c in col["cards"] if c["id"] != card_id]
