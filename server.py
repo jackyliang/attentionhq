@@ -33,8 +33,10 @@ BOARD_TOKEN = os.environ.get("BOARD_TOKEN", "")
 REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web,jackyliang/attentionhq").split(",") if r.strip()]
 RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
-DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "15"))
-GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "60"))
+DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "5"))
+DEVIN_POLL_MAX_SECS = int(os.environ.get("DEVIN_POLL_MAX_SECS", "60"))
+GITHUB_POLL_SECS = int(os.environ.get("GITHUB_POLL_SECS", "20"))
+GITHUB_POLL_MAX_SECS = int(os.environ.get("GITHUB_POLL_MAX_SECS", "300"))
 RENDER_POLL_SECS = int(os.environ.get("RENDER_POLL_SECS", "15"))
 # Automation-origin sessions (merged-PR review bots and the like) are background
 # chatter, not work the board tracks.
@@ -648,18 +650,33 @@ async def assemble_board():
 
 # ---------------------------------------------------------------- pollers
 
+def _is_rate_limited(e: Exception) -> bool:
+    if not isinstance(e, httpx.HTTPStatusError):
+        return False
+    r = e.response
+    # GitHub signals primary-limit exhaustion with 403 + X-RateLimit-Remaining: 0
+    return r.status_code == 429 or (r.status_code == 403 and r.headers.get("x-ratelimit-remaining") == "0")
+
 async def poll_loop():
     last_gh = 0.0
     last_render = 0.0
+    devin_sleep = DEVIN_POLL_SECS
+    gh_every = GITHUB_POLL_SECS
     while True:
         try:
-            if time.time() - last_gh >= GITHUB_POLL_SECS or state["gh_refresh"]:
+            if time.time() - last_gh >= gh_every or state["gh_refresh"]:
                 state["gh_refresh"] = False
                 await fetch_github()
                 last_gh = time.time()
+                gh_every = GITHUB_POLL_SECS
         except Exception as e:  # noqa: BLE001
             state["github_ok"] = False
-            log.warning("github poll failed: %s", e)
+            last_gh = time.time()
+            if _is_rate_limited(e):
+                gh_every = min(gh_every * 2, GITHUB_POLL_MAX_SECS)
+                log.warning("github rate limited; backing off to %ss", gh_every)
+            else:
+                log.warning("github poll failed: %s", e)
         try:
             if time.time() - last_render >= RENDER_POLL_SECS:
                 await fetch_render()
@@ -675,16 +692,24 @@ async def poll_loop():
                 if st in ACTIVE_STATUSES or st == "blocked" or session_issue_key(sess) or session_prompt(sess):
                     try:
                         await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
+                    except httpx.HTTPStatusError as e:
+                        if _is_rate_limited(e):
+                            raise
                     except httpx.HTTPError:
                         pass
+            devin_sleep = DEVIN_POLL_SECS
         except Exception as e:  # noqa: BLE001
             state["devin_ok"] = False
-            log.warning("devin poll failed: %s", e)
+            if _is_rate_limited(e):
+                devin_sleep = min(devin_sleep * 2, DEVIN_POLL_MAX_SECS)
+                log.warning("devin rate limited (429); backing off to %ss", devin_sleep)
+            else:
+                log.warning("devin poll failed: %s", e)
         try:
             await assemble_board()
         except Exception as e:  # noqa: BLE001
             log.exception("board assembly failed: %s", e)
-        await asyncio.sleep(DEVIN_POLL_SECS)
+        await asyncio.sleep(devin_sleep)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
