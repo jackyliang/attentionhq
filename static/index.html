@@ -1128,7 +1128,8 @@ function flipCards(before,focusEl){
     const to=el.getBoundingClientRect();
     if(!old){
       el.classList.add('flip');
-      el.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:FLIP_DUR.enter,easing:FLIP_EASE}).onfinish=()=>el.classList.remove('flip');
+      const a=el.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:FLIP_DUR.enter,easing:FLIP_EASE});
+      a.onfinish=a.oncancel=()=>el.classList.remove('flip');
       return;
     }
     const from=old.rect;
@@ -1145,11 +1146,13 @@ function flipCards(before,focusEl){
       Object.assign(ghost.style,{left:to.left+'px',top:to.top+'px',width:to.width+'px',height:to.height+'px',transformOrigin:'0 0',zIndex:3});
       document.body.appendChild(ghost);
       el.style.opacity=0;
-      ghost.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE}).onfinish=()=>{ghost.remove();el.style.opacity=''};
+      const a=ghost.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE});
+      a.onfinish=a.oncancel=()=>{ghost.remove();el.style.opacity=''};
     }else{
       el.classList.add('flip');
       el.style.transformOrigin='0 0';
-      el.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE}).onfinish=()=>{el.classList.remove('flip');el.style.transformOrigin=''};
+      const a=el.animate([{transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transform:'none'}],{duration:dur,easing:FLIP_EASE});
+      a.onfinish=a.oncancel=()=>{el.classList.remove('flip');el.style.transformOrigin=''};
     }
     if(el===focusEl){ringFlightUntil=performance.now()+dur+50;ringTo(from,true);requestAnimationFrame(()=>{if(ringTarget===el)ringTo(to,false,dur)})}
   });
@@ -1161,7 +1164,8 @@ function flipCards(before,focusEl){
     ghost.classList.add('card-ghost'); ghost.classList.remove('selected'); ghost.removeAttribute('data-key'); ghost.tabIndex=-1;
     Object.assign(ghost.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});
     document.body.appendChild(ghost);
-    ghost.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.96)'}],{duration:FLIP_DUR.exit,easing:FLIP_EASE}).onfinish=()=>ghost.remove();
+    const a=ghost.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.96)'}],{duration:FLIP_DUR.exit,easing:FLIP_EASE});
+    a.onfinish=a.oncancel=()=>ghost.remove();
   });
 }
 function renderBoard(){
