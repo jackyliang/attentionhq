@@ -764,7 +764,7 @@ aside{
         <div class="s" id="panel-sub">operate the board</div>
       </div>
       <button class="panel-close panel-archive" id="panel-archive" aria-label="Archive card">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close issue</span><kbd>C</kbd>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3"/></svg><span id="panel-archive-label">Close issue</span><kbd>⌫</kbd>
       </button>
       <button class="panel-close panel-archive" id="panel-hide" aria-label="Hide card from board">
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4zM3 13L13 3"/></svg><span id="panel-hide-label">Hide</span><kbd>H</kbd>
@@ -806,7 +806,7 @@ aside{
         <div class="sc">Merge a ready PR (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Start session on issue (press twice) <span class="k"><kbd>E</kbd><kbd>E</kbd></span></div>
         <div class="sc">Pick a suggested option <span class="k"><kbd>1</kbd>…<kbd>5</kbd></span></div>
-        <div class="sc">Close issue — Issues column only (press twice) <span class="k"><kbd>C</kbd><kbd>C</kbd></span></div>
+        <div class="sc">Close issue — Issues column only (press twice) <span class="k"><kbd>⌫</kbd><kbd>⌫</kbd></span></div>
         <div class="sc">Hide card from board, nothing else (press twice) <span class="k"><kbd>H</kbd><kbd>H</kbd></span></div>
         <div class="sc">Cancel a pending confirmation <span class="k"><kbd>Esc</kbd></span></div>
       </div>
@@ -1053,7 +1053,7 @@ function cardHTML(c){
   const r=5.5,cf=2*Math.PI*r;
   const fillColor=you?'var(--ds-amber-700)':'var(--ds-gray-1000)';
   const ring=`<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="${r}" fill="none" stroke="var(--ds-gray-400)" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" class="fill" stroke="${fillColor}" stroke-width="2" stroke-dasharray="${(cf*pct).toFixed(2)} ${(cf*(1-pct)).toFixed(2)}" transform="rotate(-90 7 7)"/></svg>`;
-  const closeHint=c.pending?'':(canClose(c)?`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>C</kbd><span>${isArmed('archive')?'confirm?':'close'}</span></span>`:'')+`<span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
+  const closeHint=c.pending?'':(canClose(c)?`<span class="close-hint${isArmed('archive')?' armed':''}" role="button" tabindex="-1"><kbd>⌫</kbd><span>${isArmed('archive')?'confirm?':'close'}</span></span>`:'')+`<span class="close-hint hide-hint${isArmed('hide')?' armed':''}" role="button" tabindex="-1"><kbd>H</kbd><span>${isArmed('hide')?'confirm?':'hide'}</span></span>`;
   if(c.col==='issues')return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}<div class="start-hint${isArmed('start')?' armed':''}"><kbd>E</kbd><span>${isArmed('start')?'confirm? uses ACUs':'start'}</span></div></div></div>`;
   const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
   const ciRunning=c.col==='review'&&c.pr&&(c.pr.ci==='running'||c.pr.ci==='pending');
@@ -1884,7 +1884,7 @@ let archiving=false;
 async function archiveCard(id){
   const c=cards[id];
   if(!c||c.pending||archiving||!canClose(c))return;
-  if(!confirmArm(c,'archive',`Press C again to close ${shortRepo(c.repo)}#${c.num}`))return;
+  if(!confirmArm(c,'archive',`Press Backspace again to close ${shortRepo(c.repo)}#${c.num}`))return;
   archiving=true;
   const nextKey=neighborKey(c);
   showToast(`Closing ${shortRepo(c.repo)}#${c.num}…`);
@@ -2069,7 +2069,7 @@ document.addEventListener('keydown',e=>{
     case '?': toggleOverlay(true); e.preventDefault(); break;
     case 'e': case 'E': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)triggerAction(+f.dataset.id); break}
     case 'n': case 'N': {const c=colCards(document.querySelector('[data-col="needs-you"]'))[0]; if(c)c.focus(); break}
-    case 'c': case 'C': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
+    case 'Backspace': case 'Delete': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)archiveCard(+f.dataset.id); e.preventDefault(); break}
     case 'h': case 'H': {const f=focused()||(openCard!=null?cardEl(openCard):null); if(f&&f.dataset.id!=null)hideCard(+f.dataset.id); e.preventDefault(); break}
     case '1': case '2': case '3': case '4': case '5': {
       const i=+e.key-1;
