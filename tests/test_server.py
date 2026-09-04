@@ -634,3 +634,9 @@ def test_local_echo_dropped_when_devin_decorates_attachment_message():
     real_msgs = [{"who": "user", "text": real, "ts": server.datetime.now(server.timezone.utc).isoformat()}]
     assert server._has_real_user_msg(real_msgs, local, now)
     assert not server._has_real_user_msg(real_msgs, "something else", now)
+    # a distinct reply that merely prefixes an earlier one is not its echo
+    assert not server._has_real_user_msg(real_msgs, "its still showing", now)
+    # user-authored HTML comments are kept when comparing
+    only_comment = "<!-- just a note -->"
+    assert server._echoes(only_comment, only_comment)
+    assert not server._echoes(only_comment, "<!-- other -->")
