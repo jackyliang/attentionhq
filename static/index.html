@@ -1528,6 +1528,7 @@ function progressOf(c){
   return 0;
 }
 
+const MAX_PROMPT=25000; // mirrors server.py MAX_PROMPT
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
 // a pending placeholder is either an issue being filed (Enter) or a Devin session being started (Ctrl+Enter)
 const filingIssue=c=>!!c&&!!c.pending&&c.col==='issues';
@@ -1973,6 +1974,7 @@ function wireAddCard(addBtn){
         const v=inp.value.trim();
         const start=e.metaKey||e.ctrlKey;
         if(tray.uploading()){showToast('Still uploading attachments…');return}
+        if(!start&&v.length>MAX_PROMPT){showToast(`Too long for an issue (${v.length.toLocaleString()} chars, max ${MAX_PROMPT.toLocaleString()}) — trim it or ${MOD}↵ to hand it to Devin`);return}
         const attachments=tray.urls();
         addToPlus();
         setTimeout(()=>document.getElementById('add-issue')?.focus(),0);

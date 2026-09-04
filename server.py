@@ -2381,10 +2381,11 @@ Return STRICT JSON (no markdown) with this shape:
   appended after your body. You may refer to attached files by name (e.g. "see the attached screenshot").
 Write plainly; no filler, no headings for a two-line body."""
 
-# GitHub caps issue bodies at 65536 chars; a block-quoted prompt at most doubles in size
-# ("> " per line), so prompt + draft + attachments + marker stays under the cap.
+# GitHub caps issue bodies at 65536 chars. A block-quoted prompt at most doubles in size
+# ("> " per line); the composed body is checked against the cap before posting.
 MAX_PROMPT = 25000
 MAX_DRAFT_BODY = 8000
+MAX_ISSUE_BODY = 65000
 
 async def draft_issue(text: str, repo_list: list[str], att_names: list[str]) -> dict:
     """{repo, title, body} for the issue a prompt should become; falls back to the
@@ -2493,6 +2494,10 @@ async def prompt_devin(body: PromptIn, request: Request):
         base = PUBLIC_URL or str(request.base_url).rstrip("/")
         draft = await draft_issue(text, repo_list, [public_attachment_url(u, base)[0] for u in atts])
         issue_body = compose_issue_body(draft["body"], text if typed else "", atts, pid, base)
+        if len(issue_body) > MAX_ISSUE_BODY:  # drop the model's description before the user's own words
+            issue_body = compose_issue_body("", text if typed else "", atts, pid, base)
+        if len(issue_body) > MAX_ISSUE_BODY:
+            raise HTTPException(400, "prompt and attachments are too large for a GitHub issue")
         return await publish_issue(draft["repo"], draft["title"], issue_body)
 
     repos = "\n".join(f"- {r}" for r in repo_list)
