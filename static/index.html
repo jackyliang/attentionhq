@@ -120,7 +120,13 @@ svg{display:block;flex:none}
 }
 .rail .glyph{width:100%;height:var(--header-h);flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--ds-gray-400);color:var(--ds-gray-1000)}
 .rail .group{display:flex;flex-direction:column;align-items:center;width:100%;padding:10px 0;gap:6px}
-.rail .group.boards{flex:1;min-height:0;overflow-y:auto}
+.rail .group.boards{position:relative;flex:1;min-height:0;overflow-y:auto}
+.tile[data-board]{touch-action:none}
+.slot.dragging .tile{opacity:.3}
+.rail .drop{position:absolute;left:10px;right:10px;height:2px;background:var(--ds-gray-1000);pointer-events:none;z-index:2}
+.tile.ghost{position:fixed;z-index:50;margin:0;pointer-events:none;background:var(--ds-gray-200);box-shadow:0 6px 18px rgba(0,0,0,.5);cursor:grabbing}
+.tile.ghost .hk{display:none}
+body.dragging-board,body.dragging-board *{cursor:grabbing!important;user-select:none}
 .rail .group.bottom{border-top:1px solid var(--ds-gray-300)}
 .slot{position:relative;width:100%;height:42px;flex:none;display:flex;align-items:center;justify-content:center}
 .slot.active::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:2px;background:var(--ds-gray-1000)}
@@ -1234,6 +1240,7 @@ function mapCard(c,i){
 /* ================= boards ================= */
 /* boards live server-side; the URL picks one: / = all, /b/<id> = one board, /settings = editor */
 let boards=[], boardId=null, boardMeta=null, view='board';
+const drag={id:null,pid:null,y0:0,dy:0,active:false,moved:false,dirty:false,to:-1,ghost:null,line:null,gen:0,saved:null};
 /* the All view is opt-in (stored server-side with the boards); with it off, / lands on the first board */
 let showAll=false;
 function allHidden(){return !showAll&&boards.length>0}
@@ -1256,6 +1263,8 @@ const crumbName=document.getElementById('crumb-name');
 function railIds(){return [...(allHidden()?[]:[null]),...boards.map(b=>b.id)]}
 function hotkey(i){return i<9?String(i+1):(i===9?'0':'')}
 function renderRail(){
+  if(drag.active){drag.dirty=true;return}
+  drag.dirty=false;
   const slots=[...(allHidden()?[]:[{id:null,name:'All'}]),...boards].map((b,i)=>{
     const active=view==='board'&&(b.id||null)===boardId;
     const k=hotkey(i);
@@ -1267,10 +1276,74 @@ function renderRail(){
   crumbName.textContent=view==='settings'?'Boards':(boardMeta?boardMeta.name:(boardId?boardId:'All'));
 }
 railBoards.addEventListener('click',e=>{
+  if(drag.moved){drag.moved=false;if(e.detail)return}  // pointer click after a drag; keyboard clicks (detail 0) pass
   if(e.target.closest('#rail-new')){openSettings('new');return}
   const t=e.target.closest('.tile[data-board]');
   if(t)gotoBoard(t.dataset.board||null);
 });
+/* drag a board tile up/down the rail to reorder (All and + stay put); order is saved server-side */
+function boardSlots(){return [...railBoards.querySelectorAll('.slot')].filter(s=>s.querySelector('.tile[data-board]')?.dataset.board)}
+function dropIndex(y){
+  const slots=boardSlots(); let i=0;
+  for(const s of slots){const r=s.getBoundingClientRect(); if(y>r.top+r.height/2)i++; else break}
+  return i;
+}
+function endDrag(commit){
+  if(!drag.active){drag.id=null;return}
+  document.body.classList.remove('dragging-board');
+  drag.ghost?.remove(); drag.line?.remove(); drag.ghost=drag.line=null;
+  railBoards.querySelector('.slot.dragging')?.classList.remove('dragging');
+  const from=boards.findIndex(b=>b.id===drag.id), to=drag.to;
+  drag.active=false; drag.id=null; drag.moved=true;  // swallow the click this release fires; the next pointerdown clears it
+  if(!commit||from<0||to<0||to===from||to===from+1){if(drag.dirty)renderRail();return}
+  if(drag.saved===null)drag.saved=boards.map(x=>x.id);  // last order the server confirmed
+  const next=boards.slice(); const [b]=next.splice(from,1); next.splice(to>from?to-1:to,0,b);
+  boards=next; renderRail();
+  const gen=++drag.gen;
+  api('/api/board-order',{method:'PUT',body:JSON.stringify({order:next.map(x=>x.id)})})
+    .then(d=>{if(gen!==drag.gen){if(d.boards)drag.saved=d.boards.map(x=>x.id);return}drag.saved=null;boards=d.boards||boards;renderRail()})
+    .catch(e=>{
+      if(gen!==drag.gen)return;
+      const byId=Object.fromEntries(boards.map(x=>[x.id,x]));
+      boards=drag.saved.map(i=>byId[i]).filter(Boolean).concat(boards.filter(x=>!drag.saved.includes(x.id)));
+      drag.saved=null; renderRail(); showToast('Reorder failed: '+e.message);
+    });
+}
+railBoards.addEventListener('pointerdown',e=>{
+  drag.moved=false;
+  const t=e.target.closest('.tile[data-board]');
+  if(!t||!t.dataset.board||e.button!==0||boards.length<2)return;
+  drag.id=t.dataset.board; drag.pid=e.pointerId; drag.y0=e.clientY; drag.active=false;
+  t.setPointerCapture(e.pointerId);  // so a release anywhere still reaches us
+});
+railBoards.addEventListener('pointermove',e=>{
+  if(drag.id===null||e.pointerId!==drag.pid)return;
+  const t=railBoards.querySelector(`.tile[data-board="${CSS.escape(drag.id)}"]`);
+  if(!t){endDrag(false);return}
+  if(!drag.active){
+    if(Math.abs(e.clientY-drag.y0)<5)return;
+    drag.active=true; drag.dy=e.clientY-t.getBoundingClientRect().top;
+    if(!t.hasPointerCapture(drag.pid))t.setPointerCapture(drag.pid);
+    t.closest('.slot').classList.add('dragging');
+    document.body.classList.add('dragging-board');
+    const g=t.cloneNode(true); g.classList.add('ghost'); g.style.left=t.getBoundingClientRect().left+'px'; g.style.width=t.offsetWidth+'px'; g.style.height=t.offsetHeight+'px';
+    document.body.appendChild(g); drag.ghost=g;
+    const l=document.createElement('div'); l.className='drop'; railBoards.appendChild(l); drag.line=l;
+  }
+  if(!drag.line.isConnected)railBoards.appendChild(drag.line);
+  t.closest('.slot').classList.add('dragging');
+  drag.ghost.style.top=(e.clientY-drag.dy)+'px';
+  const slots=boardSlots(), i=dropIndex(e.clientY), from=boards.findIndex(b=>b.id===drag.id);
+  drag.to=i;
+  const noop=i===from||i===from+1;
+  drag.line.style.display=noop?'none':'';
+  if(!noop){const ref=slots[Math.min(i,slots.length-1)]; drag.line.style.top=(i<slots.length?ref.offsetTop-4:ref.offsetTop+ref.offsetHeight+2)+'px'}
+  e.preventDefault();
+});
+railBoards.addEventListener('pointerup',e=>{if(e.pointerId===drag.pid)endDrag(true)});
+railBoards.addEventListener('pointercancel',e=>{if(e.pointerId===drag.pid)endDrag(false)});
+railBoards.addEventListener('lostpointercapture',e=>{if(e.pointerId===drag.pid)endDrag(drag.active)});
+document.addEventListener('keydown',e=>{if(drag.active&&e.key==='Escape'){e.stopImmediatePropagation();endDrag(false)}},true);
 document.getElementById('rail-settings').addEventListener('click',()=>view==='settings'?closeSettings():openSettings());
 function gotoBoard(id,{replace=false}={}){
   if(id===null&&allHidden())id=homeBoard();

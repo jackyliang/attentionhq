@@ -1627,13 +1627,17 @@ def _digest_view(board: dict) -> dict:
     ]
     return out
 
+def _bump_board_version():
+    global board_version
+    board_version += 1
+    publish("board")
+
 def _note_board_changed(board: dict):
-    global board_version, _board_digest
+    global _board_digest
     digest = hashlib.sha1(json.dumps(_digest_view(board), sort_keys=True, default=str).encode()).hexdigest()
     if digest != _board_digest:
         _board_digest = digest
-        board_version += 1
-        publish("board")
+        _bump_board_version()
     else:
         publish("sync")
 
@@ -1692,6 +1696,9 @@ class BoardIn(BaseModel):
     name: str
     repos: list[str] = []
     color: str | None = None  # omitted keeps the stored color; "" clears it
+
+class OrderIn(BaseModel):
+    order: list[str]
 
 class PinIn(BaseModel):
     board: str | None = None
@@ -1774,6 +1781,22 @@ async def create_board(body: BoardIn):
             raise
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
+
+@app.put("/api/board-order")  # own path: any slug (even "order") is a valid /api/boards/{board_id}
+async def reorder_boards(body: OrderIn):
+    async with _boards_lock:
+        await _writable_boards()
+        prev = state["boards"]
+        if sorted(body.order) != sorted(b["id"] for b in prev):
+            raise HTTPException(400, "order must list every board id exactly once")
+        state["boards"] = [board_by_id(i) for i in body.order]
+        try:
+            await _store(persist_boards, *state["boards"])
+        except HTTPException:
+            state["boards"] = prev
+            raise
+    _bump_board_version()  # membership is unchanged, so no GitHub refresh; just tell open tabs to re-fetch
+    return _boards_payload()
 
 @app.put("/api/boards/{board_id}")
 async def update_board(board_id: str, body: BoardIn):
