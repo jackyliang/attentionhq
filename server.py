@@ -1069,16 +1069,28 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
 # swapped for the real one once Devin's message list returns it.
 LOCAL_ECHO_TTL = 300
 
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+def _echo_key(text: str) -> str:
+    text = _HTML_COMMENT_RE.sub("", _clean_text(text))
+    return "\n".join(line.strip() for line in text.strip().splitlines() if line.strip())
+
+def _echoes(local_text: str, real_text: str) -> bool:
+    """Devin's copy of a sent message may carry extra decoration (attachment download
+    notes, trailing context), so the real text only has to start with what we sent."""
+    local, real = _echo_key(local_text), _echo_key(real_text)
+    return bool(local) and real.startswith(local)
+
 def _drop_local_echo(msgs: list[dict], text: str):
     for i, m in enumerate(msgs):
-        if m.get("local") and m["text"].strip() == text.strip():
+        if m.get("local") and _echoes(m["text"], text):
             del msgs[i]
             return
 
 def _has_real_user_msg(msgs: list[dict], text: str, since: float) -> bool:
     """True if Devin's list already holds this user message (sent within the last minute)."""
     return any(
-        m["who"] == "user" and not m.get("local") and m["text"].strip() == _clean_text(text).strip()
+        m["who"] == "user" and not m.get("local") and _echoes(text, m["text"])
         and _epoch_f(m.get("ts")) >= since - 60
         for m in msgs
     )
