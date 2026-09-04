@@ -2381,6 +2381,11 @@ Return STRICT JSON (no markdown) with this shape:
   appended after your body. You may refer to attached files by name (e.g. "see the attached screenshot").
 Write plainly; no filler, no headings for a two-line body."""
 
+# GitHub caps issue bodies at 65536 chars; a block-quoted prompt at most doubles in size
+# ("> " per line), so prompt + draft + attachments + marker stays under the cap.
+MAX_PROMPT = 25000
+MAX_DRAFT_BODY = 8000
+
 async def draft_issue(text: str, repo_list: list[str], att_names: list[str]) -> dict:
     """{repo, title, body} for the issue a prompt should become; falls back to the
     prompt's first line when the model is unavailable."""
@@ -2417,7 +2422,7 @@ async def draft_issue(text: str, repo_list: list[str], att_names: list[str]) -> 
     return {
         "repo": repo if repo in repo_list else fallback["repo"],
         "title": title or fallback["title"],
-        "body": body.strip() if isinstance(body, str) else "",
+        "body": body.strip()[:MAX_DRAFT_BODY] if isinstance(body, str) else "",
     }
 
 def compose_issue_body(draft_body: str, text: str, atts: list[str], pid: str, base: str) -> str:
@@ -2470,6 +2475,8 @@ async def prompt_devin(body: PromptIn, request: Request):
     atts = clean_attachments(body.attachments)
     if not text and not atts:
         raise HTTPException(400, "empty prompt")
+    if not body.start and len(text) > MAX_PROMPT:
+        raise HTTPException(400, f"prompt too long ({len(text)} chars; max {MAX_PROMPT})")
     typed = bool(text)
     text = text or "(see attached files)"
     pid = uuid.uuid4().hex[:12]
