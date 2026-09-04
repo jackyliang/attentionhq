@@ -553,6 +553,37 @@ def test_board_color_roundtrip_and_validation(monkeypatch, client):
     client.delete(f"/api/boards/{bid}", headers=h)
 
 
+def test_board_reorder(monkeypatch, client):
+    async def noop():
+        return None
+    monkeypatch.setattr(server, "_refresh_after_board_change", noop)
+    h = {"x-board-token": "tok"}
+    ids = [client.post("/api/boards", json={"name": n, "repos": ["acme/x"]}, headers=h).json()["board"]["id"] for n in ("Ra", "Rb", "Rc")]
+    before = [b["id"] for b in server.state["boards"]]
+    rest = [i for i in before if i not in ids]
+    want = rest + ids[::-1]
+    r = client.put("/api/boards/order", json={"order": want}, headers=h)
+    assert r.status_code == 200
+    assert [b["id"] for b in r.json()["boards"]] == want
+    assert [b["id"] for b in server.load_boards()] == want
+    # must be a permutation: missing, duplicated or unknown ids are rejected and nothing moves
+    for bad in (want[:-1], want + [want[0]], want[:-1] + ["nope"]):
+        assert client.put("/api/boards/order", json={"order": bad}, headers=h).status_code == 400
+    assert [b["id"] for b in server.state["boards"]] == want
+    # a storage failure rolls the in-memory order back
+    def boom(*_):
+        raise server.BoardStoreError("disk full")
+    monkeypatch.setattr(server, "persist_boards", boom)
+    assert client.put("/api/boards/order", json={"order": before}, headers=h).status_code == 503
+    assert [b["id"] for b in server.state["boards"]] == want
+    monkeypatch.undo()
+    monkeypatch.setattr(server, "_refresh_after_board_change", noop)
+    # "order" can never become a board id, so the route stays unambiguous
+    assert client.post("/api/boards", json={"name": "Order", "repos": []}, headers=h).json()["board"]["id"] == "order-2"
+    for i in ids + ["order-2"]:
+        client.delete(f"/api/boards/{i}", headers=h)
+
+
 def test_settings_roundtrip(client):
     h = {"x-board-token": "tok"}
     server.settings.clear()
