@@ -18,6 +18,7 @@ import uuid
 import contextvars
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from urllib.parse import quote, unquote
 
 import httpx
 import psycopg
@@ -36,6 +37,9 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-5.6-luna:nitro")
 BOARD_TOKEN = os.environ.get("BOARD_TOKEN", "")
+# Where this instance is reachable from the outside; attachment links written into
+# GitHub issues point here (Render sets RENDER_EXTERNAL_URL automatically).
+PUBLIC_URL = (os.environ.get("PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
 # Only used to seed the first board when none are stored yet; boards are managed in the UI.
 REPOS = [r.strip() for r in os.environ.get("REPOS", "jackyliang/answer-hq,jackyliang/answerhq-web,jackyliang/attentionhq").split(",") if r.strip()]
 RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
@@ -65,11 +69,13 @@ RENDER_BASE = "https://api.render.com/v1"
 
 ISSUE_TAG_RE = re.compile(r"issue:([\w.-]+/[\w.-]+)#(\d+)")
 PR_ISSUE_RE = re.compile(r"(?:#|issues/)(\d+)")
-# A session started from the prompt box is tagged prompt:<id>; Devin writes the
-# same id into the issue it files so the board can pair them up.
+# A session started from the prompt box is tagged prompt:<id>. Issues filed from the
+# prompt box carry the same id in a trailing HTML comment (older ones were filed by a
+# Devin session tagged prompt-mode:file; the board hid that session once the issue existed).
 PROMPT_TAG_RE = re.compile(r"^prompt:([0-9a-f]{12})$")
 PROMPT_MODE_TAG_RE = re.compile(r"^prompt-mode:(file|work)$")
 PROMPT_MARK_RE = re.compile(r"\s*<!--\s*attention:prompt:([0-9a-f]{12})\s*-->")
+IMAGE_NAME_RE = re.compile(r"\.(png|jpe?g|gif|webp|svg|bmp|avif)$", re.I)
 # Sessions started from a board's prompt box are tagged board:<id>.
 BOARD_TAG_RE = re.compile(r"^board:([a-z0-9-]+)$")
 REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
@@ -1674,7 +1680,7 @@ async def auth_middleware(request: Request, call_next):
         token = request.headers.get("x-board-token")
         if token is None and request.url.path.startswith(("/api/attachment/", "/api/events")):
             token = request.query_params.get("t")
-        if token != BOARD_TOKEN:
+        if token != BOARD_TOKEN and not _attachment_signed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -2031,6 +2037,28 @@ async def get_messages(card_id: str):
         } if sess else None,
     }
 
+def attachment_sig(uuid: str, name: str) -> str:
+    return hmac.new(BOARD_TOKEN.encode(), f"{uuid}/{name}".encode(), hashlib.sha256).hexdigest()[:32]
+
+def _attachment_signed(request: Request) -> bool:
+    """A per-file signature lets a link in a GitHub issue load the attachment
+    without carrying the board token."""
+    prefix = "/api/attachment/"
+    sig = request.query_params.get("s")
+    if not sig or not request.url.path.startswith(prefix):
+        return False
+    uuid, _, name = request.url.path[len(prefix):].partition("/")
+    return bool(uuid and name) and hmac.compare_digest(sig, attachment_sig(uuid, name))
+
+def public_attachment_url(devin_url: str, base: str) -> tuple[str, str]:
+    """(display name, URL anyone with the link can open) for a Devin attachment URL."""
+    uuid, name = DEVIN_ATT_RE.match(devin_url).groups()
+    name = unquote(name)
+    url = f"{base}/api/attachment/{uuid}/{quote(name)}"
+    if BOARD_TOKEN:
+        url += f"?s={attachment_sig(uuid, name)}"
+    return name, url
+
 # aiter_raw() forwards the body still encoded, so content-encoding has to travel with it.
 ATT_PASS_THROUGH = ("content-type", "content-length", "content-range", "content-encoding", "accept-ranges", "etag", "last-modified", "vary")
 
@@ -2064,7 +2092,7 @@ async def get_attachment(uuid: str, name: str, request: Request):
     return StreamingResponse(body(), status_code=r.status_code, headers=headers)
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-DEVIN_ATT_RE = re.compile(r"^https://app\.devin\.ai/attachments/[0-9a-fA-F-]{36}/[^/?#]+$")
+DEVIN_ATT_RE = re.compile(r"^https://app\.devin\.ai/attachments/([0-9a-fA-F-]{36})/([^/?#]+)$")
 
 def clean_attachments(urls: list[str] | None) -> list[str]:
     out = [u for u in (urls or []) if isinstance(u, str) and DEVIN_ATT_RE.match(u)]
@@ -2342,89 +2370,83 @@ class PromptIn(BaseModel):
     attachments: list[str] = []
     board: str | None = None
 
-@app.post("/api/prompt")
-async def prompt_devin(body: PromptIn):
-    """The '+' box is a prompt: Devin picks the repo and either files it as a
-    GitHub issue (Enter) or just starts working on it, no issue (start=True)."""
-    text = body.prompt.strip()
-    atts = clean_attachments(body.attachments)
-    if not text and not atts:
-        raise HTTPException(400, "empty prompt")
-    typed = bool(text)
-    text = text or "(see attached files)"
-    pid = uuid.uuid4().hex[:12]
-    mode = "work" if body.start else "file"
-    board = None
-    if body.board and body.board != ALL_BOARD:
-        board = board_by_id(body.board)
-        if board is None:
-            raise HTTPException(404, "board not found")
-    repo_list = board["repos"] if board else tracked_repos()
-    if not repo_list:
-        raise HTTPException(400, "this board has no repos yet")
-    repos = "\n".join(f"- {r}" for r in repo_list)
-    pick = (f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
-            if len(repo_list) > 1 else f"1. The repository is {repo_list[0]}.\n")
-    attached = ("The user attached files to this task (see the session attachments)." if atts else "")
-    if body.start:
-        prompt = (
-            "A user typed this task into their Attention board and asked you to start on it right away:\n\n"
-            f"\"\"\"\n{text}\n\"\"\"\n\n"
-            + pick +
-            "2. Implement it and open a PR. Do not file a GitHub issue for it; the PR is the tracking artifact. "
-            "Do not ask clarifying questions up front; make reasonable assumptions and note them in the PR.\n"
-            + ("   Quote the user's request above verbatim in the PR description under `## Original request`.\n" if typed else "")
-            + (attached + " Use them as part of the task.\n" if atts else "")
-        )
-    else:
-        prompt = (
-            "A user typed this task into their Attention board's new-issue box:\n\n"
-            f"\"\"\"\n{text}\n\"\"\"\n\n"
-            "Turn it into a GitHub issue:\n"
-            + pick +
-            "2. Write a clear title and description that preserves the user's intent. Follow that repo's issue "
-            "conventions and any knowledge you have (title prefixes, labels, sections). Do not ask clarifying "
-            "questions; make reasonable assumptions and note them in the issue.\n"
-            + ("   The issue body MUST also include the user's original prompt above, verbatim and unedited, under a "
-               "heading `## Original request` (quoted). Your summary may miss details; the verbatim prompt is the "
-               "source of truth for whoever implements the issue.\n" if typed else "")
-            + f"3. The issue body MUST end with this exact line, unchanged: <!-- attention:prompt:{pid} -->\n"
-            "4. Create the issue in that repo and reply with just its URL.\n"
-            + (attached + " Embed the image attachments in the issue body and link any others, so they are visible on GitHub.\n" if atts else "")
-            + "Do not start implementing it; filing the issue is the whole task.\n"
-        )
-    title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
-    dv = devin_client()
-    tags = [f"prompt:{pid}", f"prompt-mode:{mode}"] + ([f"board:{board['id']}"] if board else [])
-    payload = {"prompt": prompt, "tags": tags}
-    if not body.start:
-        payload["title"] = title  # work sessions keep Devin's own title once it assigns one
-    if atts:
-        payload["attachment_urls"] = atts
-    r = await dv.post("/sessions", json=payload)
-    if r.status_code >= 400:
-        raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
-    data = r.json()
-    remember_session(data, payload["tags"], title)
+ISSUE_DRAFT_PROMPT = """A user typed a task into the new-issue box of their Kanban board. Turn it into a GitHub issue.
+Return STRICT JSON (no markdown) with this shape:
+{"repo":"owner/repo","title":"...","body":"..."}
+- "repo": one of the tracked repositories listed, chosen by what the task is about. If only one is listed, use it.
+- "title": one concise imperative line (<= 70 chars) that preserves the user's intent. No trailing period, no prefixes or emoji.
+- "body": a short GitHub-markdown description for whoever implements it: what to change and why, plus acceptance criteria
+  or edge cases when they can be inferred. Make reasonable assumptions and state them briefly. Never ask questions.
+  Do not repeat the user's request verbatim and do not add an "Original request" or "Attachments" section: both are
+  appended after your body. You may refer to attached files by name (e.g. "see the attached screenshot").
+Write plainly; no filler, no headings for a two-line body."""
+
+# GitHub caps issue bodies at 65536 chars. A block-quoted prompt at most doubles in size
+# ("> " per line); the composed body is checked against the cap before posting.
+MAX_PROMPT = 25000
+MAX_DRAFT_BODY = 8000
+MAX_ISSUE_BODY = 65000
+
+async def draft_issue(text: str, repo_list: list[str], att_names: list[str]) -> dict:
+    """{repo, title, body} for the issue a prompt should become; falls back to the
+    prompt's first line when the model is unavailable."""
+    first = next((l for l in text.splitlines() if l.strip()), text)
+    fallback = {"repo": repo_list[0], "title": _short(first, 70) or "New task", "body": ""}
+    if not OPENROUTER_API_KEY:
+        return fallback
+    user = "Tracked repositories:\n" + "\n".join(f"- {r}" for r in repo_list) + f"\n\nTask:\n\"\"\"\n{text}\n\"\"\""
+    if att_names:
+        user += "\n\nAttached files: " + ", ".join(att_names)
     try:
-        await fetch_devin()
-        await assemble_board()
-    except Exception:  # noqa: BLE001
-        pass
-    return {"ok": True, "session_id": data.get("session_id"), "url": data.get("url")}
+        r = await openrouter_client().post(
+            "/chat/completions",
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "system", "content": ISSUE_DRAFT_PROMPT},
+                    {"role": "user", "content": user},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.2,
+            },
+        )
+        r.raise_for_status()
+        data = json.loads(r.json()["choices"][0]["message"]["content"])
+    except Exception as e:  # noqa: BLE001 — the issue still gets filed, just untitled by the model
+        log.warning("issue drafter failed: %s", e)
+        return fallback
+    if not isinstance(data, dict):
+        return fallback
+    repo = data.get("repo")
+    title = _short(data.get("title"), 120)
+    body = data.get("body")
+    return {
+        "repo": repo if repo in repo_list else fallback["repo"],
+        "title": title or fallback["title"],
+        "body": body.strip()[:MAX_DRAFT_BODY] if isinstance(body, str) else "",
+    }
 
-class IssueIn(BaseModel):
-    title: str
-    repo: str | None = None
-    body: str = ""
+def compose_issue_body(draft_body: str, text: str, atts: list[str], pid: str, base: str) -> str:
+    """The model's description, then the verbatim request and the attachments so
+    nothing the user gave is lost, then the prompt marker the board keys on."""
+    parts = [draft_body] if draft_body else []
+    if text:
+        quoted = "\n".join(f"> {l}".rstrip() for l in text.splitlines())
+        parts.append(f"## Original request\n\n{quoted}")
+    if atts:
+        lines = []
+        for u in atts:
+            name, url = public_attachment_url(u, base)
+            lines.append(f"![{name}]({url})" if IMAGE_NAME_RE.search(name) else f"- [{name}]({url})")
+        parts.append("## Attachments\n\n" + "\n".join(lines))
+    parts.append(f"<!-- attention:prompt:{pid} -->")
+    return "\n\n".join(parts)
 
-@app.post("/api/issues")
-async def create_issue(body: IssueIn):
-    repo = body.repo or next(iter(tracked_repos()), None)
-    if not repo:
-        raise HTTPException(400, "no repos on any board")
+async def publish_issue(repo: str, title: str, body: str) -> dict:
+    """Create the issue on GitHub and show it on the board right away (the list
+    endpoint lags behind creates)."""
     gh = gh_client()
-    r = await gh.post(f"/repos/{repo}/issues", json={"title": body.title, "body": body.body})
+    r = await gh.post(f"/repos/{repo}/issues", json={"title": title, "body": body})
     if r.status_code >= 400:
         raise HTTPException(r.status_code, f"GitHub: {r.text[:200]}")
     data = r.json()
@@ -2444,7 +2466,81 @@ async def create_issue(body: IssueIn):
         except Exception:  # noqa: BLE001
             pass
     asyncio.create_task(refresh())
-    return {"ok": True, "repo": repo, "number": data["number"], "url": data["html_url"]}
+    return {"ok": True, "repo": repo, "number": data["number"], "url": data["html_url"], "key": key}
+
+@app.post("/api/prompt")
+async def prompt_devin(body: PromptIn, request: Request):
+    """The '+' box is a prompt. Enter files it as a GitHub issue (a model picks the
+    repo and drafts title/body); start=True hands it to Devin to work on, no issue."""
+    text = body.prompt.strip()
+    atts = clean_attachments(body.attachments)
+    if not text and not atts:
+        raise HTTPException(400, "empty prompt")
+    if not body.start and len(text) > MAX_PROMPT:
+        raise HTTPException(400, f"prompt too long ({len(text)} chars; max {MAX_PROMPT})")
+    typed = bool(text)
+    text = text or "(see attached files)"
+    pid = uuid.uuid4().hex[:12]
+    board = None
+    if body.board and body.board != ALL_BOARD:
+        board = board_by_id(body.board)
+        if board is None:
+            raise HTTPException(404, "board not found")
+    repo_list = board["repos"] if board else tracked_repos()
+    if not repo_list:
+        raise HTTPException(400, "this board has no repos yet")
+
+    if not body.start:
+        base = PUBLIC_URL or str(request.base_url).rstrip("/")
+        draft = await draft_issue(text, repo_list, [public_attachment_url(u, base)[0] for u in atts])
+        issue_body = compose_issue_body(draft["body"], text if typed else "", atts, pid, base)
+        if len(issue_body) > MAX_ISSUE_BODY:  # drop the model's description before the user's own words
+            issue_body = compose_issue_body("", text if typed else "", atts, pid, base)
+        if len(issue_body) > MAX_ISSUE_BODY:
+            raise HTTPException(400, "prompt and attachments are too large for a GitHub issue")
+        return await publish_issue(draft["repo"], draft["title"], issue_body)
+
+    repos = "\n".join(f"- {r}" for r in repo_list)
+    pick = (f"1. Pick the right repository from these tracked repos (choose by what the task is about):\n{repos}\n"
+            if len(repo_list) > 1 else f"1. The repository is {repo_list[0]}.\n")
+    prompt = (
+        "A user typed this task into their Attention board and asked you to start on it right away:\n\n"
+        f"\"\"\"\n{text}\n\"\"\"\n\n"
+        + pick +
+        "2. Implement it and open a PR. Do not file a GitHub issue for it; the PR is the tracking artifact. "
+        "Do not ask clarifying questions up front; make reasonable assumptions and note them in the PR.\n"
+        + ("   Quote the user's request above verbatim in the PR description under `## Original request`.\n" if typed else "")
+        + ("The user attached files to this task (see the session attachments). Use them as part of the task.\n" if atts else "")
+    )
+    title = _short(text.splitlines()[0] if text.splitlines() else text, 70) or "New task"
+    dv = devin_client()
+    tags = [f"prompt:{pid}", "prompt-mode:work"] + ([f"board:{board['id']}"] if board else [])
+    payload = {"prompt": prompt, "tags": tags}  # no title: work sessions keep Devin's own once it assigns one
+    if atts:
+        payload["attachment_urls"] = atts
+    r = await dv.post("/sessions", json=payload)
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"Devin API: {r.text[:200]}")
+    data = r.json()
+    remember_session(data, tags, title)
+    try:
+        await fetch_devin()
+        await assemble_board()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "session_id": data.get("session_id"), "url": data.get("url")}
+
+class IssueIn(BaseModel):
+    title: str
+    repo: str | None = None
+    body: str = ""
+
+@app.post("/api/issues")
+async def create_issue(body: IssueIn):
+    repo = body.repo or next(iter(tracked_repos()), None)
+    if not repo:
+        raise HTTPException(400, "no repos on any board")
+    return await publish_issue(repo, body.title, body.body)
 
 class MergeIn(BaseModel):
     repo: str
