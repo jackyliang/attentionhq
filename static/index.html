@@ -1529,9 +1529,12 @@ function progressOf(c){
 }
 
 const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
+// a pending placeholder is either an issue being filed (Enter) or a Devin session being started (Ctrl+Enter)
+const filingIssue=c=>!!c&&!!c.pending&&c.col==='issues';
+const startingSession=c=>!!c&&!!c.pending&&c.col!=='issues';
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=c.pending?`<span class="ref ph-bar" aria-label="creating issue"></span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:(c.unassigned&&boards.length?`<span class="ref tag">unassigned</span>`:'');
+  const ref=filingIssue(c)?`<span class="ref ph-bar" aria-label="creating issue"></span>`:startingSession(c)?`<span class="ref">sending to devin\u2026</span>`:c.repo?`<span class="ref">${escHTML(shortRepo(c.repo))}#${c.num}</span>`:(c.unassigned&&boards.length?`<span class="ref tag">unassigned</span>`:'');
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
   const live=activityLabel(c)?`<span class="ref live" title="Devin is running a browser test right now">${I.spinner}<span class="shimmer">${escHTML(activityLabel(c))}</span></span>`:'';
   const meta=`<div class="cmeta">${ref}${prRef}${live}</div>`;
@@ -1552,7 +1555,7 @@ function cardHTML(c){
   const generic=you&&c.now&&GENERIC_NOW.test(c.now.text);
   const ready=c.col==='ready';
   const mergeBtn=`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`;
-  const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>working\u2026</span></div>`:'');
+  const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>${c.pending?'sending\u2026':'working\u2026'}</span></div>`:'');
   const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on PR #${c.pr.number} · not ready to merge yet</span></div>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.slice(0,3).map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
@@ -2468,8 +2471,9 @@ const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple'
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
   const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'in review',ready:'ready to merge'}[c.col]||c.col;
-  const ref=c.pending?'<span class="ph-bar" aria-label="creating issue"></span>':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
-  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${st}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
+  const ref=filingIssue(c)?'<span class="ph-bar" aria-label="creating issue"></span>':startingSession(c)?'sending\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
+  const stTxt=startingSession(c)?'sending to devin':st;
+  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
 }
 function canRename(c){return !!c&&!c.pending&&(((c.kind==='issue'||c.kind==='pr')&&!!c.repo)||(c.kind==='session'&&!!c.session_id&&!c.filing))}
 function refreshPanel(c){
@@ -2479,7 +2483,7 @@ function refreshPanel(c){
     panelTitle.title=canRename(c)?'Click to rename':'';
   }
   panelSub.innerHTML=panelSubHTML(c);
-  if(isIssueView(c)||c.pending)app.dataset.view='issue';else delete app.dataset.view;
+  if(isIssueView(c)||filingIssue(c))app.dataset.view='issue';else delete app.dataset.view;
   panelList.innerHTML=prHTML(c)+checklistHTML(c)+linksHTML(c);
   const wl=threadEl.querySelector('.msg.working'),wh=workingHTML(c);
   if(wl&&!wh)wl.remove();else if(wl)wl.outerHTML=wh;else if(wh)threadEl.insertAdjacentHTML('beforeend',wh);
@@ -2567,7 +2571,7 @@ threadEl.addEventListener('loadedmetadata',()=>{if(stickToEnd)panelScroll.scroll
 // quiet: background refresh — re-render only if something changed and don't yank the scroll position
 async function loadThread(c,quiet=false){
   if(!c.session_id){
-    if(c.pending)renderPendingIssueView();
+    if(filingIssue(c))renderPendingIssueView();
     else if(isIssueView(c))renderIssueView(c);
     else renderThread([{who:'system',text:c.kind==='issue'?'No session yet. Press E to start one.':'No Devin session attached.'}]);
     return;
@@ -2907,7 +2911,7 @@ async function sendMsg(){
     return;
   }
   const c=cards[openCard];
-  if(!c.session_id){showToast(c.pending?'Still creating this issue — hang on':'This card has no session yet — press E to start one');return}
+  if(!c.session_id){showToast(filingIssue(c)?'Still creating this issue — hang on':c.pending?'Devin is still starting — hang on':'This card has no session yet — press E to start one');return}
   composer.value='';const kept=composerTray.take();
   const ok=await sendToSession(c,v,attachments);
   if(!ok){if(!composer.value)composer.value=v;composerTray.restore(kept)}
