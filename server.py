@@ -1075,16 +1075,28 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
 # swapped for the real one once Devin's message list returns it.
 LOCAL_ECHO_TTL = 300
 
+# Devin annotates attachments in its returned copy of a message with an HTML comment
+DEVIN_ATT_NOTE_RE = re.compile(r"<!-- (?:This file was provided by the user|If the automatic download fails)[^\n]*-->")
+
+def _echo_key(text: str) -> str:
+    return "\n".join(line.strip() for line in text.strip().splitlines() if line.strip())
+
+def _echoes(local_text: str, real_text: str) -> bool:
+    """True if Devin's copy of a message is the one the board sent, ignoring the
+    attachment notes Devin appends and blank-line differences."""
+    real = DEVIN_ATT_NOTE_RE.sub("", _clean_text(real_text))
+    return _echo_key(local_text) == _echo_key(real)
+
 def _drop_local_echo(msgs: list[dict], text: str):
     for i, m in enumerate(msgs):
-        if m.get("local") and m["text"].strip() == text.strip():
+        if m.get("local") and _echoes(m["text"], text):
             del msgs[i]
             return
 
 def _has_real_user_msg(msgs: list[dict], text: str, since: float) -> bool:
     """True if Devin's list already holds this user message (sent within the last minute)."""
     return any(
-        m["who"] == "user" and not m.get("local") and m["text"].strip() == _clean_text(text).strip()
+        m["who"] == "user" and not m.get("local") and _echoes(text, m["text"])
         and _epoch_f(m.get("ts")) >= since - 60
         for m in msgs
     )

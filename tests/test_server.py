@@ -619,3 +619,24 @@ def test_settings_recover_after_storage_outage(monkeypatch, client):
     assert asyncio.run(server.reload_settings()) is True
     assert server.settings_loaded is True
     assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is True
+
+
+def test_local_echo_dropped_when_devin_decorates_attachment_message():
+    local = 'its still showing the 2061\nATTACHMENT:"https://app.devin.ai/attachments/abc/image.png"'
+    real = (
+        'its still showing the 2061\n\nATTACHMENT:"https://app.devin.ai/attachments/abc/image.png"\n'
+        "<!-- This file was provided by the user and is automatically downloaded to: /home/x/image.png -->"
+    )
+    msgs = [{"who": "user", "text": local, "local": time.time(), "ts": ""}]
+    server._drop_local_echo(msgs, real)
+    assert msgs == []
+    now = time.time()
+    real_msgs = [{"who": "user", "text": real, "ts": server.datetime.now(server.timezone.utc).isoformat()}]
+    assert server._has_real_user_msg(real_msgs, local, now)
+    assert not server._has_real_user_msg(real_msgs, "something else", now)
+    # a distinct reply that merely prefixes an earlier one is not its echo
+    assert not server._has_real_user_msg(real_msgs, "its still showing", now)
+    # user-authored HTML comments are kept when comparing
+    only_comment = "<!-- just a note -->"
+    assert server._echoes(only_comment, only_comment)
+    assert not server._echoes(only_comment, "<!-- other -->")
