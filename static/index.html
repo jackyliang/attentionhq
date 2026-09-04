@@ -1272,7 +1272,7 @@ function renderRail(){
   crumbName.textContent=view==='settings'?'Boards':(boardMeta?boardMeta.name:(boardId?boardId:'All'));
 }
 railBoards.addEventListener('click',e=>{
-  if(drag.moved){drag.moved=false;return}
+  if(drag.moved){drag.moved=false;if(e.detail)return}  // pointer click after a drag; keyboard clicks (detail 0) pass
   if(e.target.closest('#rail-new')){openSettings('new');return}
   const t=e.target.closest('.tile[data-board]');
   if(t)gotoBoard(t.dataset.board||null);
