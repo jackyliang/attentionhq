@@ -275,7 +275,7 @@ def clean_color(color: str) -> str:
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "board"
     base, n = slug, 2
-    while slug in (ALL_BOARD, "order") or board_by_id(slug):  # "order" is the reorder route
+    while slug == ALL_BOARD or board_by_id(slug):
         slug = f"{base}-{n}"
         n += 1
     return slug
@@ -1782,7 +1782,7 @@ async def create_board(body: BoardIn):
     asyncio.create_task(_refresh_after_board_change())
     return {**_boards_payload(), "board": public_board(board)}
 
-@app.put("/api/boards/order")  # before /api/boards/{board_id} so "order" is never taken as an id
+@app.put("/api/board-order")  # own path: any slug (even "order") is a valid /api/boards/{board_id}
 async def reorder_boards(body: OrderIn):
     async with _boards_lock:
         await _writable_boards()

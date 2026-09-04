@@ -1290,13 +1290,13 @@ function endDrag(commit){
   drag.ghost?.remove(); drag.line?.remove(); drag.ghost=drag.line=null;
   railBoards.querySelector('.slot.dragging')?.classList.remove('dragging');
   const from=boards.findIndex(b=>b.id===drag.id), to=drag.to;
-  drag.active=false; drag.id=null; drag.moved=true; setTimeout(()=>{drag.moved=false},0);
+  drag.active=false; drag.id=null; drag.moved=true;  // swallow the click this release fires; the next pointerdown clears it
   if(!commit||from<0||to<0||to===from||to===from+1){if(drag.dirty)renderRail();return}
   if(drag.saved===null)drag.saved=boards.map(x=>x.id);  // last order the server confirmed
   const next=boards.slice(); const [b]=next.splice(from,1); next.splice(to>from?to-1:to,0,b);
   boards=next; renderRail();
   const gen=++drag.gen;
-  api('/api/boards/order',{method:'PUT',body:JSON.stringify({order:next.map(x=>x.id)})})
+  api('/api/board-order',{method:'PUT',body:JSON.stringify({order:next.map(x=>x.id)})})
     .then(d=>{if(gen!==drag.gen){if(d.boards)drag.saved=d.boards.map(x=>x.id);return}drag.saved=null;boards=d.boards||boards;renderRail()})
     .catch(e=>{
       if(gen!==drag.gen)return;
@@ -1306,9 +1306,11 @@ function endDrag(commit){
     });
 }
 railBoards.addEventListener('pointerdown',e=>{
+  drag.moved=false;
   const t=e.target.closest('.tile[data-board]');
   if(!t||!t.dataset.board||e.button!==0||boards.length<2)return;
-  drag.id=t.dataset.board; drag.pid=e.pointerId; drag.y0=e.clientY; drag.active=false; drag.moved=false;
+  drag.id=t.dataset.board; drag.pid=e.pointerId; drag.y0=e.clientY; drag.active=false;
+  t.setPointerCapture(e.pointerId);  // so a release anywhere still reaches us
 });
 railBoards.addEventListener('pointermove',e=>{
   if(drag.id===null||e.pointerId!==drag.pid)return;
@@ -1317,7 +1319,7 @@ railBoards.addEventListener('pointermove',e=>{
   if(!drag.active){
     if(Math.abs(e.clientY-drag.y0)<5)return;
     drag.active=true; drag.dy=e.clientY-t.getBoundingClientRect().top;
-    t.setPointerCapture(drag.pid);
+    if(!t.hasPointerCapture(drag.pid))t.setPointerCapture(drag.pid);
     t.closest('.slot').classList.add('dragging');
     document.body.classList.add('dragging-board');
     const g=t.cloneNode(true); g.classList.add('ghost'); g.style.left=t.getBoundingClientRect().left+'px'; g.style.width=t.offsetWidth+'px'; g.style.height=t.offsetHeight+'px';
@@ -1336,7 +1338,7 @@ railBoards.addEventListener('pointermove',e=>{
 });
 railBoards.addEventListener('pointerup',e=>{if(e.pointerId===drag.pid)endDrag(true)});
 railBoards.addEventListener('pointercancel',e=>{if(e.pointerId===drag.pid)endDrag(false)});
-railBoards.addEventListener('lostpointercapture',e=>{if(drag.active&&e.pointerId===drag.pid)endDrag(true)});
+railBoards.addEventListener('lostpointercapture',e=>{if(e.pointerId===drag.pid)endDrag(drag.active)});
 document.addEventListener('keydown',e=>{if(drag.active&&e.key==='Escape'){e.stopImmediatePropagation();endDrag(false)}},true);
 document.getElementById('rail-settings').addEventListener('click',()=>view==='settings'?closeSettings():openSettings());
 function gotoBoard(id,{replace=false}={}){
