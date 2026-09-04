@@ -1974,7 +1974,8 @@ function wireAddCard(addBtn){
         const v=inp.value.trim();
         const start=e.metaKey||e.ctrlKey;
         if(tray.uploading()){showToast('Still uploading attachments…');return}
-        if(!start&&v.length>MAX_PROMPT){showToast(`Too long for an issue (${v.length.toLocaleString()} chars, max ${MAX_PROMPT.toLocaleString()}) — trim it or ${MOD}↵ to hand it to Devin`);return}
+        const promptLength=[...v].length; // code points, like Python's len()
+        if(!start&&promptLength>MAX_PROMPT){showToast(`Too long for an issue (${promptLength.toLocaleString()} chars, max ${MAX_PROMPT.toLocaleString()}) — trim it or ${MOD}↵ to hand it to Devin`);return}
         const attachments=tray.urls();
         addToPlus();
         setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
