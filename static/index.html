@@ -3055,7 +3055,7 @@ document.addEventListener('keydown',e=>{
     case 'ArrowRight': case 'd': case 'D': move(1,0); e.preventDefault(); break;
     case 'Home': {const f=focused(); if(f)colCards(f.closest('.col'))[0].focus(); e.preventDefault(); break}
     case 'End': {const f=focused(); if(f)colCards(f.closest('.col')).at(-1).focus(); e.preventDefault(); break}
-    case 'Enter': {const f=focused(); if(f){if(f.id==='add-issue')break; const id=idOf(f); if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)}} e.preventDefault(); break}
+    case 'Enter': {const f=focused(); if(!f||f.id==='add-issue')break; const id=idOf(f); if(mode==='card'&&openCard===id){composer.focus()}else{setCardMode(id)} e.preventDefault(); break}
     case 'Escape':
       if(armed){disarm();break}
       if(mode!=='closed'){const el=openCard!=null?cardEl(openCard):focused(); setBoardMode(); mode='closed'; app.dataset.mode='closed'; requestAnimationFrame(()=>el?.focus())}
