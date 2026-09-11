@@ -1237,7 +1237,9 @@ def apply_acp_events(session_id: str, events: list[dict]) -> tuple[bool, bool]:
                         board = thread = True
         elif kind in ("status", "lifecycle"):
             for m in live.values():
-                m["streaming"] = False
+                if m["streaming"]:
+                    m["streaming"] = False
+                    thread = True
             if sess and _apply_acp_status(sess, ev):
                 board = True
             if not ev.get("snapshot"):
@@ -2124,6 +2126,7 @@ class AcpHello(BaseModel):
     connected: bool
     error: str | None = None
     attached: int | None = None
+    lost: bool = False  # the bridge gave up on some events; REST has to fill the gap
 
 @app.post("/api/acp/hello")
 async def acp_hello(body: AcpHello):
@@ -2132,6 +2135,10 @@ async def acp_hello(body: AcpHello):
     acp.update(connected=body.connected, last_at=time.time(), error=body.error)
     if body.attached is not None:
         acp["attached"] = body.attached
+    if body.lost:
+        log.warning("acp bridge dropped events; reconciling from REST")
+        state["devin_refresh"] = True
+        wake.set()
     if body.connected != was:
         log.info("acp stream %s%s", "up" if body.connected else "down", f": {body.error}" if body.error else "")
         if body.connected:
@@ -2190,11 +2197,21 @@ async def acp_sessions(body: AcpSessionList):
 
 class AcpEvents(BaseModel):
     sessions: dict[str, list[dict]]
+    run: str | None = None
+    seq: int | None = None
+
+_acp_applied: tuple[str | None, int | None] = (None, None)
 
 @app.post("/api/acp/events")
 async def acp_events(body: AcpEvents):
+    global _acp_applied
     acp = state["acp"]
     acp.update(connected=True, last_at=time.time())
+    # the bridge retries a batch whose response it never saw; don't apply it twice
+    if body.seq is not None:
+        if (body.run, body.seq) == _acp_applied:
+            return {"ok": True, "duplicate": True}
+        _acp_applied = (body.run, body.seq)
     board = False
     for sid, events in body.sessions.items():
         acp["events"] += len(events)

@@ -47,6 +47,14 @@ const hello = (fields) => post("/api/acp/hello", fields);
 
 const pending = new Map(); // bare session id -> [event]
 let flushTimer = null;
+const outbox = []; // [{seq, sessions}] not yet acknowledged by the server, oldest first
+let pushing = false;
+let pushFailures = 0;
+let lostEvents = false; // a batch was given up on; ask the server to reconcile from REST
+let seq = 0; // (run, seq) identifies a batch so a retry of an already-applied one is a no-op server-side
+const run = Math.random().toString(36).slice(2, 10);
+const PUSH_RETRIES = 5;
+const OUTBOX_MAX = 200;
 
 function queue(id, ev) {
   if (DEBUG) log(`${id.slice(0, 8)} ${JSON.stringify(ev)}`);
@@ -67,13 +75,39 @@ function queue(id, ev) {
 
 async function flush() {
   flushTimer = null;
-  if (!pending.size) return;
-  const batch = Object.fromEntries(pending);
-  pending.clear();
+  if (pending.size) {
+    outbox.push({ run, seq: ++seq, sessions: Object.fromEntries(pending) });
+    pending.clear();
+    if (outbox.length > OUTBOX_MAX) {
+      outbox.splice(0, outbox.length - OUTBOX_MAX);
+      lostEvents = true;
+    }
+  }
+  if (pushing) return;
+  pushing = true;
   try {
-    await post("/api/acp/events", { sessions: batch });
-  } catch (e) {
-    log("event push failed:", e.message);
+    // batches leave in order; a failed one is retried before anything newer
+    while (outbox.length) {
+      const batch = outbox[0];
+      try {
+        await post("/api/acp/events", batch);
+        outbox.shift();
+        pushFailures = 0;
+      } catch (e) {
+        log("event push failed:", e.message);
+        if (++pushFailures >= PUSH_RETRIES) {
+          log("dropping batch", batch.seq, "after", pushFailures, "attempts");
+          outbox.shift();
+          pushFailures = 0;
+          lostEvents = true;
+          continue;
+        }
+        if (!flushTimer) flushTimer = setTimeout(flush, Math.min(FLUSH_MS * 2 ** pushFailures, 5000));
+        return;
+      }
+    }
+  } finally {
+    pushing = false;
   }
 }
 
@@ -181,16 +215,21 @@ class Bridge {
   }
 
   async watch(id, abort) {
+    const mine = () => this.attached.get(id) === abort;
     let session;
     try {
       session = await this.devin.attach(acpId(id));
     } catch (e) {
-      this.attached.delete(id);
+      if (mine()) this.attached.delete(id);
       if (e instanceof ConnectionClosedError) return this.markClosed(e);
       log("attach failed", id, e.message);
       return;
     }
-    if (abort.signal.aborted) return;
+    if (abort.signal.aborted || !mine()) {
+      // detached (or replaced) while attaching: the SDK now holds a handle nobody streams from
+      if (!this.attached.has(id)) try { this.devin.releaseSession(acpId(id)); } catch {}
+      return;
+    }
     log("attached", id, session.meta?.["cognition.ai/statusEnum"] || "");
     const snap = fromMeta(session.meta);
     if (snap) queue(id, snap);
@@ -203,14 +242,15 @@ class Bridge {
       if (e instanceof ConnectionClosedError) return this.markClosed(e);
       if (!abort.signal.aborted) log("stream ended", id, e.message);
     } finally {
-      if (this.attached.get(id) === abort) this.attached.delete(id);
+      if (mine()) this.attached.delete(id);
     }
   }
 
   async run() {
     const beat = setInterval(() => {
-      hello({ connected: true, attached: this.attached.size })
-        .then(() => { helloFailures = 0; })
+      const lost = lostEvents;
+      hello({ connected: true, attached: this.attached.size, lost })
+        .then(() => { helloFailures = 0; if (lost) lostEvents = false; })
         .catch(() => { if (++helloFailures >= ORPHAN_LIMIT) orphaned("server unreachable"); });
     }, HELLO_SECS * 1000);
     try {

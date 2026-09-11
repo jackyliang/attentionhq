@@ -690,6 +690,34 @@ def test_acp_streamed_message_coalesces_and_finalizes(client, acp_session):
     assert len(server.session_thread("s1")) == 1
 
 
+def test_acp_status_finalizes_stream_and_notifies_thread(client, acp_session):
+    h = {"x-board-token": "tok"}
+    q = asyncio.Queue()
+    server.subscribers.add(q)
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "message", "message_id": "m1", "text": "Done."}]}}, headers=h)
+    q.get_nowait()
+    # a status change with no board effect still has to clear the caret on open cards
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "status", "status": "working"}]}}, headers=h)
+    assert server.session_thread("s1")[0]["streaming"] is False
+    assert q.get_nowait()["type"] == "thread"
+
+
+def test_acp_retried_batch_is_applied_once(client, acp_session):
+    h = {"x-board-token": "tok"}
+    batch = {"run": "r1", "seq": 7, "sessions": {"s1": [{"type": "message", "message_id": "m1", "text": "Hi"}]}}
+    assert client.post("/api/acp/events", json=batch, headers=h).json() == {"ok": True}
+    assert client.post("/api/acp/events", json=batch, headers=h).json() == {"ok": True, "duplicate": True}
+    assert server.session_thread("s1")[0]["text"] == "Hi"
+    # same seq from a restarted bridge is a different batch
+    batch["run"] = "r2"
+    client.post("/api/acp/events", json=batch, headers=h)
+    assert server.session_thread("s1")[0]["text"] == "HiHi"
+    # the bridge dropping events forces a REST reconcile
+    assert server.state["devin_refresh"] is False
+    client.post("/api/acp/hello", json={"connected": True, "lost": True}, headers=h)
+    assert server.state["devin_refresh"] is True
+
+
 def test_acp_live_messages_yield_to_rest_transcript(acp_session):
     cached = server.session_msgs_cache.setdefault("s1", {"msgs": [], "cursor": None, "seen": set()})
     server.apply_acp_events("s1", [
