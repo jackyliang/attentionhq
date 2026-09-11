@@ -1862,6 +1862,8 @@ async def lifespan(app: FastAPI):
     tasks = [asyncio.create_task(poll_loop())]
     if state["acp"]["enabled"]:
         tasks.append(asyncio.create_task(acp_bridge_loop()))
+    else:
+        log.info("acp bridge disabled: %s", "ACP_BRIDGE=0" if not ACP_BRIDGE else "DEVIN_ACP_API_KEY not set")
     yield
     for t in tasks:
         t.cancel()
