@@ -16,7 +16,9 @@ import re
 import time
 import uuid
 import contextvars
+import shutil
 from contextlib import asynccontextmanager
+from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import quote, unquote
 
@@ -46,6 +48,16 @@ RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_TYPES = {t.strip() for t in os.environ.get("RENDER_SERVICE_TYPES", "web_service,static_site").split(",") if t.strip()}
 DEVIN_POLL_SECS = int(os.environ.get("DEVIN_POLL_SECS", "5"))
 DEVIN_POLL_MAX_SECS = int(os.environ.get("DEVIN_POLL_MAX_SECS", "60"))
+# Devin events stream in over ACP (acp/bridge.mjs, a Node sidecar this process
+# spawns). While that stream is live the REST poll only reconciles every
+# DEVIN_RECONCILE_SECS; it drops back to DEVIN_POLL_SECS when the stream is down.
+# The bridge needs a personal (`cog_…`) key: service-user keys are refused by ACP.
+DEVIN_ACP_API_KEY = os.environ.get("DEVIN_ACP_API_KEY", "")
+ACP_BRIDGE = os.environ.get("ACP_BRIDGE", "1").lower() in ("1", "true", "yes")
+ACP_STALE_SECS = int(os.environ.get("ACP_STALE_SECS", "30"))
+ACP_SERVER_URL = os.environ.get("ACP_SERVER_URL", f"http://127.0.0.1:{os.environ.get('PORT', '8420')}")
+DEVIN_RECONCILE_SECS = int(os.environ.get("DEVIN_RECONCILE_SECS", "60"))
+ACP_DIR = Path(__file__).resolve().parent / "acp"
 # GitHub pushes changes to /api/github/webhook when a secret is configured; the
 # poll then only reconciles missed deliveries, so it runs far less often.
 GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
@@ -94,6 +106,10 @@ state: dict = {
     "render_ok": True,
     "generated_at": 0,
     "gh_refresh": False,  # pull GitHub on the next tick instead of waiting out the interval
+    "devin_refresh": False,  # same for the Devin REST reconcile
+    # the ACP bridge's health; `connected` + fresh `last_at` means events are streaming
+    "acp": {"enabled": ACP_BRIDGE and bool(DEVIN_ACP_API_KEY), "connected": False, "last_at": 0,
+            "error": None, "attached": 0, "events": 0},
     "github_rate": {"limit": None, "remaining": None, "reset": None, "retry_at": None},
     "github_synced_at": 0,
     "devin_synced_at": 0,
@@ -106,7 +122,12 @@ wake = asyncio.Event()
 def request_refresh(github: bool = True):
     if github:
         state["gh_refresh"] = True
+    state["devin_refresh"] = True
     wake.set()
+
+def acp_live() -> bool:
+    a = state["acp"]
+    return bool(a["connected"]) and time.time() - a["last_at"] < ACP_STALE_SECS
 DISMISSED_FILE = os.environ.get("DISMISSED_FILE", "dismissed.json")
 BOARDS_FILE = os.environ.get("BOARDS_FILE", "boards.json")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -522,7 +543,7 @@ RECENT_REPLY_TTL = 120
 recent_replies: dict[str, float] = {}
 
 def _devin_replied_since(session_id: str, ts: float) -> bool:
-    msgs = (session_msgs_cache.get(session_id) or {}).get("msgs") or []
+    msgs = session_thread(session_id)
     return any(m["who"] == "devin" and _epoch_f(m.get("ts")) > ts for m in msgs)
 
 def mark_running(sess: dict):
@@ -1065,10 +1086,11 @@ async def fetch_session_messages(session_id: str, updated_at: int | None = None)
         if m.get("local") and m not in msgs and not _has_real_user_msg(msgs, m["text"], m["local"]):
             msgs.append(m)
     _expire_local_echoes(msgs)
-    session_msgs_cache[session_id] = {
-        "msgs": msgs, "cursor": cursor, "seen": seen,
+    session_msgs_cache[session_id] = cached = {
+        "msgs": msgs, "cursor": cursor, "seen": seen, "live": (session_msgs_cache.get(session_id) or {}).get("live") or {},
         "updated_at": updated_at if updated_at is not None else cached.get("updated_at"),
     }
+    _reconcile_live(cached)
     return msgs
 
 # A message the board just sent is echoed into the transcript straight away and
@@ -1106,6 +1128,113 @@ def echo_user_message(session_id: str, text: str):
     for s in state["sessions"]:
         if s["session_id"] == session_id:
             mark_running(s)
+
+# ---------------------------------------------------------------- ACP stream
+
+# Messages that so far only arrived over ACP live next to the REST transcript
+# (`live`, keyed by streaming message id) and are dropped once the REST list
+# confirms them, or after this long if it never does.
+LIVE_MSG_TTL = 900
+ACP_STATUS_MAP = {
+    "working": "running", "queued": "running", "initializing": "running", "resume_requested": "running",
+    "blocked": "running", "paused": "suspended",
+}
+ACP_OUTCOME_MAP = {"suspended": "suspended", "expired": "expired", "stopped": "stopped"}
+_acp_listed: dict[str, str] = {}  # session id -> updated_at the bridge last reported
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+def _public_msg(m: dict) -> dict:
+    return {k: v for k, v in m.items() if k not in ("at", "event_id")}
+
+def session_thread(session_id: str, include_streaming: bool = True) -> list[dict]:
+    """The REST transcript plus whatever has only streamed in over ACP so far."""
+    cached = session_msgs_cache.get(session_id)
+    if not cached:
+        return []
+    live = [m for m in (cached.get("live") or {}).values() if include_streaming or not m["streaming"]]
+    return cached["msgs"] + [_public_msg(m) for m in live]
+
+def _reconcile_live(cached: dict):
+    live = cached.get("live")
+    if not live:
+        return
+    now = time.time()
+    rest = {(m["who"], m["text"].strip()) for m in cached["msgs"] if not m.get("local")}
+    for key, m in list(live.items()):
+        confirmed = (m.get("event_id") in cached["seen"]) or (m["who"], m["text"].strip()) in rest
+        if confirmed or (not m["streaming"] and now - m["at"] > LIVE_MSG_TTL):
+            del live[key]
+
+def _apply_acp_status(sess: dict, ev: dict) -> bool:
+    st = (ev.get("status") or "").lower()
+    if not st:
+        return False
+    new = ACP_STATUS_MAP.get(st, st)
+    if new == "finished" and ev.get("outcome"):
+        new = ACP_OUTCOME_MAP.get(ev["outcome"], "finished")
+    # ACP `blocked` is Devin waiting on the user, which REST reports as a status_detail
+    detail = "waiting_for_user" if st == "blocked" else ""
+    changed = session_status(sess) != new or (sess.get("status_detail") or "").lower() != detail
+    sess["status"], sess["status_detail"] = new, detail
+    if st == "blocked":
+        recent_replies.pop(sess["session_id"], None)
+    return changed
+
+def apply_acp_events(session_id: str, events: list[dict]) -> tuple[bool, bool]:
+    """Fold a batch of bridge events into the session and transcript caches.
+    Returns (board changed, thread changed)."""
+    sess = next((s for s in state["sessions"] if s["session_id"] == session_id), None)
+    cached = session_msgs_cache.setdefault(session_id, {"msgs": [], "cursor": None, "seen": set()})
+    live = cached.setdefault("live", {})
+    now = time.time()
+    board = thread = False
+    for ev in events:
+        kind = ev.get("type")
+        if kind == "message":
+            mid = ev.get("message_id") or ev.get("event_id") or "tail"
+            if ev.get("aborted"):
+                thread |= live.pop(mid, None) is not None
+                continue
+            m = live.get(mid)
+            if m is not None and not ev.get("overwrite") and not ev.get("text"):
+                continue
+            if m is None or ev.get("overwrite"):
+                m = live[mid] = {"who": "devin", "ts": ev.get("ts") or _now_iso(), "text": "", "origin": None,
+                                 "name": None, "streaming": True, "at": now}
+            m["text"] += ev.get("text") or ""
+            m["event_id"] = ev.get("event_id") or m.get("event_id")
+            thread = True
+        elif kind == "user_message":
+            text = _clean_text(ev.get("text") or "")
+            _drop_local_echo(cached["msgs"], text)
+            known = _has_real_user_msg(cached["msgs"], text, now) or any(
+                m["who"] == "user" and m["text"].strip() == text.strip() for m in live.values())
+            if not known:
+                live[ev.get("event_id") or f"user:{now}"] = {
+                    "who": "user", "ts": ev.get("ts") or _now_iso(), "text": text, "origin": None, "name": None,
+                    "streaming": False, "at": now, "event_id": ev.get("event_id"),
+                }
+            thread = True
+        elif kind == "typing":
+            if not ev.get("typing"):
+                for m in live.values():
+                    if m["streaming"]:
+                        m["streaming"] = False
+                        board = thread = True
+        elif kind in ("status", "lifecycle"):
+            for m in live.values():
+                m["streaming"] = False
+            if sess and _apply_acp_status(sess, ev):
+                board = True
+            if not ev.get("snapshot"):
+                # REST fills in what the event doesn't carry: title, PR links, ACUs
+                state["devin_refresh"] = True
+        elif kind == "pull_request":
+            state["devin_refresh"] = True
+            board = True
+    return board, thread
 
 # ---------------------------------------------------------------- extractor
 
@@ -1370,7 +1499,7 @@ async def assemble_board():
         pin = session_board(sess) if sess and not c["repo"] else None
         if sess:
             sid = sess["session_id"]
-            msgs = (session_msgs_cache.get(sid) or {}).get("msgs") or []
+            msgs = session_thread(sid, include_streaming=False)
             ctx = ", ".join(f"{p['repo']}#{p['number']} {p['state']}" for p in s_prs)
             extract = await extract_session(sid, msgs, ctx) if msgs else None
 
@@ -1516,6 +1645,7 @@ async def poll_loop():
     last_gh = 0.0
     last_render = 0.0
     devin_sleep = DEVIN_POLL_SECS
+    devin_next = 0.0
     gh_next = 0.0
     gh_sleep = float(GITHUB_POLL_SECS)
     while True:
@@ -1554,39 +1684,49 @@ async def poll_loop():
         except Exception as e:  # noqa: BLE001
             state["render_ok"] = False
             log.warning("render poll failed: %s", e)
-        devin_next = time.time() + devin_sleep
-        try:
-            await fetch_devin()
-            # refresh messages for sessions that appear on the board
-            for sess in state["sessions"]:
-                if tracked_session(sess):
-                    try:
-                        await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
-                    except httpx.HTTPStatusError as e:
-                        if _is_rate_limited(e):
-                            raise
-                    except httpx.HTTPError:
-                        pass
-            devin_sleep = DEVIN_POLL_SECS
+        # With the ACP stream live the REST pull is only a reconcile (titles, PR
+        # links, status_detail); the stream wakes the loop for anything urgent.
+        if time.time() >= devin_next or state["devin_refresh"]:
+            state["devin_refresh"] = False
             devin_next = time.time() + devin_sleep
-            state["devin_synced_at"] = time.time()
-        except Exception as e:  # noqa: BLE001
-            state["devin_ok"] = False
-            if _is_rate_limited(e):
-                devin_next = _backoff_until(e, devin_sleep, DEVIN_POLL_MAX_SECS)
-                devin_sleep = min(devin_sleep * 2, DEVIN_POLL_MAX_SECS)
-                log.warning("devin rate limited (429); next attempt in %ds", devin_next - time.time())
-            else:
-                log.warning("devin poll failed: %s", e)
+            try:
+                await fetch_devin()
+                # refresh messages for sessions that appear on the board
+                for sess in state["sessions"]:
+                    if tracked_session(sess):
+                        try:
+                            await fetch_session_messages(sess["session_id"], sess.get("updated_at"))
+                        except httpx.HTTPStatusError as e:
+                            if _is_rate_limited(e):
+                                raise
+                        except httpx.HTTPError:
+                            pass
+                devin_sleep = DEVIN_RECONCILE_SECS if acp_live() else DEVIN_POLL_SECS
+                devin_next = time.time() + devin_sleep
+                state["devin_synced_at"] = time.time()
+            except Exception as e:  # noqa: BLE001
+                state["devin_ok"] = False
+                if _is_rate_limited(e):
+                    devin_next = _backoff_until(e, devin_sleep, DEVIN_POLL_MAX_SECS)
+                    devin_sleep = min(devin_sleep * 2, DEVIN_POLL_MAX_SECS)
+                    log.warning("devin rate limited (429); next attempt in %ds", devin_next - time.time())
+                else:
+                    log.warning("devin poll failed: %s", e)
+        elif not acp_live() and devin_sleep > DEVIN_POLL_SECS:
+            # the stream just dropped: go back to polling at full speed right away
+            devin_sleep = DEVIN_POLL_SECS
+            devin_next = min(devin_next, time.time() + devin_sleep)
         try:
             await assemble_board()
         except Exception as e:  # noqa: BLE001
             log.exception("board assembly failed: %s", e)
         release_free_memory()
-        # sleep until the next Devin tick, unless a webhook / user action wakes us
+        # sleep until the next tick of any source, unless a webhook / user action /
+        # ACP event wakes us
         wake.clear()
+        next_tick = min(devin_next, max(gh_next, state["github_rate"]["retry_at"] or 0), last_render + RENDER_POLL_SECS)
         try:
-            await asyncio.wait_for(wake.wait(), timeout=max(0.5, devin_next - time.time()))
+            await asyncio.wait_for(wake.wait(), timeout=max(0.5, next_tick - time.time()))
         except asyncio.TimeoutError:
             pass
 
@@ -1611,10 +1751,11 @@ def sync_status() -> dict:
         "github_synced_at": state["github_synced_at"],
         "github_rate": {**rate, "retry_in": max(0, int(rate["retry_at"] - now)) if rate["retry_at"] else None},
         "webhook": dict(state["webhook"]),
+        "acp": {**state["acp"], "live": acp_live()},
     }
 
-def publish(kind: str):
-    payload = {"type": kind, **sync_status()}
+def publish(kind: str, **extra):
+    payload = {"type": kind, **sync_status(), **extra}
     for q in list(subscribers):
         if q.full():
             try:
@@ -1663,11 +1804,55 @@ async def sse_events(request: Request):
     finally:
         subscribers.discard(q)
 
+# ---------------------------------------------------------------- ACP bridge process
+
+async def _node_version() -> int | None:
+    node = shutil.which("node")
+    if not node:
+        return None
+    proc = await asyncio.create_subprocess_exec(node, "--version", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    out, _ = await proc.communicate()
+    m = re.match(rb"v(\d+)", out.strip())
+    return int(m.group(1)) if m else None
+
+async def acp_bridge_loop():
+    """Keep acp/bridge.mjs running next to this process; it reports back over
+    /api/acp/*. Without the stream the poll loop keeps polling at full speed."""
+    acp = state["acp"]
+    major = await _node_version()
+    if major is None or major < 22:
+        acp["error"] = f"node >= 22 required for the ACP bridge (found {'v%d' % major if major else 'none'})"
+        log.warning("acp bridge disabled: %s", acp["error"])
+        return
+    if not (ACP_DIR / "node_modules" / "@cognition-ai" / "sdk").exists():
+        acp["error"] = "acp/node_modules missing; run `npm install --prefix acp`"
+        log.warning("acp bridge disabled: %s", acp["error"])
+        return
+    env = {**os.environ, "ATTENTION_URL": ACP_SERVER_URL, "DEVIN_ORG_ID": DEVIN_ORG_ID}
+    backoff = 2.0
+    while True:
+        started = time.time()
+        proc = await asyncio.create_subprocess_exec("node", str(ACP_DIR / "bridge.mjs"), cwd=str(ACP_DIR), env=env)
+        try:
+            code = await proc.wait()
+        except asyncio.CancelledError:
+            proc.terminate()
+            raise
+        acp["connected"] = False
+        acp["error"] = f"bridge exited with code {code}"
+        log.warning("acp %s; restarting in %.0fs", acp["error"], backoff)
+        wake.set()
+        await asyncio.sleep(backoff)
+        backoff = 2.0 if time.time() - started > 60 else min(backoff * 2, 60.0)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(poll_loop())
+    tasks = [asyncio.create_task(poll_loop())]
+    if state["acp"]["enabled"]:
+        tasks.append(asyncio.create_task(acp_bridge_loop()))
     yield
-    task.cancel()
+    for t in tasks:
+        t.cancel()
     await close_clients()
 
 app = FastAPI(lifespan=lifespan)
@@ -1919,6 +2104,94 @@ async def refresh_now():
     request_refresh()
     return {"ok": True, "github": "scheduled"}
 
+# The ACP bridge (acp/bridge.mjs) reports in here; it authenticates with the board token.
+
+class AcpHello(BaseModel):
+    connected: bool
+    error: str | None = None
+    attached: int | None = None
+
+@app.post("/api/acp/hello")
+async def acp_hello(body: AcpHello):
+    acp = state["acp"]
+    was = acp_live()
+    acp.update(connected=body.connected, last_at=time.time(), error=body.error)
+    if body.attached is not None:
+        acp["attached"] = body.attached
+    if body.connected != was:
+        log.info("acp stream %s%s", "up" if body.connected else "down", f": {body.error}" if body.error else "")
+        if body.connected:
+            state["devin_refresh"] = True
+        wake.set()
+    return {"ok": True}
+
+class AcpListedSession(BaseModel):
+    id: str
+    updated_at: str | None = None
+    created_at: str | None = None
+    status: str | None = None
+    outcome: str | None = None
+    archived: bool = False
+
+class AcpSessionList(BaseModel):
+    sessions: list[AcpListedSession]
+
+@app.post("/api/acp/sessions")
+async def acp_sessions(body: AcpSessionList):
+    """Session discovery: the bridge lists sessions over ACP; anything new or
+    moved since our last REST read schedules a reconcile. Replies with the
+    sessions it should be attached to."""
+    acp = state["acp"]
+    acp.update(connected=True, last_at=time.time())
+    known = {s["session_id"]: s for s in state["sessions"]}
+    listed: set[str] = set()
+    board = False
+    for s in body.sessions:
+        if s.archived:
+            continue
+        listed.add(s.id)
+        upd = s.updated_at or ""
+        if _acp_listed.get(s.id) == upd:
+            continue
+        _acp_listed[s.id] = upd
+        cur = known.get(s.id)
+        if cur is None:
+            recent = time.time() - _epoch_f(s.created_at) < DEVIN_LOOKBACK_DAYS * 86400 if s.created_at else True
+            if recent:
+                state["devin_refresh"] = True
+        else:
+            if _apply_acp_status(cur, {"status": s.status, "outcome": s.outcome}):
+                board = True
+            if abs(_epoch_f(upd) - _epoch_f(cur.get("updated_at"))) > 1:
+                state["devin_refresh"] = True
+    for sid in [sid for sid in _acp_listed if sid not in listed]:
+        del _acp_listed[sid]
+    if board or state["devin_refresh"]:
+        wake.set()
+    watch = sorted(
+        (s for s in state["sessions"] if tracked_session(s)),
+        key=lambda s: (session_status(s) not in ACTIVE_STATUSES, -_epoch_f(s.get("updated_at") or s.get("created_at"))),
+    )
+    return {"watch": [s["session_id"] for s in watch]}
+
+class AcpEvents(BaseModel):
+    sessions: dict[str, list[dict]]
+
+@app.post("/api/acp/events")
+async def acp_events(body: AcpEvents):
+    acp = state["acp"]
+    acp.update(connected=True, last_at=time.time())
+    board = False
+    for sid, events in body.sessions.items():
+        acp["events"] += len(events)
+        b, thread = apply_acp_events(sid, events)
+        board = board or b
+        if thread:
+            publish("thread", session_id=sid)
+    if board or state["devin_refresh"]:
+        wake.set()
+    return {"ok": True}
+
 @app.post("/api/github/webhook")
 async def github_webhook(request: Request):
     """GitHub → board push. Verified with X-Hub-Signature-256 (GITHUB_WEBHOOK_SECRET),
@@ -2025,8 +2298,12 @@ async def get_messages(card_id: str):
     card = find_card(card_id)
     if not card["session_id"]:
         return {"messages": [], "status": None}
-    msgs = await fetch_session_messages(card["session_id"])
     sess = next((s for s in state["sessions"] if s["session_id"] == card["session_id"]), None)
+    # while the ACP stream is live the cache is current; REST is only re-read when
+    # the session's updated_at moved (or nothing is cached yet)
+    updated_at = sess.get("updated_at") if sess and acp_live() and card["session_id"] in session_msgs_cache else None
+    await fetch_session_messages(card["session_id"], updated_at)
+    msgs = session_thread(card["session_id"])
     return {
         "messages": await with_pr_cards(sess, msgs) if sess else msgs,
         "status": {

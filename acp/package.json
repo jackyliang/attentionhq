@@ -1,0 +1,17 @@
+{
+  "name": "attentionhq-acp-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Streams Devin session events over ACP into the AttentionHQ server",
+  "type": "module",
+  "main": "bridge.mjs",
+  "scripts": {
+    "start": "node bridge.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@cognition-ai/sdk": "0.0.1-beta.1"
+  }
+}

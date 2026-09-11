@@ -7,6 +7,7 @@ Linear-style Kanban for managing concurrent Devin sessions and GitHub issues.
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -e .
+npm ci --prefix acp   # Devin ACP bridge (Node 22+); optional, the board polls without it
 cp .env.example .env   # fill in keys
 set -a; source .env; set +a
 .venv/bin/uvicorn server:app --port 8000
@@ -24,6 +25,9 @@ Boards are managed in the UI (the `+` and settings tiles in the left rail, or `/
 | --- | --- |
 | `DEVIN_API_KEY` | Devin API key (v3 org API) |
 | `DEVIN_ORG_ID` | Devin org id (`org-...`) |
+| `DEVIN_ACP_API_KEY` | Personal Devin API key (`cog_…`, PATs tab of app.devin.ai/settings/api-keys) for the ACP live stream. Service-user keys are refused by ACP. Unset → REST polling only |
+| `ACP_BRIDGE` | Set to `0` to not spawn `acp/bridge.mjs` even when the key is present |
+| `DEVIN_RECONCILE_SECS` | How often Devin REST is re-read while the ACP stream is live (default 60; `DEVIN_POLL_SECS`, default 5, applies when it isn't) |
 | `GITHUB_TOKEN` | Fine-grained PAT: issues + PRs read/write, contents read/write |
 | `OPENROUTER_API_KEY` | Optional — powers todos/activity/ask extraction |
 | `OPENROUTER_MODEL` | Default `openai/gpt-5.6-luna:nitro` |
@@ -39,8 +43,8 @@ Boards are managed in the UI (the `+` and settings tiles in the left rail, or `/
 ## How the board stays fresh
 
 - **GitHub → webhooks.** `POST /api/github/webhook` (HMAC `X-Hub-Signature-256`, not the board token) folds `issues` / `pull_request` payloads straight into the board and does a targeted re-read of just the affected PR for `pull_request_review`, `check_run`, `check_suite`, `workflow_run` and `status`. Every GET uses `If-None-Match`, so unchanged listings cost `304`s that don't count against the quota, and `Retry-After` / `X-RateLimit-Reset` are honoured instead of hammering a limited token.
-- **Devin → polling.** Devin has no webhook API yet, so sessions are still polled (with backoff on errors).
-- **Browser → SSE.** `GET /api/events?t=<board token>` streams `board` (content changed, re-fetch `/api/board`) and `sync` (poll finished, quota/health only) events. The UI falls back to 5 s polling only while the stream is down. `R` (or `POST /api/refresh`) forces a GitHub + Devin refresh now; the header shows GitHub quota, rate-limit countdown, and webhook delivery status on hover.
+- **Devin → ACP stream.** `acp/bridge.mjs` (Node 22+, `@cognition-ai/sdk`) holds one ACP WebSocket to Devin, attaches to every session the board tracks — including ones started from Slack, automations or other users — and pushes status changes and messages (token by token) into the server over `POST /api/acp/{hello,sessions,events}` (board token). The server spawns and supervises the bridge when `DEVIN_ACP_API_KEY` is set. Devin REST is then only re-read every `DEVIN_RECONCILE_SECS` (titles, PR links, ACUs) or when the stream reports something it can't carry; if the stream drops, polling resumes at `DEVIN_POLL_SECS` until it is back. The sync popover shows the stream state ("Devin stream").
+- **Browser → SSE.** `GET /api/events?t=<board token>` streams `board` (content changed, re-fetch `/api/board`), `sync` (poll finished, quota/health only) and `thread` (a session's transcript moved; the open card re-reads it) events. The UI falls back to 5 s polling only while the stream is down. `R` (or `POST /api/refresh`) forces a GitHub + Devin refresh now; the header shows GitHub quota, rate-limit countdown, and webhook delivery status on hover.
 
 ### Webhook setup
 
@@ -55,7 +59,7 @@ GitHub's `ping` on save returns `{"ok": true, "pong": true}`; the board's sync p
 
 ## Deploy
 
-`render.yaml` defines a single Render web service (`uvicorn server:app`). Set the env vars above in the Render dashboard.
+`render.yaml` defines a single Render web service (`uvicorn server:app`). Set the env vars above in the Render dashboard. Render's Python runtime ships Node/npm, so the build also runs `npm ci --prefix acp` and the server starts the ACP bridge itself; pin `NODE_VERSION` to 22+ if the service was created before Render's default moved there.
 
 ## Tests
 

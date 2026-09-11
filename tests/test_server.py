@@ -619,3 +619,161 @@ def test_settings_recover_after_storage_outage(monkeypatch, client):
     assert asyncio.run(server.reload_settings()) is True
     assert server.settings_loaded is True
     assert client.get("/api/settings", headers=h).json()["settings"]["show_all"] is True
+
+
+# ------------------------------------------------------------------ ACP stream
+
+@pytest.fixture
+def acp_session():
+    sess = {"session_id": "s1", "title": "t", "tags": [], "status": "running", "status_detail": "",
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z", "pull_requests": []}
+    server.state["sessions"][:] = [sess]
+    server.session_msgs_cache.pop("s1", None)
+    server.state["acp"].update(connected=False, last_at=0, error=None, attached=0, events=0)
+    server.state["devin_refresh"] = False
+    server._acp_listed.clear()
+    yield sess
+    server.state["sessions"].clear()
+    server.session_msgs_cache.pop("s1", None)
+
+
+def test_acp_endpoints_require_token(client):
+    assert client.post("/api/acp/hello", json={"connected": True}).status_code == 401
+    assert client.post("/api/acp/events", json={"sessions": {}}).status_code == 401
+
+
+def test_acp_hello_marks_stream_live(client, acp_session):
+    h = {"x-board-token": "tok"}
+    assert server.acp_live() is False
+    r = client.post("/api/acp/hello", json={"connected": True, "attached": 3}, headers=h)
+    assert r.status_code == 200
+    assert server.acp_live() is True
+    assert server.state["acp"]["attached"] == 3
+    assert server.sync_status()["acp"]["live"] is True
+    client.post("/api/acp/hello", json={"connected": False, "error": "HTTP 403"}, headers=h)
+    assert server.acp_live() is False
+    assert server.sync_status()["acp"]["error"] == "HTTP 403"
+
+
+def test_acp_streamed_message_coalesces_and_finalizes(client, acp_session):
+    h = {"x-board-token": "tok"}
+    q = asyncio.Queue()
+    server.subscribers.add(q)
+    body = {"sessions": {"s1": [
+        {"type": "message", "message_id": "m1", "text": "Hel", "ts": "2026-01-01T00:00:01Z", "event_id": "e1"},
+        {"type": "message", "message_id": "m1", "text": "lo", "ts": "2026-01-01T00:00:02Z", "event_id": "e1"},
+    ]}}
+    assert client.post("/api/acp/events", json=body, headers=h).status_code == 200
+    th = server.session_thread("s1")
+    assert [(m["who"], m["text"], m["streaming"]) for m in th] == [("devin", "Hello", True)]
+    # a streaming message is not fed to extraction / board assembly yet
+    assert server.session_thread("s1", include_streaming=False) == []
+    ev = q.get_nowait()
+    assert ev["type"] == "thread" and ev["session_id"] == "s1"
+    # whole-message overwrite replaces the text; typing=false finalizes it
+    body = {"sessions": {"s1": [
+        {"type": "message", "message_id": "m1", "text": "Hello world", "overwrite": True, "event_id": "e1"},
+        {"type": "typing", "typing": False},
+    ]}}
+    client.post("/api/acp/events", json=body, headers=h)
+    th = server.session_thread("s1", include_streaming=False)
+    assert [(m["text"], m["streaming"]) for m in th] == [("Hello world", False)]
+    assert "event_id" not in th[0] and "at" not in th[0]
+    # duplicate chunks for an already-final message id do not duplicate the entry
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "message", "message_id": "m1", "text": "!", "event_id": "e1"}]}}, headers=h)
+    assert len(server.session_thread("s1")) == 1
+    # an aborted message disappears
+    client.post("/api/acp/events", json={"sessions": {"s1": [
+        {"type": "message", "message_id": "m2", "text": "oops"},
+        {"type": "message", "message_id": "m2", "aborted": True},
+    ]}}, headers=h)
+    assert len(server.session_thread("s1")) == 1
+
+
+def test_acp_live_messages_yield_to_rest_transcript(acp_session):
+    cached = server.session_msgs_cache.setdefault("s1", {"msgs": [], "cursor": None, "seen": set()})
+    server.apply_acp_events("s1", [
+        {"type": "message", "message_id": "m1", "text": "Done.", "event_id": "e-devin"},
+        {"type": "user_message", "text": "thanks", "event_id": "e-user"},
+    ])
+    assert len(server.session_thread("s1")) == 2
+    # REST returned the devin message (same event id) and the user one (same text)
+    cached["msgs"].append({"who": "devin", "ts": "2026-01-01T00:00:03Z", "text": "Done.", "origin": None, "name": None})
+    cached["seen"].add("e-devin")
+    cached["msgs"].append({"who": "user", "ts": "2026-01-01T00:00:04Z", "text": "thanks", "origin": "slack", "name": "j"})
+    server._reconcile_live(cached)
+    th = server.session_thread("s1")
+    assert [(m["who"], m["text"]) for m in th] == [("devin", "Done."), ("user", "thanks")]
+    assert cached["live"] == {}
+
+
+def test_acp_user_message_replaces_local_echo(acp_session):
+    server.echo_user_message("s1", "fix it")
+    assert [m.get("local") is not None for m in server.session_thread("s1")] == [True]
+    server.apply_acp_events("s1", [{"type": "user_message", "text": "fix it", "event_id": "u1", "ts": "2026-01-01T00:00:05Z"}])
+    th = server.session_thread("s1")
+    assert len(th) == 1 and th[0]["who"] == "user" and "local" not in th[0]
+
+
+def test_acp_status_events_update_session_and_schedule_reconcile(client, acp_session):
+    h = {"x-board-token": "tok"}
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "status", "status": "blocked", "snapshot": True}]}}, headers=h)
+    assert acp_session["status"] == "running" and acp_session["status_detail"] == "waiting_for_user"
+    assert server.session_needs_user(acp_session)
+    assert server.state["devin_refresh"] is False  # the attach snapshot alone does not trigger REST
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "status", "status": "working"}]}}, headers=h)
+    assert acp_session["status"] == "running" and acp_session["status_detail"] == ""
+    assert server.state["devin_refresh"] is True
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "status", "status": "finished", "outcome": "suspended"}]}}, headers=h)
+    assert acp_session["status"] == "suspended"
+    client.post("/api/acp/events", json={"sessions": {"s1": [{"type": "lifecycle", "lifecycle": "finished", "status": "finished"}]}}, headers=h)
+    assert acp_session["status"] == "finished"
+
+
+def test_acp_session_list_selects_watch_and_flags_changes(client, acp_session):
+    h = {"x-board-token": "tok"}
+    listed = {"sessions": [{"id": "s1", "updated_at": "2026-01-01T00:00:00Z", "created_at": "2026-01-01T00:00:00Z"}]}
+    r = client.post("/api/acp/sessions", json=listed, headers=h)
+    assert r.status_code == 200 and r.json()["watch"] == ["s1"]
+    assert server.state["devin_refresh"] is False  # nothing moved since our REST read
+    assert server.acp_live() is True
+    listed["sessions"][0]["updated_at"] = "2026-01-01T00:05:00Z"
+    client.post("/api/acp/sessions", json=listed, headers=h)
+    assert server.state["devin_refresh"] is True
+    server.state["devin_refresh"] = False
+    client.post("/api/acp/sessions", json=listed, headers=h)
+    assert server.state["devin_refresh"] is False  # same updated_at again: reported once
+    # a session we have never seen is a reason to re-read REST; an archived one is not
+    listed["sessions"].append({"id": "s2", "created_at": server._now_iso(), "archived": True})
+    client.post("/api/acp/sessions", json=listed, headers=h)
+    assert server.state["devin_refresh"] is False
+    listed["sessions"][-1]["archived"] = False
+    client.post("/api/acp/sessions", json=listed, headers=h)
+    assert server.state["devin_refresh"] is True
+    # finished sessions without open work are not watched
+    acp_session["status"] = "finished"
+    assert client.post("/api/acp/sessions", json=listed, headers=h).json()["watch"] == []
+
+
+def test_messages_endpoint_includes_streamed_messages(monkeypatch, client, acp_session):
+    h = {"x-board-token": "tok"}
+    server.state["board"] = {"columns": [{"id": "c", "cards": [{"id": "session:s1", "kind": "session", "session_id": "s1", "repo": None, "number": None}]}]}
+    server.session_msgs_cache["s1"] = {"msgs": [{"who": "user", "ts": "2026-01-01T00:00:00Z", "text": "go", "origin": None, "name": None}],
+                                       "cursor": None, "seen": set(), "updated_at": "2026-01-01T00:00:00Z"}
+    server.apply_acp_events("s1", [{"type": "message", "message_id": "m1", "text": "on it"}])
+    calls = []
+
+    class FakeDevin:
+        async def get(self, path, params=None):
+            calls.append(path)
+            return httpx.Response(200, json={"items": [], "has_next_page": False}, request=httpx.Request("GET", path))
+    monkeypatch.setattr(server, "devin_client", lambda: FakeDevin())
+    monkeypatch.setattr(server, "tracked_session", lambda s: True)
+    server.state["acp"].update(connected=True, last_at=time.time())
+    r = client.get("/api/card/session:s1/messages", headers=h)
+    assert r.status_code == 200
+    assert [(m["who"], m["text"]) for m in r.json()["messages"]] == [("user", "go"), ("devin", "on it")]
+    assert calls == []  # stream is live and updated_at unchanged: no REST round-trip
+    server.state["acp"]["connected"] = False
+    client.get("/api/card/session:s1/messages", headers=h)
+    assert calls == ["/sessions/s1/messages"]
