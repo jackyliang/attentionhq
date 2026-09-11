@@ -760,6 +760,7 @@ aside{
   padding:8px 10px;max-width:85%;
 }
 .msg.system .body{border:1px dashed var(--ds-gray-400);padding:8px 10px;color:var(--ds-gray-900);font-size:12px;line-height:17px}
+.msg.streaming .body>:last-child::after{content:'';display:inline-block;width:6px;height:13px;margin-left:2px;vertical-align:-2px;background:var(--ds-gray-1000);animation:pulse 1s infinite}
 .msg.pending.sending .body{opacity:.6}
 .msg.pending.failed .ts{color:var(--ds-red-900)}
 .msg.pending.failed .body{border-color:var(--ds-red-700)}
@@ -1763,12 +1764,15 @@ function renderSyncCard(){
   const quota=r.remaining!=null?`${r.remaining}${r.limit?' / '+r.limit:''}${r.reset?' \u00b7 resets in '+inS(Math.max(0,Math.ceil(r.reset-Date.now()/1000))):''}`:'\u2014';
   const wh=s.webhook||{};
   const whState=!wh.configured?'not configured \u00b7 polling':(wh.last_at?`${wh.count} received \u00b7 last ${agoS(wh.last_at*1000)}`:'waiting for first delivery');
+  const acp=s.acp||{};
+  const acpState=!acp.enabled?'off \u00b7 polling':acp.live?`streaming \u00b7 ${acp.attached} session${acp.attached===1?'':'s'}`:`down \u00b7 polling${acp.error?' \u00b7 '+escHTML(acp.error):''}`;
   syncCard.innerHTML=`<div class="hd">Sync</div>`
     +row('Live updates',liveOn?'connected':'reconnecting\u2026 (polling)',liveOn?'':'warn')
     +row('GitHub',ghState,retry?'warn':(s.github_ok===false?'bad':''))
     +row('GitHub webhooks',whState,wh.configured?'':'warn')
     +row('GitHub API quota',quota,r.remaining!=null&&r.remaining<200?'warn':'')
     +row('Devin',dvState,s.devin_ok===false?'bad':'')
+    +row('Devin stream',acpState,acp.enabled&&!acp.live?'warn':'')
     +`<div class="ft"><kbd>R</kbd> refresh now</div>`;
 }
 function renderSync(state){
@@ -1812,6 +1816,12 @@ function connectEvents(){
   src.addEventListener('hello',e=>{liveOn=true;esRetry=1000;setFallbackPoll(30000);onSync(e)});
   src.addEventListener('board',onSync);
   src.addEventListener('sync',onSync);
+  // a session's transcript moved (ACP stream); re-read it if that card is open
+  src.addEventListener('thread',e=>{
+    let d; try{d=JSON.parse(e.data)}catch(err){return}
+    applySyncInfo(d);
+    if(openCard!=null&&cards[openCard]&&cards[openCard].session_id===d.session_id)loadThread(cards[openCard],true);
+  });
   src.onerror=()=>{
     src.close(); if(es===src)es=null;
     liveOn=false; setFallbackPoll(5000); renderSync();
@@ -2231,7 +2241,7 @@ function renderThread(msgs,ctx={}){
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
     const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
-    return [`${m.who}|${m.state?'pending|':''}${msgId(m)}`,`<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}">
+    return [`${m.who}|${m.state?'pending|':''}${msgId(m)}`,`<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}${m.streaming?' streaming':''}">
     ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
     <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`];
   });

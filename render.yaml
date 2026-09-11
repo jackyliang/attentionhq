@@ -3,7 +3,7 @@ services:
     name: attentionhq
     runtime: python
     plan: starter
-    buildCommand: pip install -e .
+    buildCommand: pip install -e . && npm ci --prefix acp --omit=dev
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /healthz
     envVars:
@@ -11,6 +11,10 @@ services:
         sync: false
       - key: DEVIN_ORG_ID
         sync: false
+      - key: DEVIN_ACP_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: "22.23.2"
       - key: GITHUB_TOKEN
         sync: false
       - key: GITHUB_WEBHOOK_SECRET
