@@ -2573,6 +2573,7 @@ threadEl.addEventListener('load',()=>{if(stickToEnd)panelScroll.scrollTop=panelS
 threadEl.addEventListener('loadedmetadata',()=>{if(stickToEnd)panelScroll.scrollTop=panelScroll.scrollHeight},true);
 // quiet: background refresh — re-render only if something changed and don't yank the scroll position
 async function loadThread(c,quiet=false){
+  if(startingSession(c)){renderThread([{who:'system',text:'Starting a Devin session… this card will fill in once it\u2019s running.'}]);return}
   if(!c.session_id){
     if(filingIssue(c))renderPendingIssueView();
     else if(isIssueView(c))renderIssueView(c);
