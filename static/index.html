@@ -1362,7 +1362,7 @@ function gotoBoard(id,{replace=false}={}){
   // land the cursor on the + card right away so arrows/WASD work before the fetch returns;
   // re-apply after the fetch in case the re-render lost it (only if the user hasn't moved on)
   focusLanding();
-  fetchBoard().then(()=>{if(boardId===id&&view==='board'&&!focused())focusLanding()}).catch(()=>{});
+  fetchBoard().then(()=>{if(boardId===id&&view==='board'&&document.activeElement===document.body)focusLanding()}).catch(()=>{});
 }
 function focusLanding(){
   const c=document.getElementById('add-issue')||firstCard();
