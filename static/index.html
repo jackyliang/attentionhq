@@ -352,6 +352,8 @@ main{
 .add-card .add-hint{display:inline-flex;align-items:center;gap:6px;max-width:0;opacity:0;overflow:hidden;margin-left:0;transition:max-width .18s ease,opacity .18s ease,margin-left .18s ease;font-size:11px;line-height:14px;color:var(--ds-gray-900);white-space:nowrap}
 .add-card .add-hint kbd{font-size:9px;line-height:12px;height:14px;min-width:14px;padding:0 3px;color:var(--ds-gray-900);background:transparent;border:1px solid var(--ds-gray-500);display:inline-flex;align-items:center;justify-content:center}
 .add-card:is(:hover,:focus) .add-hint{max-width:120px;opacity:1;margin-left:8px}
+.add-card .add-draft{margin-left:8px;font-size:12px;line-height:16px;color:var(--ds-gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;text-align:left;font-style:italic}
+.add-card:has(.add-draft){justify-content:flex-start}
 .add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
 .add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
@@ -1710,7 +1712,7 @@ function renderBoard(force=false){
       const add=document.createElement('button');
       add.className='card add-card'; add.id='add-issue';
       add.setAttribute('aria-label','New task — describe it and an issue is filed');
-      add.innerHTML=ADD_HINT;
+      add.innerHTML=addHintHTML();
       wireAddCard(add);
       body.appendChild(add);
     }
@@ -1955,10 +1957,24 @@ async function prefetchThreads(){
 const inFlightPrompts=[]; // raw placeholder cards for prompts awaiting /api/prompt
 function dropInFlight(p){const i=inFlightPrompts.indexOf(p);if(i>=0)inFlightPrompts.splice(i,1)}
 const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</kbd><span>new task</span></span>';
+// unsent task text, kept per board so switching boards (or blurring) never loses what was typed
+const DRAFTS_KEY='add_drafts';
+function readDrafts(){try{const d=JSON.parse(localStorage.getItem(DRAFTS_KEY)||'{}');return d&&typeof d==='object'?d:{}}catch(e){return {}}}
+function draftKey(){return boardId||'all'}
+function getDraft(){return readDrafts()[draftKey()]||''}
+function setDraft(v){
+  const d=readDrafts(), k=draftKey();
+  if(v)d[k]=v; else delete d[k];
+  try{Object.keys(d).length?localStorage.setItem(DRAFTS_KEY,JSON.stringify(d)):localStorage.removeItem(DRAFTS_KEY)}catch(e){}
+}
+function addHintHTML(){
+  const d=getDraft();
+  return d?`<span class="plus">+</span><span class="add-draft" title="Unsent draft — click to continue">${escHTML(d)}</span>`:ADD_HINT;
+}
 function wireAddCard(addBtn){
   function addToPlus(){
     addBtn.classList.remove('editing');
-    addBtn.innerHTML=ADD_HINT;
+    addBtn.innerHTML=addHintHTML();
   }
   function addToInput(){
     if(addBtn.classList.contains('editing'))return;
@@ -1966,7 +1982,10 @@ function wireAddCard(addBtn){
     addBtn.innerHTML=`<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ start Devin (no issue) · paste files to attach" /><div class="att-tray"></div>`;
     const inp=addBtn.querySelector('input');
     const tray=attachTray(addBtn.querySelector('.att-tray'),inp);
+    inp.value=getDraft();
     inp.focus();
+    inp.setSelectionRange(inp.value.length,inp.value.length);
+    inp.addEventListener('input',()=>setDraft(inp.value));
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
       if(e.key==='Enter'){
@@ -1977,6 +1996,7 @@ function wireAddCard(addBtn){
         const promptLength=[...v].length; // code points, like Python's len()
         if(!start&&promptLength>MAX_PROMPT){showToast(`Too long for an issue (${promptLength.toLocaleString()} chars, max ${MAX_PROMPT.toLocaleString()}) — trim it or ${MOD}↵ to hand it to Devin`);return}
         const attachments=tray.urls();
+        setDraft('');
         addToPlus();
         setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
         if(v||attachments.length){
@@ -2007,6 +2027,7 @@ function wireAddCard(addBtn){
         }
       }
       if(e.key==='Escape'){
+        setDraft('');
         addToPlus();
         addBtn.focus();
       }
