@@ -1863,7 +1863,7 @@ async function fetchBoard(){
       dropInFlight(p);
       if(openCardKey===p.id){
         const real=p.session_id?flat.find(c=>c.session_id===p.session_id):flat.find(c=>c.id===p.issue_key);
-        if(real)openCardKey=real.id;
+        openCardKey=real?real.id:(p.session_id?`session:${p.session_id}`:p.issue_key||openCardKey);
       }
     }
     else if(!dup(p))flat.unshift(p);
@@ -2000,7 +2000,6 @@ function wireAddCard(addBtn){
             if(!r.session_id&&!r.key)dropInFlight(placeholder);
             showToast(start?'Devin is on it — card will update as it works':`Filed ${shortRepo(r.repo)}#${r.number}`);
             const newKey=r.session_id?`session:${r.session_id}`:(r.key||null);
-            if(openCardKey===pendingKey&&newKey)openCardKey=newKey;
             const hadFocus=document.activeElement===cardEl(cards.findIndex(c=>c.key===pendingKey));
             await fetchBoard();
             if(hadFocus&&newKey)focusCardByKey(newKey);
