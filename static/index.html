@@ -899,16 +899,6 @@ aside{
 .sc{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;color:var(--ds-gray-900)}
 .sc .k{margin-left:auto;display:flex;gap:4px}
 
-/* toast for mock actions */
-#toast{
-  position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:60;
-  background:var(--ds-gray-1000);color:var(--ds-background-100);
-  font-size:12px;line-height:16px;font-weight:500;
-  padding:8px 14px;
-  opacity:0;pointer-events:none;transition:opacity .15s;
-}
-#toast.show{opacity:1}
-
 /* ---- token gate ---- */
 #gate{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:var(--ds-background-200)}
 #gate.open{display:flex}
@@ -1061,7 +1051,6 @@ aside{
   </div>
 </div>
 
-<div id="toast"></div>
 
 <div id="gate" role="dialog" aria-label="Board token">
   <form class="gate-card" id="gate-form" autocomplete="off">
@@ -1311,7 +1300,7 @@ function endDrag(commit){
       if(gen!==drag.gen)return;
       const byId=Object.fromEntries(boards.map(x=>[x.id,x]));
       boards=drag.saved.map(i=>byId[i]).filter(Boolean).concat(boards.filter(x=>!drag.saved.includes(x.id)));
-      drag.saved=null; renderRail(); showToast('Reorder failed: '+e.message);
+      drag.saved=null; renderRail();
     });
 }
 railBoards.addEventListener('pointerdown',e=>{
@@ -1428,7 +1417,7 @@ function toggleShowAll(){
   allQueue=allQueue.then(async()=>{
     if(gen!==allGen){allSaves--;return}
     try{const d=await api('/api/settings',{method:'PUT',body:JSON.stringify({show_all:want})});allSaved=!!d.settings.show_all;if(gen===allGen)showAll=allSaved}
-    catch(e){if(gen===allGen){showAll=allSaved;showToast('Save failed: '+e.message)}}
+    catch(e){if(gen===allGen){showAll=allSaved}}
     finally{allSaves--}
     renderBoardList(); renderRail();
   });
@@ -1456,7 +1445,7 @@ ed.manual.addEventListener('keydown',e=>{
   if(e.key!=='Enter')return;
   e.preventDefault();
   const v=ed.manual.value.trim().replace(/^https?:\/\/github\.com\//,'').replace(/\.git$/,'').replace(/\/+$/,'');
-  if(!/^[\w.-]+\/[\w.-]+$/.test(v)){showToast('Use owner/repo');return}
+  if(!/^[\w.-]+\/[\w.-]+$/.test(v)){return}
   if(!edRepos.includes(v))edRepos.push(v);
   ed.manual.value=''; renderRepoList();
 });
@@ -1464,7 +1453,7 @@ for(const el of [ed.name,ed.search,ed.manual])el.addEventListener('keydown',e=>{
 ed.name.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveBoard()}});
 async function saveBoard(){
   const name=ed.name.value.trim();
-  if(!name){showToast('Name the board');ed.name.focus();return}
+  if(!name){ed.name.focus();return}
   ed.save.disabled=true;
   try{
     const d=editing==='new'
@@ -1472,7 +1461,7 @@ async function saveBoard(){
       :await api(`/api/boards/${encodeURIComponent(editing)}`,{method:'PUT',body:JSON.stringify({name,repos:edRepos,color:edColor})});
     boards=d.boards||boards;
     gotoBoard(d.board.id);
-  }catch(e){showToast('Save failed: '+e.message)}
+  }catch{}
   finally{ed.save.disabled=false}
 }
 async function deleteBoard(){
@@ -1484,7 +1473,7 @@ async function deleteBoard(){
     if(returnBoard===editing)returnBoard=null;
     if(boardId===editing){boardId=null;boardMeta=null}
     editBoard(boards[0]?.id||'new'); renderRail();
-  }catch(e){showToast('Delete failed: '+e.message)}
+  }catch{}
 }
 ed.save.addEventListener('click',saveBoard);
 ed.cancel.addEventListener('click',closeSettings);
@@ -1567,9 +1556,8 @@ async function pinCard(id,board){
   const c=cards[id]; if(!c)return;
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/pin`,{method:'POST',body:JSON.stringify({board})});
-    showToast(`Pinned to ${boards.find(b=>b.id===board)?.name||board}`);
     await fetchBoard();
-  }catch(e){showToast('Pin failed: '+e.message)}
+  }catch{}
 }
 function canClose(c){return c.col==='issues'&&c.kind==='issue'}
 function canStart(c){return c.col==='issues'&&c.kind==='issue'&&!c.pending&&!c.session_id&&!!c.repo}
@@ -1822,9 +1810,8 @@ async function refreshNow(){
   renderSync('busy');
   try{
     const r=await api('/api/refresh',{method:'POST',body:'{}'});
-    showToast(r.github==='rate_limited'?`GitHub rate limited \u00b7 retry in ${inS(r.retry_in)} \u00b7 refreshing Devin`:'Refreshing GitHub + Devin\u2026');
     setTimeout(()=>fetchBoard().catch(()=>{}),1500);
-  }catch(e){showToast('Refresh failed: '+e.message);renderSync()}
+  }catch(e){renderSync()}
 }
 // cards was replaced by a fresh board: re-point openCard at the same key and refresh its panel/thread
 function syncOpenCard(typing=false){
@@ -1839,7 +1826,7 @@ async function fetchBoard(){
   const want=boardId;
   try{data=await api('/api/board'+(want?`?board=${encodeURIComponent(want)}`:''))}
   catch(e){
-    if(/board not found/.test(e.message)&&want){showToast('Board not found');boards=boards.filter(b=>b.id!==want);gotoBoard(null,{replace:true});return}
+    if(/board not found/.test(e.message)&&want){boards=boards.filter(b=>b.id!==want);gotoBoard(null,{replace:true});return}
     fetchFailed=true;renderSync();throw e
   }
   if(want!==boardId)return; // switched boards while this was in flight
@@ -1973,9 +1960,9 @@ function wireAddCard(addBtn){
         e.preventDefault();
         const v=inp.value.trim();
         const start=e.metaKey||e.ctrlKey;
-        if(tray.uploading()){showToast('Still uploading attachments…');return}
+        if(tray.uploading()){return}
         const promptLength=[...v].length; // code points, like Python's len()
-        if(!start&&promptLength>MAX_PROMPT){showToast(`Too long for an issue (${promptLength.toLocaleString()} chars, max ${MAX_PROMPT.toLocaleString()}) — trim it or ${MOD}↵ to hand it to Devin`);return}
+        if(!start&&promptLength>MAX_PROMPT){return}
         const attachments=tray.urls();
         addToPlus();
         setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
@@ -1986,13 +1973,11 @@ function wireAddCard(addBtn){
           cards.unshift(mapCard(placeholder));
           cards.forEach((c,i)=>c.id=i);
           renderBoard();
-          if(start)showToast('Sending to Devin — starting on it now\u2026');
           try{
             const r=await api('/api/prompt',{method:'POST',body:JSON.stringify({prompt:v,start,attachments,board:boardId})});
             // keep the placeholder until the board actually shows the issue / session it became
             placeholder.session_id=r.session_id||null; placeholder.issue_key=r.key||null; placeholder.sentAt=Date.now();
             if(!r.session_id&&!r.key)dropInFlight(placeholder);
-            showToast(start?'Devin is on it — card will update as it works':`Filed ${shortRepo(r.repo)}#${r.number}`);
             const newKey=r.session_id?`session:${r.session_id}`:(r.key||null);
             if(openCardKey===pendingKey&&newKey)openCardKey=newKey;
             const hadFocus=document.activeElement===cardEl(cards.findIndex(c=>c.key===pendingKey));
@@ -2002,7 +1987,6 @@ function wireAddCard(addBtn){
             dropInFlight(placeholder);
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
-            showToast('Send failed: '+err.message);
           }
         }
       }
@@ -2367,10 +2351,8 @@ function startTitleEdit(){
     try{
       const r=await api(`/api/card/${encodeURIComponent(key)}/edit`,{method:'POST',body:JSON.stringify({title:v})});
       setTitle(r.title||v);
-      showToast(`Renamed — “${r.title||v}”`);
     }catch(e){
       setTitle(original);
-      showToast('Rename failed: '+e.message);
     }finally{panelTitle.classList.remove('saving')}
   };
   input.addEventListener('keydown',e=>{
@@ -2431,16 +2413,13 @@ function startBodyEdit(){
     if(!save||v===original){repaint();return}
     if(cur)cur.body=v;
     repaint();
-    showToast('Saving description…');
     try{
       const r=await api(`/api/card/${encodeURIComponent(key)}/edit`,{method:'POST',body:JSON.stringify({body:v})});
       const x=cards.find(x=>x.key===key);if(x&&typeof r.body==='string')x.body=r.body;
       repaint();
-      showToast('Description saved to GitHub');
     }catch(e){
       const x=cards.find(x=>x.key===key);if(x)x.body=original;
       repaint();
-      showToast('Save failed: '+e.message);
     }
   };
   ta.addEventListener('keydown',e=>{
@@ -2630,10 +2609,6 @@ function ensureVisible(el){
 setBoardMode();
 mode='closed'; app.dataset.mode='closed';
 
-/* ================= toast ================= */
-const toast=document.getElementById('toast'); let toastT;
-function showToast(t){toast.textContent=t;toast.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>toast.classList.remove('show'),2600)}
-
 /* ================= actions ================= */
 /* two-step confirmation: the first press re-labels the hint on the card, the second (within ARM_MS) fires */
 let armTimer=null;
@@ -2649,13 +2624,12 @@ function disarm(){
   armed=null;
   if(c)rerenderCard(c);
 }
-function confirmArm(c,action,hint){
+function confirmArm(c,action){
   if(armed&&armed.key===c.key&&armed.action===action){clearTimeout(armTimer);armed=null;rerenderCard(c);return true}
   disarm();
   armed={key:c.key,action,t:Date.now()};
   armTimer=setTimeout(disarm,ARM_MS);
   rerenderCard(c);
-  showToast(hint);
   return false;
 }
 document.addEventListener('focusin',e=>{
@@ -2713,7 +2687,6 @@ async function pickOption(id,i,override){
   const c=cards[id];
   const label=override||(c&&c.options&&c.options[i]);
   if(!c||!label)return;
-  showToast(`Replying “${label}”…`);
   await sendToSession(c,`${i+1}. ${label}`,[],`“${label}”`);
 }
 
@@ -2731,15 +2704,12 @@ async function prCardMerge(btn){
   if(prArm&&prArm.btn===btn){
     clearTimeout(prArm.t); prArm=null;
     btn.classList.remove('armed'); btn.classList.add('busy'); btn.innerHTML=`${I.merge} Merging\u2026`;
-    showToast(`Merging ${ref}\u2026`);
     try{
       await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo,number})});
-      showToast(`Merged ${ref}`);
       const c=openCardKey?cards.find(x=>x.key===openCardKey):null;
       if(c){delete threadCache[c.key];loadThread(c)}
       await fetchBoard();
     }catch(e){
-      showToast('Merge failed: '+e.message);
       if(btn.isConnected){btn.classList.remove('busy');btn.innerHTML=`${I.merge} Merge`}
     }
     return;
@@ -2747,7 +2717,6 @@ async function prCardMerge(btn){
   disarmPrMerge();
   prArm={btn,t:setTimeout(disarmPrMerge,ARM_MS)};
   btn.classList.add('armed'); btn.innerHTML=`${I.merge} Confirm merge`;
-  showToast(`Click again to merge ${ref}`);
 }
 threadEl.addEventListener('click',e=>{
   const btn=e.target.closest('[data-merge-pr]');
@@ -2768,13 +2737,11 @@ async function triggerAction(id){
   if(!c)return;
   if(c.col==='issues'){startIssue(id);return}
   if(c.col==='ready'&&c.pr){
-    if(!confirmArm(c,'merge',`Press E again to merge ${shortRepo(c.pr.repo)}#${c.pr.number}`))return;
-    showToast(`Merging ${shortRepo(c.pr.repo)}#${c.pr.number}…`);
+    if(!confirmArm(c,'merge'))return;
     try{
       await api('/api/pr/merge',{method:'POST',body:JSON.stringify({repo:c.pr.repo,number:c.pr.number})});
-      showToast(`Merged ${shortRepo(c.pr.repo)}#${c.pr.number}`);
       await fetchBoard();
-    }catch(e){showToast('Merge failed: '+e.message)}
+    }catch{}
   }
 }
 
@@ -2782,10 +2749,9 @@ let archiving=false;
 async function archiveCard(id){
   const c=cards[id];
   if(!c||c.pending||archiving||!canClose(c))return;
-  if(!confirmArm(c,'archive',`Press Backspace again to close ${shortRepo(c.repo)}#${c.num}`))return;
+  if(!confirmArm(c,'archive'))return;
   archiving=true;
   const nextKey=neighborKey(c);
-  showToast(`Closing ${shortRepo(c.repo)}#${c.num}…`);
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
   const snapshot=cards;
   cards=cards.filter(x=>x.key!==c.key); cards.forEach((x,i)=>x.id=i);
@@ -2793,11 +2759,9 @@ async function archiveCard(id){
   focusCardByKey(nextKey);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/archive`,{method:'POST'});
-    showToast(`Closed ${shortRepo(c.repo)}#${c.num} — “${c.title}”`);
     await fetchBoard();
   }catch(e){
     cards=snapshot; cards.forEach((x,i)=>x.id=i); renderBoard();
-    showToast('Close failed: '+e.message);
   }
   finally{archiving=false}
 }
@@ -2806,7 +2770,7 @@ panelArchive.addEventListener('click',()=>{if(openCard!=null)archiveCard(openCar
 async function hideCard(id){
   const c=cards[id];
   if(!c||c.pending||archiving)return;
-  if(!confirmArm(c,'hide','Press H again to hide this card from the board'))return;
+  if(!confirmArm(c,'hide'))return;
   archiving=true;
   const nextKey=neighborKey(c);
   if(openCard===id){setBoardMode();mode='closed';app.dataset.mode='closed'}
@@ -2816,11 +2780,9 @@ async function hideCard(id){
   focusCardByKey(nextKey);
   try{
     await api(`/api/card/${encodeURIComponent(c.key)}/hide`,{method:'POST'});
-    showToast(`Hidden — “${c.title}”`);
     await fetchBoard();
   }catch(e){
     cards=snapshot; cards.forEach((x,i)=>x.id=i); renderBoard();
-    showToast('Hide failed: '+e.message);
   }
   finally{archiving=false}
 }
@@ -2829,16 +2791,14 @@ panelHide.addEventListener('click',()=>{if(openCard!=null)hideCard(openCard)});
 async function startIssue(id){
   const c=cards[id];
   if(!c||c.col!=='issues'||c.pending)return;
-  if(!canStart(c)){if(c.filing||c.session_id)showToast('Devin is already on it');return}
-  if(!confirmArm(c,'start','Press E again to start a Devin session (uses ACUs)'))return;
-  showToast(`Starting session — “${c.title}”…`);
+  if(!canStart(c)){return}
+  if(!confirmArm(c,'start'))return;
   try{
     await api('/api/issue/start',{method:'POST',body:JSON.stringify({repo:c.repo,number:c.num})});
-    showToast(`Session started — “${c.title}”`);
     await fetchBoard();
     const el=document.querySelector(`.card[data-key="${CSS.escape(c.key)}"]`);
     if(el)el.focus();
-  }catch(e){showToast('Start failed: '+e.message)}
+  }catch{}
 }
 
 const MOD=/Mac|iPhone|iPad/.test(navigator.platform)?'⌘':'Ctrl+';
@@ -2862,7 +2822,7 @@ function attachTray(trayEl,inputEl){
   }
   async function add(file){
     if(!file)return;
-    if(file.size>10*1024*1024){showToast(`${file.name||'File'} is over 10 MB`);return}
+    if(file.size>10*1024*1024){return}
     const name=file.name||`paste-${Date.now()}.${(file.type.split('/')[1]||'bin').replace(/[^\w]/g,'')}`;
     const it={file,name,url:null,state:'uploading',preview:file.type.startsWith('image/')?URL.createObjectURL(file):null};
     items.push(it);render();
@@ -2902,7 +2862,7 @@ const composerTray=attachTray(document.getElementById('composer-atts'),composer)
 document.getElementById('send-btn').addEventListener('click',sendMsg);
 async function sendMsg(){
   const v=composer.value.trim();
-  if(composerTray.uploading()){showToast('Still uploading attachments…');return}
+  if(composerTray.uploading()){return}
   const attachments=composerTray.urls();
   if(!v&&!attachments.length)return;
   if(mode==='board'||openCard==null){
@@ -2914,7 +2874,7 @@ async function sendMsg(){
     return;
   }
   const c=cards[openCard];
-  if(!c.session_id){showToast(filingIssue(c)?'Still creating this issue — hang on':c.pending?'Devin is still starting — hang on':'This card has no session yet — press E to start one');return}
+  if(!c.session_id){return}
   composer.value='';const kept=composerTray.take();
   const ok=await sendToSession(c,v,attachments);
   if(!ok){if(!composer.value)composer.value=v;composerTray.restore(kept)}
@@ -2943,7 +2903,6 @@ async function sendToSession(c,text,attachments=[],label=null){
     await api(`/api/card/${encodeURIComponent(c.key)}/message`,{method:'POST',body:JSON.stringify({text,attachments})});
     p.state='sent';
     show();
-    showToast(`Devin received ${label||'your message'}`);
     fetchBoard().catch(()=>{});
     return true;
   }catch(e){
@@ -2952,7 +2911,6 @@ async function sendToSession(c,text,attachments=[],label=null){
     if(cur&&cur.sentAt===p.at)cur.sentAt=null;
     if(busyNow){const live=cards.find(x=>x.key===c.key);if(live)Object.assign(live,prev);renderBoard(true)}
     show();
-    showToast('Send failed: '+e.message);
     return false;
   }
 }
@@ -3114,7 +3072,7 @@ window.addEventListener('popstate',()=>{
     if(r.view==='settings'){openSettings();return}
     const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();
     if(c)c.focus();
-  }).catch(e=>showToast('Load failed: '+e.message));
+  }).catch(()=>{});
 }
 setFallbackPoll(5000);
 connectEvents();
