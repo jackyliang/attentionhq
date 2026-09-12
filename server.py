@@ -1544,14 +1544,16 @@ async def assemble_board():
         pr_conflict = bool(pr) and pr["mergeable_state"] == "dirty" and not busy
         if (waiting and not handed_off) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested") or pr_conflict:
             col, tone = "needs-you", ("red" if pr and pr["ci"] == "failing" else "amber")
-        elif pr and not pr["draft"] and pr["ci"] in ("passing", "none") and pr["mergeable_state"] == "clean" and not busy:
+        elif pr and not pr["draft"] and pr["ci"] in ("passing", "none") and not busy:
+            # green and conflict-free: nothing left but your review + merge, even if GitHub
+            # still says "blocked" (your approval is the missing check) or "behind"
             col, tone = "ready", "green"
         elif c.get("filing"):
             col, tone = "issues", "grey"  # Devin is only filing the issue, not working on it
         elif busy:
             col, tone = "working", "blue"  # Devin is actively on it, even if a PR is already up
         elif pr and not pr["draft"]:
-            col, tone = "review", "purple"
+            col, tone = "review", "purple"  # PR is up, CI hasn't finished (or never reported)
         elif st in ACTIVE_STATUSES:
             col, tone = "working", "blue"
         elif c["kind"] == "issue":
@@ -1578,9 +1580,9 @@ async def assemble_board():
             elif pr_conflict:
                 ask = f"Resolve merge conflicts on PR #{pr['number']}"
         if col == "ready" and not ask:
-            now_text = f"You: merge PR #{pr['number']}"
-        if col == "review" and not ask and pr and (pr["ci"] == "passing" or handed_off) and not busy:
-            now_text = f"You: review PR #{pr['number']}"
+            now_text = f"You: {'update the branch, then merge' if pr['mergeable_state'] == 'behind' else 'merge' if pr['review'] == 'approved' else 'review & merge'} PR #{pr['number']}"
+        if col == "review" and not ask and pr and pr["ci"] == "unknown" and not busy:
+            now_text = f"You: review PR #{pr['number']} — CI status unknown"
 
         out.append({
             **{k: c[k] for k in ("id", "kind", "title", "repo", "number", "url")},

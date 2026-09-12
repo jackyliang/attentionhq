@@ -866,3 +866,34 @@ def test_issue_filed_from_a_board_shows_only_there(monkeypatch, client):
     finally:
         for i in (a, b):
             client.delete(f"/api/boards/{i}", headers=h)
+
+
+def _pr(number, **over):
+    return {"repo": "acme/one", "number": number, "title": f"PR {number}", "body": "", "url": f"u{number}",
+            "branch": "b", "head_sha": "abc", "created_at": "2026-01-01T00:00:00Z",
+            "ci": "passing", "review": "none", "mergeable_state": "clean", "draft": False, **over}
+
+
+def test_green_prs_are_ready_and_only_unfinished_ci_sits_in_review():
+    server.state["prs"].update({
+        "acme/one#1": _pr(1),                                              # clean
+        "acme/one#2": _pr(2, mergeable_state="blocked"),                   # GitHub wants an approval
+        "acme/one#3": _pr(3, mergeable_state="behind"),
+        "acme/one#4": _pr(4, mergeable_state="unknown", ci="none"),        # no CI configured
+        "acme/one#5": _pr(5, ci="running"),
+        "acme/one#6": _pr(6, ci="unknown", mergeable_state="unknown"),
+        "acme/one#7": _pr(7, mergeable_state="dirty"),
+        "acme/one#8": _pr(8, ci="failing"),
+        "acme/one#9": _pr(9, draft=True),
+    })
+    asyncio.run(server.assemble_board())
+    col_of = {c["id"]: c["col"] for col in server.state["board"]["columns"] for c in col["cards"]}
+    assert {k: col_of[f"pr:acme/one#{k}"] for k in range(1, 10)} == {
+        1: "ready", 2: "ready", 3: "ready", 4: "ready",
+        5: "review", 6: "review",
+        7: "needs-you", 8: "needs-you",
+        9: "working",
+    }
+    now = {c["id"]: c["now"] for col in server.state["board"]["columns"] for c in col["cards"]}
+    assert now["pr:acme/one#1"] == "You: review & merge PR #1"
+    assert now["pr:acme/one#3"] == "You: update the branch, then merge PR #3"

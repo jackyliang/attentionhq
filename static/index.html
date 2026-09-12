@@ -1115,8 +1115,8 @@ const columns = [
   {id:'issues',   name:'Issues',        desc:'no session yet'},
   {id:'working',  name:'Working',       desc:'moving without you'},
   {id:'needs-you',name:'Needs you',     desc:'Devin is stuck on you'},
-  {id:'review',   name:'In review',     desc:'PR handed to you'},
-  {id:'ready',    name:'Ready to merge',desc:'green & conflict-free'},
+  {id:'review',   name:'CI running',    desc:'PR up, checks not done'},
+  {id:'ready',    name:'Ready to merge',desc:'green & conflict-free — review, then merge'},
 ];
 
 let cards = [];
@@ -1216,11 +1216,10 @@ function prVerdict(c){
   if(pr.ci==='failing')return {tone:'red',icon:I.x,head:'CI is failing',sub:'Check the failed job before reviewing'};
   if(pr.mergeable_state==='dirty')return {tone:'red',icon:I.flag,head:'Merge conflicts',sub:'Branch conflicts with base — resolve before merging'};
   if(pr.review==='changes_requested')return {tone:'amber',icon:I.reply,head:'Changes requested',sub:c.col==='working'?'Devin is addressing the review':'Waiting on a follow-up push'};
-  if(c.col==='ready')return {tone:'green',icon:I.merge,head:'Ready to merge',sub:`${ci.label==='no checks'?'No CI configured':'CI green'} · ${review.label==='approved'?'approved':'no blocking review'} · no conflicts`,merge:true};
+  if(c.col==='ready')return {tone:'green',icon:I.merge,head:'Ready to merge',sub:`${ci.label==='no checks'?'No CI configured':'CI green'} · ${review.label==='approved'?'approved':'no blocking review'} · ${pr.mergeable_state==='behind'?'behind base — update, then merge':pr.mergeable_state==='blocked'?'GitHub wants your approval':'no conflicts'}`,merge:true};
   if(c.col==='working')return {tone:'blue',icon:I.spinner,head:'Devin is still working',sub:'Review once it hands off'};
   if(pr.ci==='running'||pr.ci==='pending')return {tone:'amber',icon:I.spinner,head:'CI running',sub:'Review now, or wait for checks'};
-  if(pr.mergeable_state==='blocked'||pr.mergeable_state==='behind')return {tone:'amber',icon:I.flag,head:merge.label[0].toUpperCase()+merge.label.slice(1),sub:pr.mergeable_state==='behind'?'Update the branch, then merge':'A required check or review is still missing'};
-  return {tone:'purple',icon:I.eye,head:'Waiting for your review',sub:ci.label==='passing'?'CI green — approve or request changes':'Open it on GitHub to review'};
+  return {tone:'purple',icon:I.eye,head:'CI status unknown',sub:'No checks reported yet — open it on GitHub to review'};
 }
 
 function mapCard(c,i){
@@ -1560,7 +1559,7 @@ function cardHTML(c){
     return `<div class="title">${escHTML(c.title)}</div><div class="cfoot">${meta}<div class="hints">${closeHint}${startHint}</div></div>`;
   }
   const prStatus=c.pr?(()=>{const v=prVerdict(c);return v?v.head:null})():null;
-  const ciRunning=c.col==='review'&&c.pr&&(c.pr.ci==='running'||c.pr.ci==='pending');
+  const ciRunning=c.col==='review'&&c.pr&&c.pr.ci!=='unknown';
   const txt=c.now?c.now.text:(nx&&c.col!=='ready'?nx.text:(c.col==='review'&&!ciRunning?prStatus:null));
   const generic=you&&c.now&&GENERIC_NOW.test(c.now.text);
   const ready=c.col==='ready';
@@ -2547,7 +2546,7 @@ function setBoardMode(){
 const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',review:'purple',ready:'green'};
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
-  const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'in review',ready:'ready to merge'}[c.col]||c.col;
+  const st={issues:'not started',working:'running','needs-you':'waiting on you',review:'CI running',ready:'ready to merge'}[c.col]||c.col;
   const ref=filingIssue(c)?'<span class="ph-bar" aria-label="creating issue"></span>':startingSession(c)?'sending\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
   const stTxt=startingSession(c)?'sending to devin':st;
   return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
