@@ -337,8 +337,8 @@ main{
 .col-head .count{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--ds-gray-600)}
 .col[data-col="needs-you"] .col-head .name{color:var(--ds-amber-900)}
 .col[data-col="ready"] .col-head .name{color:var(--ds-green-900)}
-.col[data-col="working"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-blue-900)}
-.col[data-col="review"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-purple-900)}
+.col[data-col="working"] .col-head .name{color:var(--ds-blue-900)}
+.col[data-col="review"] .col-head .name{color:var(--ds-purple-900)}
 .col[data-col="issues"]:has(.card:is(.selected,:focus)) .col-head .name{color:var(--ds-gray-1000)}
 .col-body{display:flex;flex-direction:column;gap:8px;padding:10px;flex:1;min-height:0;overflow-y:auto}
 .skel{border:1px solid var(--ds-gray-300);border-left:2px solid var(--ds-gray-400);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
@@ -523,26 +523,26 @@ main{
 .card .nx svg{flex:none;margin-top:1px}
 .card .nx.you{color:var(--ds-amber-1000)}
 .card .nx.you span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-/* quiet columns: nothing here needs you */
-.col[data-col="issues"] .card,.col[data-col="working"] .card,.col[data-col="review"] .card{border-left-color:var(--ds-gray-500)}
-.col[data-col="issues"] .card .title,.col[data-col="working"] .card .title,.col[data-col="review"] .card .title{color:var(--ds-gray-900)}
-.col[data-col="issues"] .card .nx,.col[data-col="working"] .card .nx,.col[data-col="review"] .card .nx{color:var(--ds-gray-600)}
-.col[data-col="issues"] .card .nx .d,.col[data-col="working"] .card .nx .d,.col[data-col="review"] .card .nx .d{background:var(--ds-gray-500)}
-.col[data-col="issues"] .card svg circle.fill,.col[data-col="working"] .card svg circle.fill,.col[data-col="review"] .card svg circle.fill{stroke:var(--ds-gray-600)}
-.col[data-col="issues"] .card:is(.selected,:focus) .title,.col[data-col="working"] .card:is(.selected,:focus) .title,.col[data-col="review"] .card:is(.selected,:focus) .title{color:var(--ds-gray-1000)}
-/* hover: restore the column's live color */
-.col[data-col="issues"] .card:is(.selected,:focus),.col[data-col="working"] .card:is(.selected,:focus),.col[data-col="review"] .card:is(.selected,:focus){border-left-color:currentColor}
-.col .card[data-tone="blue"]:is(.selected,:focus){border-left-color:var(--ds-blue-700)}
-.col .card[data-tone="grey"]:is(.selected,:focus){border-left-color:var(--ds-gray-600)}
-.col[data-col="review"] .card:is(.selected,:focus){border-left-color:var(--ds-purple-700)}
-.col[data-col="working"] .card:is(.selected,:focus) .nx{color:var(--ds-blue-900)}
-.col[data-col="review"] .card:is(.selected,:focus) .nx{color:var(--ds-purple-900)}
+/* quiet column: issues are muted until selected */
+.col[data-col="issues"] .card{border-left-color:var(--ds-gray-500)}
+.col[data-col="issues"] .card .title{color:var(--ds-gray-900)}
+.col[data-col="issues"] .card .nx{color:var(--ds-gray-600)}
+.col[data-col="issues"] .card .nx .d{background:var(--ds-gray-500)}
+.col[data-col="issues"] .card svg circle.fill{stroke:var(--ds-gray-600)}
+.col[data-col="issues"] .card:is(.selected,:focus) .title{color:var(--ds-gray-1000)}
+.col[data-col="issues"] .card:is(.selected,:focus){border-left-color:currentColor}
 .col[data-col="issues"] .card:is(.selected,:focus) .nx{color:var(--ds-gray-1000)}
-.col[data-col="working"] .card:is(.selected,:focus) .nx .d{background:var(--ds-blue-700)}
-.col[data-col="review"] .card:is(.selected,:focus) .nx .d{background:var(--ds-purple-700)}
-.col[data-col="working"] .card:is(.selected,:focus) svg circle.fill{stroke:var(--ds-blue-700)}
-.col[data-col="review"] .card:is(.selected,:focus) svg circle.fill{stroke:var(--ds-purple-700)}
 .col[data-col="issues"] .card:is(.selected,:focus) svg circle.fill{stroke:var(--ds-gray-1000)}
+/* live columns: working (blue) and review (purple) always show their color */
+.col[data-col="working"] .card{border-left-color:var(--ds-blue-700)}
+.col[data-col="working"] .card[data-tone="grey"]{border-left-color:var(--ds-gray-600)}
+.col[data-col="review"] .card{border-left-color:var(--ds-purple-700)}
+.col[data-col="working"] .card .nx{color:var(--ds-blue-900)}
+.col[data-col="review"] .card .nx{color:var(--ds-purple-900)}
+.col[data-col="working"] .card .nx .d{background:var(--ds-blue-700)}
+.col[data-col="review"] .card .nx .d{background:var(--ds-purple-700)}
+.col[data-col="working"] .card svg circle.fill{stroke:var(--ds-blue-700)}
+.col[data-col="review"] .card svg circle.fill{stroke:var(--ds-purple-700)}
 
 .pl-sect .todo{grid-template-columns:14px 1fr}
 .pl-sect .todo .idx,.pl-sect .todo .chip{display:none}
