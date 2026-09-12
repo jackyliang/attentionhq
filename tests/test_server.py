@@ -640,3 +640,42 @@ def test_local_echo_dropped_when_devin_decorates_attachment_message():
     only_comment = "<!-- just a note -->"
     assert server._echoes(only_comment, only_comment)
     assert not server._echoes(only_comment, "<!-- other -->")
+
+
+def test_issue_filed_from_a_board_shows_only_there(monkeypatch, client):
+    """A repo on two boards: an issue filed from one board's prompt box stays on that
+    board; an issue created on GitHub itself still shows on every board tracking the repo."""
+    async def noop():
+        return None
+    monkeypatch.setattr(server, "_refresh_after_board_change", noop)
+    h = {"x-board-token": "tok"}
+    a = client.post("/api/boards", json={"name": "Alpha", "repos": ["acme/shared"]}, headers=h).json()["board"]["id"]
+    b = client.post("/api/boards", json={"name": "Beta", "repos": ["acme/shared"]}, headers=h).json()["board"]["id"]
+    try:
+        marker = server.prompt_marker("abcdef012345", a)
+        assert marker == "<!-- attention:prompt:abcdef012345 board:alpha -->"
+        gh = {"number": 1, "title": "from alpha", "body": f"do it\n\n{marker}", "html_url": "u", "labels": [],
+              "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}
+        filed = server.issue_from_gh("acme/shared", gh)
+        assert (filed["prompt_id"], filed["board"], filed["body"]) == ("abcdef012345", a, "do it")
+        # the older marker (no board) still parses
+        legacy = server.issue_from_gh("acme/shared", {**gh, "number": 2, "body": "x <!-- attention:prompt:abcdef012345 -->"})
+        assert (legacy["prompt_id"], legacy["board"]) == ("abcdef012345", None)
+        plain = server.issue_from_gh("acme/shared", {**gh, "number": 3, "body": "on github"})
+        server.state["issues"].update({"acme/shared#1": filed, "acme/shared#2": legacy, "acme/shared#3": plain})
+        asyncio.run(server.assemble_board())
+
+        def issues_on(bid):
+            return sorted(c["id"] for col in server.board_view(bid)["columns"] for c in col["cards"])
+        assert issues_on(a) == ["acme/shared#1", "acme/shared#2", "acme/shared#3"]
+        assert issues_on(b) == ["acme/shared#2", "acme/shared#3"]
+        assert issues_on(None) == ["acme/shared#1", "acme/shared#2", "acme/shared#3"]
+        # editing the body keeps the board in the marker
+        assert server.PROMPT_MARK_RE.search(server.prompt_marker("abcdef012345", a)).group(2) == a
+        # once the filing board no longer tracks the repo, the issue falls back to the repo's boards
+        client.put(f"/api/boards/{a}", json={"name": "Alpha", "repos": ["acme/other"]}, headers=h)
+        asyncio.run(server.assemble_board())
+        assert issues_on(b) == ["acme/shared#1", "acme/shared#2", "acme/shared#3"]
+    finally:
+        for i in (a, b):
+            client.delete(f"/api/boards/{i}", headers=h)

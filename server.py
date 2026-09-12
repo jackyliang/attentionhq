@@ -74,7 +74,11 @@ PR_ISSUE_RE = re.compile(r"(?:#|issues/)(\d+)")
 # Devin session tagged prompt-mode:file; the board hid that session once the issue existed).
 PROMPT_TAG_RE = re.compile(r"^prompt:([0-9a-f]{12})$")
 PROMPT_MODE_TAG_RE = re.compile(r"^prompt-mode:(file|work)$")
-PROMPT_MARK_RE = re.compile(r"\s*<!--\s*attention:prompt:([0-9a-f]{12})\s*-->")
+PROMPT_MARK_RE = re.compile(r"\s*<!--\s*attention:prompt:([0-9a-f]{12})(?:\s+board:([a-z0-9-]+))?\s*-->")
+
+def prompt_marker(pid: str, board_id: str | None) -> str:
+    return f"<!-- attention:prompt:{pid}" + (f" board:{board_id}" if board_id else "") + " -->"
+
 IMAGE_NAME_RE = re.compile(r"\.(png|jpe?g|gif|webp|svg|bmp|avif)$", re.I)
 # Sessions started from a board's prompt box are tagged board:<id>.
 BOARD_TAG_RE = re.compile(r"^board:([a-z0-9-]+)$")
@@ -501,6 +505,7 @@ def issue_from_gh(repo: str, it: dict) -> dict:
         "repo": repo, "number": it["number"], "title": it["title"],
         "body": PROMPT_MARK_RE.sub("", body), "url": it["html_url"],
         "prompt_id": mark.group(1) if mark else None,
+        "board": mark.group(2) if mark else None,
         "labels": [l["name"] for l in it.get("labels", [])],
         "created_at": it["created_at"], "updated_at": it["updated_at"],
     }
@@ -1273,6 +1278,12 @@ def session_needs_user(sess: dict) -> bool:
 def session_pr_urls(sess: dict) -> list[str]:
     return [p["pr_url"] for p in sess.get("pull_requests") or [] if p.get("pr_url")]
 
+def issue_board(card: dict) -> str | None:
+    """Board an issue was filed from, while that board still tracks its repo; a repo
+    on several boards otherwise shows its issue on all of them."""
+    b = board_by_id(card.get("board") or "")
+    return b["id"] if b and card["repo"] in b["repos"] else None
+
 def session_board(sess: dict) -> str | None:
     """Board a session was pinned to (explicitly, or via the board tag it was started with)."""
     sid = sess["session_id"]
@@ -1310,7 +1321,7 @@ async def assemble_board():
         cards[key] = {
             "id": key, "kind": "issue", "title": issue["title"],
             "repo": issue["repo"], "number": issue["number"], "url": issue["url"],
-            "body": issue["body"], "labels": issue["labels"],
+            "body": issue["body"], "labels": issue["labels"], "board": issue.get("board"),
             "sessions": [], "prs": [], "created_at": issue["created_at"],
         }
     for key, pr in prs.items():
@@ -1379,7 +1390,7 @@ async def assemble_board():
         # repos this card belongs to: its own, plus any the session opened PRs in
         repos = [c["repo"]] if c["repo"] else []
         repos += [p["repo"] for p in s_prs if p["repo"] not in repos]
-        pin = session_board(sess) if sess and not c["repo"] else None
+        pin = session_board(sess) if sess and not c["repo"] else issue_board(c)
         if sess:
             sid = sess["session_id"]
             msgs = (session_msgs_cache.get(sid) or {}).get("msgs") or []
@@ -2231,7 +2242,7 @@ async def edit_card(card_id: str, body: EditIn):
         patch["body"] = text
         # keep the prompt marker Devin wrote so the issue stays paired with its session
         if issue and issue.get("prompt_id"):
-            patch["body"] = f"{text}\n\n<!-- attention:prompt:{issue['prompt_id']} -->".lstrip()
+            patch["body"] = f"{text}\n\n{prompt_marker(issue['prompt_id'], issue.get('board'))}".lstrip()
     if not patch:
         raise HTTPException(400, "nothing to change")
     gh = gh_client()
@@ -2438,7 +2449,7 @@ async def draft_issue(text: str, repo_list: list[str], att_names: list[str]) -> 
         "body": body.strip()[:MAX_DRAFT_BODY] if isinstance(body, str) else "",
     }
 
-def compose_issue_body(draft_body: str, text: str, atts: list[str], pid: str, base: str) -> str:
+def compose_issue_body(draft_body: str, text: str, atts: list[str], pid: str, base: str, board_id: str | None = None) -> str:
     """The model's description, then the verbatim request and the attachments so
     nothing the user gave is lost, then the prompt marker the board keys on."""
     parts = [draft_body] if draft_body else []
@@ -2451,7 +2462,7 @@ def compose_issue_body(draft_body: str, text: str, atts: list[str], pid: str, ba
             name, url = public_attachment_url(u, base)
             lines.append(f"![{name}]({url})" if IMAGE_NAME_RE.search(name) else f"- [{name}]({url})")
         parts.append("## Attachments\n\n" + "\n".join(lines))
-    parts.append(f"<!-- attention:prompt:{pid} -->")
+    parts.append(prompt_marker(pid, board_id))
     return "\n\n".join(parts)
 
 async def publish_issue(repo: str, title: str, body: str) -> dict:
@@ -2505,9 +2516,10 @@ async def prompt_devin(body: PromptIn, request: Request):
     if not body.start:
         base = PUBLIC_URL or str(request.base_url).rstrip("/")
         draft = await draft_issue(text, repo_list, [public_attachment_url(u, base)[0] for u in atts])
-        issue_body = compose_issue_body(draft["body"], text if typed else "", atts, pid, base)
+        bid = board["id"] if board else None
+        issue_body = compose_issue_body(draft["body"], text if typed else "", atts, pid, base, bid)
         if len(issue_body) > MAX_ISSUE_BODY:  # drop the model's description before the user's own words
-            issue_body = compose_issue_body("", text if typed else "", atts, pid, base)
+            issue_body = compose_issue_body("", text if typed else "", atts, pid, base, bid)
         if len(issue_body) > MAX_ISSUE_BODY:
             raise HTTPException(400, "prompt and attachments are too large for a GitHub issue")
         return await publish_issue(draft["repo"], draft["title"], issue_body)
