@@ -1538,7 +1538,7 @@ function progressOf(c){
 }
 
 const MAX_PROMPT=25000; // mirrors server.py MAX_PROMPT
-const GENERIC_NOW=/^Devin is (blocked and )?waiting on you/;
+const GENERIC_NOW=/^(Blocked on you|Waiting on your reply)/;
 // a pending placeholder is either an issue being filed (Enter) or a Devin session being started (Ctrl+Enter)
 const filingIssue=c=>!!c&&!!c.pending&&c.col==='issues';
 const startingSession=c=>!!c&&!!c.pending&&c.col!=='issues';
@@ -1566,7 +1566,7 @@ function cardHTML(c){
   const ready=c.col==='ready';
   const mergeBtn=`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`;
   const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'?`<div class="nx solo">${ring}<span>${c.pending?'sending\u2026':'working\u2026'}</span></div>`:'');
-  const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on PR #${c.pr.number} · not ready to merge yet</span></div>`:'';
+  const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on #${c.pr.number}</span></div>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.slice(0,3).map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
   const pins=c.unassigned&&boards.length?`<div class="pins">${boards.map(b=>`<span class="pill" role="button" tabindex="-1" data-pin="${escHTML(b.id)}"><span class="mini">${escHTML(initials(b.name))}</span>${escHTML(b.name)}</span>`).join('')}</div>`:'';
@@ -2260,7 +2260,7 @@ function activityLabel(c,st){
   return ACTIVITY_LABEL[a]||null;
 }
 function workingText(c){
-  if(c.activity==='browser_test')return 'Browser test in progress — Devin is driving the app and recording it…';
+  if(c.activity==='browser_test')return 'Running browser test…';
   if(c.now&&c.now.text)return c.now.text;
   const nx=c.todos.find(t=>t.state!=='done');
   return nx?nx.text:'working\u2026';
@@ -2270,7 +2270,7 @@ function workingHTML(c){
   const awaiting=awaitingReply(c);
   if(c.col!=='working'&&!awaiting)return '';
   const test=c.activity==='browser_test';
-  const txt=!test&&awaiting&&(c.col!=='working'||/waiting|blocked/i.test(workingText(c)))?'Devin is on it\u2026':workingText(c);
+  const txt=!test&&awaiting&&(c.col!=='working'||/waiting|blocked/i.test(workingText(c)))?'On it\u2026':workingText(c);
   return `<div class="msg working${test?' test':''}"><span class="dot blue pulse"></span><span class="txt">${escHTML(txt)}</span></div>`;
 }
 const OPT_LINE_RE=/^\s*(?:\*\*)?(?:\d+|[a-c])[.)]\s*(?:\*\*)?\s*(.+?)\s*$/;
