@@ -1359,7 +1359,14 @@ function gotoBoard(id,{replace=false}={}){
   moveRing(null);
   cards=[]; boardLoaded=false; lastDeploys=null;
   renderRail(); renderBoard();
-  fetchBoard().then(()=>{const c=document.querySelector('[data-col="needs-you"] .card')||firstCard();if(c)c.focus()}).catch(()=>{});
+  // land the cursor on the + card right away so arrows/WASD work before the fetch returns;
+  // re-apply after the fetch in case the re-render lost it (only if the user hasn't moved on)
+  focusLanding();
+  fetchBoard().then(()=>{if(boardId===id&&view==='board'&&!focused())focusLanding()}).catch(()=>{});
+}
+function focusLanding(){
+  const c=document.getElementById('add-issue')||firstCard();
+  if(c)c.focus({preventScroll:true});
 }
 function cycleBoard(d){
   const ids=railIds();
