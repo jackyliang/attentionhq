@@ -557,6 +557,14 @@ aside{
   display:flex;flex-direction:column;
   min-height:0;
 }
+.panel-resize{
+  position:absolute;top:0;bottom:0;left:-3px;width:7px;z-index:7;
+  cursor:col-resize;touch-action:none;
+}
+.panel-resize::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent;transition:background .12s}
+.panel-resize:hover::after,body.resizing-panel .panel-resize::after{background:var(--ds-gray-700)}
+body.resizing-panel,body.resizing-panel *{cursor:col-resize!important;user-select:none}
+body.resizing-panel aside,body.resizing-panel .board{transition:none!important}
 .panel-head{
   display:flex;align-items:center;gap:10px;
   height:44px;padding:0 14px;flex:none;
@@ -634,7 +642,7 @@ aside{
 .pl-desc p{margin:0 0 8px}
 .pl-desc p:last-child{margin-bottom:0}
 .pl-desc h1,.pl-desc h2,.pl-desc h3,.pl-desc h4{font-size:11px;line-height:15px;font-family:var(--font-mono);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ds-gray-1000);margin:12px 0 6px}
-.pl-desc ul{margin:0 0 8px;padding-left:16px}
+.pl-desc ul,.pl-desc ol{margin:0 0 8px;padding-left:22px}
 .pl-desc li{margin:2px 0}
 .pl-desc code{font-family:var(--font-mono);font-size:11px;color:var(--ds-gray-1000);background:var(--ds-gray-200);border:1px solid var(--ds-gray-300);padding:0 4px}
 .pl-desc pre{margin:0 0 8px;padding:8px 10px;background:var(--ds-gray-100);border:1px solid var(--ds-gray-300);overflow-x:auto}
@@ -995,6 +1003,7 @@ aside{
   </div>
 
   <aside aria-label="Conversation panel">
+    <div class="panel-resize" id="panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" title="Drag to resize · double-click to reset"></div>
     <div class="panel-head">
       <div class="panel-title">
         <div class="t" id="panel-title">Board</div>
@@ -2050,6 +2059,46 @@ const composer=document.getElementById('composer');
 const panelArchive=document.getElementById('panel-archive');
 const panelHide=document.getElementById('panel-hide');
 const panelArchiveLabel=document.getElementById('panel-archive-label');
+
+/* draggable panel width, remembered per browser */
+const PANEL_W_KEY='panel_w', PANEL_W_MIN=320;
+const panelResize=document.getElementById('panel-resize');
+const panelMaxW=()=>Math.max(PANEL_W_MIN,window.innerWidth-parseInt(getComputedStyle(document.documentElement).getPropertyValue('--rail-w'))-240);
+const clampPanelW=w=>Math.round(Math.min(panelMaxW(),Math.max(PANEL_W_MIN,w)));
+function applyPanelW(w){
+  document.documentElement.style.setProperty('--panel-w',clampPanelW(w)+'px');
+}
+{
+  const saved=parseInt(localStorage.getItem(PANEL_W_KEY));
+  if(saved>0)applyPanelW(saved);
+}
+panelResize.addEventListener('pointerdown',e=>{
+  if(e.button!==0)return;
+  e.preventDefault();
+  const startX=e.clientX, startW=document.querySelector('aside').getBoundingClientRect().width;
+  let w=startW;
+  document.body.classList.add('resizing-panel');
+  panelResize.setPointerCapture(e.pointerId);
+  const move=ev=>{w=clampPanelW(startW+(startX-ev.clientX));applyPanelW(w)};
+  const up=()=>{
+    panelResize.removeEventListener('pointermove',move);
+    panelResize.removeEventListener('pointerup',up);
+    panelResize.removeEventListener('pointercancel',up);
+    document.body.classList.remove('resizing-panel');
+    localStorage.setItem(PANEL_W_KEY,String(w));
+  };
+  panelResize.addEventListener('pointermove',move);
+  panelResize.addEventListener('pointerup',up);
+  panelResize.addEventListener('pointercancel',up);
+});
+panelResize.addEventListener('dblclick',()=>{
+  localStorage.removeItem(PANEL_W_KEY);
+  document.documentElement.style.removeProperty('--panel-w');
+});
+window.addEventListener('resize',()=>{
+  const saved=parseInt(localStorage.getItem(PANEL_W_KEY));
+  if(saved>0)applyPanelW(saved);
+});
 const panelHideLabel=document.getElementById('panel-hide-label');
 let mode='board', openCard=null, openCardKey=null;
 
