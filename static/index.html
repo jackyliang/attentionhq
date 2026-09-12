@@ -1484,6 +1484,7 @@ async function deleteBoard(){
     const d=await api(`/api/boards/${encodeURIComponent(editing)}`,{method:'DELETE'});
     boards=d.boards||[];
     if(returnBoard===editing)returnBoard=null;
+    setDraft('',editing);
     if(boardId===editing){boardId=null;boardMeta=null}
     editBoard(boards[0]?.id||'new'); renderRail();
   }catch(e){showToast('Delete failed: '+e.message)}
@@ -1961,9 +1962,9 @@ const ADD_HINT='<span class="plus">+</span><span class="add-hint"><kbd>\u21b5</k
 const DRAFTS_KEY='add_drafts';
 function readDrafts(){try{const d=JSON.parse(localStorage.getItem(DRAFTS_KEY)||'{}');return d&&typeof d==='object'?d:{}}catch(e){return {}}}
 function draftKey(){return boardId||'all'}
-function getDraft(){return readDrafts()[draftKey()]||''}
-function setDraft(v){
-  const d=readDrafts(), k=draftKey();
+function getDraft(k=draftKey()){const d=readDrafts();return Object.prototype.hasOwnProperty.call(d,k)?String(d[k]):''}
+function setDraft(v,k=draftKey()){
+  const d=readDrafts();
   if(v)d[k]=v; else delete d[k];
   try{Object.keys(d).length?localStorage.setItem(DRAFTS_KEY,JSON.stringify(d)):localStorage.removeItem(DRAFTS_KEY)}catch(e){}
 }
@@ -1996,6 +1997,7 @@ function wireAddCard(addBtn){
         const promptLength=[...v].length; // code points, like Python's len()
         if(!start&&promptLength>MAX_PROMPT){showToast(`Too long for an issue (${promptLength.toLocaleString()} chars, max ${MAX_PROMPT.toLocaleString()}) — trim it or ${MOD}↵ to hand it to Devin`);return}
         const attachments=tray.urls();
+        const sentKey=draftKey();
         setDraft('');
         addToPlus();
         setTimeout(()=>document.getElementById('add-issue')?.focus(),0);
@@ -2019,6 +2021,7 @@ function wireAddCard(addBtn){
             await fetchBoard();
             if(hadFocus&&newKey)focusCardByKey(newKey);
           }catch(err){
+            if(v&&!getDraft(sentKey))setDraft(v,sentKey);
             dropInFlight(placeholder);
             cards=cards.filter(c=>c.key!==pendingKey); cards.forEach((c,i)=>c.id=i);
             renderBoard();
