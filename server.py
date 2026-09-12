@@ -1553,14 +1553,14 @@ async def assemble_board():
         pr_conflict = bool(pr) and pr["mergeable_state"] == "dirty" and not busy
         if (waiting and not handed_off) or (pr and pr["ci"] == "failing") or (pr and pr["review"] == "changes_requested") or pr_conflict:
             col, tone = "needs-you", ("red" if pr and pr["ci"] == "failing" else "amber")
-        elif pr and not pr["draft"] and pr["ci"] in ("passing", "none") and pr["mergeable_state"] == "clean" and not busy:
+        elif pr and not pr["draft"] and pr["ci"] in ("passing", "none") and not busy:
+            # green and conflict-free: nothing left but your review + merge, even if GitHub
+            # still says "blocked" (your approval is the missing check) or "behind"
             col, tone = "ready", "green"
         elif c.get("filing"):
             col, tone = "issues", "grey"  # Devin is only filing the issue, not working on it
-        elif busy:
-            col, tone = "working", "blue"  # Devin is actively on it, even if a PR is already up
-        elif pr and not pr["draft"]:
-            col, tone = "review", "purple"
+        elif busy or (pr and not pr["draft"]):
+            col, tone = "working", "blue"  # Devin is on it, or its PR is up and CI hasn't finished yet
         elif st in ACTIVE_STATUSES:
             col, tone = "working", "blue"
         elif c["kind"] == "issue":
@@ -1587,9 +1587,10 @@ async def assemble_board():
             elif pr_conflict:
                 ask = f"Resolve conflicts #{pr['number']}"
         if col == "ready" and not ask:
-            now_text = f"You: merge #{pr['number']}"
-        if col == "review" and not ask and pr and (pr["ci"] == "passing" or handed_off) and not busy:
-            now_text = f"You: review #{pr['number']}"
+            now_text = f"You: {'update branch' if pr['mergeable_state'] == 'behind' else 'merge' if pr['review'] == 'approved' else 'review, merge'} #{pr['number']}"
+        if col == "working" and not ask and pr and not pr["draft"] and not busy:
+            # CI still running: the card's own CI line says so; otherwise CI never reported
+            now_text = None if pr["ci"] in ("running", "pending") else f"CI unknown on #{pr['number']}"
 
         out.append({
             **{k: c[k] for k in ("id", "kind", "title", "repo", "number", "url")},
@@ -1621,7 +1622,7 @@ async def assemble_board():
         "columns": [
             {"id": cid, "cards": sorted((c for c in out if c["col"] == cid),
                                         key=lambda c: (c["filing"], _epoch_f(c["created_at"])), reverse=(cid == "issues"))}
-            for cid in ("issues", "working", "needs-you", "review", "ready")
+            for cid in ("issues", "working", "needs-you", "ready")
         ],
         "deploys": state["deploys"],
         "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
@@ -1651,7 +1652,7 @@ def board_view(board_id: str | None) -> dict:
     current = public_board(board) if board else {"id": ALL_BOARD, "name": "All", "repos": tracked_repos()}
     full = state["board"]
     if full is None:
-        return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
+        return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "ready")],
                 "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
                 "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0,
                 "board": current, "boards": boards, "settings": dict(settings), "sync": sync_status()}
