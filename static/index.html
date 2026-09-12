@@ -1859,7 +1859,13 @@ async function fetchBoard(){
   const landed=p=>(!!p.issue_key&&(flat.some(c=>c.id===p.issue_key)||Date.now()-p.sentAt>60000))||
     (!!p.session_id&&(flat.some(c=>c.session_id===p.session_id)||dup(p)||Date.now()-p.sentAt>60000));
   for(const p of [...inFlightPrompts]){
-    if(landed(p))dropInFlight(p);
+    if(landed(p)){
+      dropInFlight(p);
+      if(openCardKey===p.id){
+        const real=p.session_id?flat.find(c=>c.session_id===p.session_id):flat.find(c=>c.id===p.issue_key);
+        if(real)openCardKey=real.id;
+      }
+    }
     else if(!dup(p))flat.unshift(p);
   }
   cards=flat.map(mapCard);
