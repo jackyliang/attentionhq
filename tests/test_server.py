@@ -874,7 +874,7 @@ def _pr(number, **over):
             "ci": "passing", "review": "none", "mergeable_state": "clean", "draft": False, **over}
 
 
-def test_green_prs_are_ready_and_only_unfinished_ci_sits_in_review():
+def test_green_prs_are_ready_and_unfinished_ci_stays_in_working():
     server.state["prs"].update({
         "acme/one#1": _pr(1),                                              # clean
         "acme/one#2": _pr(2, mergeable_state="blocked"),                   # GitHub wants an approval
@@ -890,10 +890,13 @@ def test_green_prs_are_ready_and_only_unfinished_ci_sits_in_review():
     col_of = {c["id"]: c["col"] for col in server.state["board"]["columns"] for c in col["cards"]}
     assert {k: col_of[f"pr:acme/one#{k}"] for k in range(1, 10)} == {
         1: "ready", 2: "ready", 3: "ready", 4: "ready",
-        5: "review", 6: "review",
+        5: "working", 6: "working",
         7: "needs-you", 8: "needs-you",
         9: "working",
     }
     now = {c["id"]: c["now"] for col in server.state["board"]["columns"] for c in col["cards"]}
-    assert now["pr:acme/one#1"] == "You: review & merge PR #1"
-    assert now["pr:acme/one#3"] == "You: update the branch, then merge PR #3"
+    assert now["pr:acme/one#1"] == "You: review, merge #1"
+    assert now["pr:acme/one#3"] == "You: update branch #3"
+    assert now["pr:acme/one#5"] is None  # the card's CI line covers it
+    assert now["pr:acme/one#6"] == "CI unknown on #6"
+    assert [c["id"] for c in server.state["board"]["columns"]] == ["issues", "working", "needs-you", "ready"]

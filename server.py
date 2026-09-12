@@ -1260,8 +1260,8 @@ def apply_acp_events(session_id: str, events: list[dict]) -> tuple[bool, bool]:
 EXTRACT_PROMPT = """You are given the chat transcript between a user and Devin (an AI software agent) working on a task.
 Return STRICT JSON (no markdown) with this shape:
 {"todos":[{"text":"...","owner":"agent|you","state":"done|active|open"}],
- "current_activity":"one short line: what the agent is doing right now, present tense",
- "ask":"if the agent is waiting on the user, the user's next action in one short imperative line (e.g. 'Approve the blog PR' / 'Choose between A and B'), else null",
+ "current_activity":"what the agent is doing right now, present tense, MAX 4 WORDS (e.g. 'Waiting for CI' / 'Fixing failing tests' / 'Investigating review logic')",
+ "ask":"if the agent is waiting on the user, the user's next action as an imperative, MAX 4 WORDS (e.g. 'Approve blog PR' / 'Choose A or B'), else null",
  "last_said":"the agent's most recent message to the user compressed to one line (<80 chars): the question it asked, or the answer/result it reported (e.g. 'Asked: keep Jinja or switch to Next?' / 'Reviewed #378: no dead code found')",
  "question":"if the agent's last message asks the user to choose or decide, that question copied verbatim in one line (<120 chars), else null",
  "options":["the choices the agent offered, if any, each copied verbatim from the agent's own wording (the label/heading of each numbered or bulleted choice, without its explanation), in the agent's order, max 5, else empty"],
@@ -1270,11 +1270,20 @@ Return STRICT JSON (no markdown) with this shape:
  "progress_pct":0-100}
 "activity": "browser_test" only while the agent says it is currently running a browser / end-to-end / UI test (e.g. "starting the browser test run", "recording a test of the send flow") and has not yet reported the result; once it reports results or asks something, use "waiting".
 Keep todo texts short (<70 chars). Derive todos from the plan/steps discussed. Mark items the user must do as owner "you".
-If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you to ...") — never invent in-progress work.
+current_activity and ask are status labels on a narrow card: never exceed 4 words, drop articles/filler, and omit PR numbers/URLs unless essential.
+If the last message is the agent asking the user something or reporting completion, current_activity MUST say it is waiting (e.g. "Waiting for you") — never invent in-progress work.
 "blocked": true only if the agent explicitly says it cannot continue until the user supplies something (a credential/token, a decision between alternatives, an approval). Examples of blocked=true: "blocked on you for the token", "which approach should I take?", "waiting for your approval to run X". Examples of blocked=false: "PR is up — want me to record a test?", "done; anything else?", "want me to also do X?" (delivered work + optional offer). If one of the offered choices is to skip / do nothing / proceed without it, blocked=false.
 A trailing [prs] line lists the session's pull requests and their current state. A PR that is already merged or closed needs nothing from the user: do not ask them to review or merge it, and set ask to null if that was the only pending action."""
 
-EXTRACT_VERSION = 6
+EXTRACT_VERSION = 7
+STATUS_MAX_WORDS = 4
+
+def status_words(text, limit: int = STATUS_MAX_WORDS) -> str | None:
+    """Clamp a status label to `limit` words; None for empty input."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    words = text.split()
+    return " ".join(words[:limit]) + ("…" if len(words) > limit else "")
 
 BROWSER_TEST_RE = re.compile(
     r"\b(?:(?:starting|running|kicking off|beginning|launching)\b[^.\n]{0,60}\b(?:browser|e2e|end-to-end|ui)\b[^.\n]{0,30}\btest|"
@@ -1550,10 +1559,8 @@ async def assemble_board():
             col, tone = "ready", "green"
         elif c.get("filing"):
             col, tone = "issues", "grey"  # Devin is only filing the issue, not working on it
-        elif busy:
-            col, tone = "working", "blue"  # Devin is actively on it, even if a PR is already up
-        elif pr and not pr["draft"]:
-            col, tone = "review", "purple"  # PR is up, CI hasn't finished (or never reported)
+        elif busy or (pr and not pr["draft"]):
+            col, tone = "working", "blue"  # Devin is on it, or its PR is up and CI hasn't finished yet
         elif st in ACTIVE_STATUSES:
             col, tone = "working", "blue"
         elif c["kind"] == "issue":
@@ -1566,23 +1573,24 @@ async def assemble_board():
         options = []
         question = None
         if extract:
-            now_text = extract.get("current_activity")
-            ask = extract.get("ask")
+            now_text = status_words(extract.get("current_activity"))
+            ask = status_words(extract.get("ask"))
             options = [str(o).strip() for o in (extract.get("options") or []) if str(o).strip()][:5]
             question = extract.get("question") or None
         if col == "needs-you" and not ask:
             if pr and pr["ci"] == "failing":
-                ask = "CI failed — take a look"
+                ask = "CI failed"
             elif sess and session_needs_user(sess):
-                ask = _short((extract or {}).get("last_said")) or ("Devin is blocked and waiting on you" if st == "blocked" else "Devin is waiting on your reply")
+                ask = status_words((extract or {}).get("last_said")) or ("Blocked on you" if st == "blocked" else "Waiting on your reply")
             elif pr and pr["review"] == "changes_requested":
                 ask = "Review requested changes"
             elif pr_conflict:
-                ask = f"Resolve merge conflicts on PR #{pr['number']}"
+                ask = f"Resolve conflicts #{pr['number']}"
         if col == "ready" and not ask:
-            now_text = f"You: {'update the branch, then merge' if pr['mergeable_state'] == 'behind' else 'merge' if pr['review'] == 'approved' else 'review & merge'} PR #{pr['number']}"
-        if col == "review" and not ask and pr and pr["ci"] == "unknown" and not busy:
-            now_text = f"You: review PR #{pr['number']} — CI status unknown"
+            now_text = f"You: {'update branch' if pr['mergeable_state'] == 'behind' else 'merge' if pr['review'] == 'approved' else 'review, merge'} #{pr['number']}"
+        if col == "working" and not ask and pr and not pr["draft"] and not busy:
+            # CI still running: the card's own CI line says so; otherwise CI never reported
+            now_text = None if pr["ci"] in ("running", "pending") else f"CI unknown on #{pr['number']}"
 
         out.append({
             **{k: c[k] for k in ("id", "kind", "title", "repo", "number", "url")},
@@ -1590,7 +1598,7 @@ async def assemble_board():
             "session_id": sess["session_id"] if sess else None,
             "session_url": (sess.get("url") or f"https://app.devin.ai/sessions/{sess['session_id']}") if sess else None,
             "pr": {k: pr.get(k) for k in ("repo", "number", "url", "ci", "review", "mergeable_state", "draft", "title", "branch", "created_at")} if pr else None,
-            "now": ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text),
+            "now": status_words(ask if col == "needs-you" else (f"You: {ask}" if ask and not busy else now_text)),
             "options": options,
             "question": question,
             "todos": (extract or {}).get("todos", []),
@@ -1614,7 +1622,7 @@ async def assemble_board():
         "columns": [
             {"id": cid, "cards": sorted((c for c in out if c["col"] == cid),
                                         key=lambda c: (c["filing"], _epoch_f(c["created_at"])), reverse=(cid == "issues"))}
-            for cid in ("issues", "working", "needs-you", "review", "ready")
+            for cid in ("issues", "working", "needs-you", "ready")
         ],
         "deploys": state["deploys"],
         "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
@@ -1644,7 +1652,7 @@ def board_view(board_id: str | None) -> dict:
     current = public_board(board) if board else {"id": ALL_BOARD, "name": "All", "repos": tracked_repos()}
     full = state["board"]
     if full is None:
-        return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "review", "ready")],
+        return {"columns": [{"id": c, "cards": []} for c in ("issues", "working", "needs-you", "ready")],
                 "loading": True, "deploys": state["deploys"], "render": {"configured": bool(RENDER_API_KEY), "ok": state["render_ok"]},
                 "devin_ok": state["devin_ok"], "github_ok": state["github_ok"], "generated_at": 0,
                 "board": current, "boards": boards, "settings": dict(settings), "sync": sync_status()}
