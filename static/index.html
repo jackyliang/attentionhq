@@ -1997,8 +1997,9 @@ function wireAddCard(addBtn){
     addBtn.classList.add('editing');
     addBtn.innerHTML=`<textarea class="title-input" rows="1" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ start Devin (no issue) · ⇧↵ newline · paste files to attach"></textarea><div class="att-tray"></div>`;
     const inp=addBtn.querySelector('textarea');
-    const tray=attachTray(addBtn.querySelector('.att-tray'),inp);
-    const size=()=>{inp.style.height='auto';inp.style.height=inp.scrollHeight+'px';if(ringTarget===addBtn)moveRing(addBtn,true)};
+    const snapRing=()=>{if(ringTarget===addBtn)moveRing(addBtn,true)};
+    const size=()=>{inp.style.height='auto';inp.style.height=inp.scrollHeight+'px';snapRing()};
+    const tray=attachTray(addBtn.querySelector('.att-tray'),inp,snapRing);
     inp.value=getDraft();
     size();
     inp.focus();
@@ -2899,10 +2900,11 @@ async function startIssue(id){
 const MOD=/Mac|iPhone|iPad/.test(navigator.platform)?'⌘':'Ctrl+';
 
 /* ---- attachments: paste / drop into an input, upload via the board, send URLs ---- */
-function attachTray(trayEl,inputEl){
+function attachTray(trayEl,inputEl,onLayout){
   const items=[]; // {file,url,name,el,state}
   function render(){
     trayEl.innerHTML='';
+    if(onLayout)queueMicrotask(onLayout);
     for(const it of items){
       const chip=document.createElement('span');
       chip.className='att-chip'+(it.state==='uploading'?' uploading':it.state==='failed'?' failed':'');
