@@ -114,7 +114,7 @@ state: dict = {
     # the ACP bridge's health; `connected` + fresh `last_at` means events are streaming
     "acp": {"enabled": ACP_BRIDGE and bool(DEVIN_ACP_API_KEY), "connected": False, "last_at": 0,
             "error": None, "attached": 0, "events": 0},
-    "github_rate": {"limit": None, "remaining": None, "reset": None, "retry_at": None},
+    "github_rate": {"limit": None, "remaining": None, "used": None, "reset": None, "retry_at": None},
     "github_synced_at": 0,
     "devin_synced_at": 0,
     "webhook": {"configured": bool(GITHUB_WEBHOOK_SECRET), "last_at": 0, "count": 0},
@@ -586,6 +586,8 @@ def note_rate_limit(headers) -> None:
             rate["limit"] = int(headers["x-ratelimit-limit"])
         if "x-ratelimit-remaining" in headers:
             rate["remaining"] = int(headers["x-ratelimit-remaining"])
+        if "x-ratelimit-used" in headers:
+            rate["used"] = int(headers["x-ratelimit-used"])
         if "x-ratelimit-reset" in headers:
             rate["reset"] = int(headers["x-ratelimit-reset"])
     except ValueError:
@@ -645,8 +647,23 @@ def prune_etag_cache():
     for k in [k for k, v in etag_cache.items() if v["at"] < cutoff]:
         del etag_cache[k]
 
+# repos whose check-runs endpoint the token may not read (fine-grained PAT without
+# Checks: read). A 403 is not cacheable, so retrying it every poll burns one quota
+# request per PR; remember and go straight to the combined status for a while.
+CHECKS_FORBIDDEN_TTL = 3600
+_checks_forbidden: dict[str, float] = {}
+
+def checks_readable(repo: str) -> bool:
+    until = _checks_forbidden.get(repo)
+    if until and until > time.time():
+        return False
+    _checks_forbidden.pop(repo, None)
+    return True
+
 async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
     try:
+        if not checks_readable(repo):
+            raise httpx.HTTPError("check-runs not readable")
         runs = (await gh_get(gh, f"/repos/{repo}/commits/{sha}/check-runs", {"per_page": 100})).get("check_runs", [])
         if not runs:
             return "none"
@@ -657,7 +674,12 @@ async def commit_ci(gh: httpx.AsyncClient, repo: str, sha: str) -> str:
         return "running"
     except RateLimited:
         raise
-    except httpx.HTTPError:
+    except httpx.HTTPError as e:
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (403, 404):
+            if repo not in _checks_forbidden:
+                log.warning("%s: check-runs not readable with this token (%s); using commit status instead. "
+                            "Grant the PAT 'Checks: read' for check-run based CI state.", repo, e.response.status_code)
+            _checks_forbidden[repo] = time.time() + CHECKS_FORBIDDEN_TTL
         try:
             combined = await gh_get(gh, f"/repos/{repo}/commits/{sha}/status")
             if not combined.get("statuses"):
@@ -1785,6 +1807,7 @@ def sync_status() -> dict:
         "devin_synced_at": state["devin_synced_at"],
         "github_synced_at": state["github_synced_at"],
         "github_rate": {**rate, "retry_in": max(0, int(rate["retry_at"] - now)) if rate["retry_at"] else None},
+        "github_poll_secs": GITHUB_POLL_SECS,
         "webhook": dict(state["webhook"]),
         "acp": {**state["acp"], "live": acp_live()},
     }
