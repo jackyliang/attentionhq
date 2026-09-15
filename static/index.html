@@ -1763,9 +1763,11 @@ function renderSyncCard(){
   const row=(k,v,cls='')=>`<div class="row ${cls}"><span>${k}</span><span>${v}</span></div>`;
   const ghState=retry?`rate limited \u00b7 retry in ${inS(retry)}`:(s.github_ok===false?'unreachable':(s.github_synced_at?`synced ${agoS(s.github_synced_at*1000)}`:'\u2014'));
   const dvState=s.devin_ok===false?'unreachable':(s.devin_synced_at?`synced ${agoS(s.devin_synced_at*1000)}`:'\u2014');
-  const quota=r.remaining!=null?`${r.remaining}${r.limit?' / '+r.limit:''}${r.reset?' \u00b7 resets in '+inS(Math.max(0,Math.ceil(r.reset-Date.now()/1000))):''}`:'\u2014';
+  // the quota belongs to the board's own GITHUB_TOKEN, not the user: its polling is what spends it
+  const used=r.used!=null?r.used:(r.limit!=null&&r.remaining!=null?r.limit-r.remaining:null);
+  const quota=r.remaining!=null?`${r.remaining}${r.limit?' / '+r.limit:''}${used!=null?' \u00b7 '+used+' used by board polling':''}${r.reset?' \u00b7 resets in '+inS(Math.max(0,Math.ceil(r.reset-Date.now()/1000))):''}`:'\u2014';
   const wh=s.webhook||{};
-  const whState=!wh.configured?'not configured \u00b7 polling':(wh.last_at?`${wh.count} received \u00b7 last ${agoS(wh.last_at*1000)}`:'waiting for first delivery');
+  const whState=!wh.configured?`not configured \u00b7 polling every ${inS(s.github_poll_secs||20)} \u00b7 set GITHUB_WEBHOOK_SECRET`:(wh.last_at?`${wh.count} received \u00b7 last ${agoS(wh.last_at*1000)}`:'waiting for first delivery');
   const acp=s.acp||{};
   const acpState=!acp.enabled?'off \u00b7 polling':acp.live?`streaming \u00b7 ${acp.attached} session${acp.attached===1?'':'s'}`:`down \u00b7 polling${acp.error?' \u00b7 '+escHTML(acp.error):''}`;
   syncCard.innerHTML=`<div class="hd">Sync</div>`

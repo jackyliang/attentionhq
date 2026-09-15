@@ -28,7 +28,7 @@ Boards are managed in the UI (the `+` and settings tiles in the left rail, or `/
 | `DEVIN_ACP_API_KEY` | Personal Devin API key (`cog_…`, PATs tab of app.devin.ai/settings/api-keys) for the ACP live stream. Service-user keys are refused by ACP. Unset → REST polling only |
 | `ACP_BRIDGE` | Set to `0` to not spawn `acp/bridge.mjs` even when the key is present |
 | `DEVIN_RECONCILE_SECS` | How often Devin REST is re-read while the ACP stream is live (default 60; `DEVIN_POLL_SECS`, default 5, applies when it isn't) |
-| `GITHUB_TOKEN` | Fine-grained PAT: issues + PRs read/write, contents read/write |
+| `GITHUB_TOKEN` | Fine-grained PAT: issues + PRs read/write, contents read/write, checks read (without it CI state falls back to commit statuses) |
 | `OPENROUTER_API_KEY` | Optional — powers todos/activity/ask extraction |
 | `OPENROUTER_MODEL` | Default `openai/gpt-5.6-luna:nitro` |
 | `BOARD_TOKEN` | Shared token gating all `/api` routes |
@@ -45,6 +45,7 @@ Boards are managed in the UI (the `+` and settings tiles in the left rail, or `/
 - **GitHub → webhooks.** `POST /api/github/webhook` (HMAC `X-Hub-Signature-256`, not the board token) folds `issues` / `pull_request` payloads straight into the board and does a targeted re-read of just the affected PR for `pull_request_review`, `check_run`, `check_suite`, `workflow_run` and `status`. Every GET uses `If-None-Match`, so unchanged listings cost `304`s that don't count against the quota, and `Retry-After` / `X-RateLimit-Reset` are honoured instead of hammering a limited token.
 - **Devin → ACP stream.** `acp/bridge.mjs` (Node 22+, `@cognition-ai/sdk`) holds one ACP WebSocket to Devin, attaches to every session the board tracks — including ones started from Slack, automations or other users — and pushes status changes and messages (token by token) into the server over `POST /api/acp/{hello,sessions,events}` (board token). The server spawns and supervises the bridge when `DEVIN_ACP_API_KEY` is set. Devin REST is then only re-read every `DEVIN_RECONCILE_SECS` (titles, PR links, ACUs) or when the stream reports something it can't carry; if the stream drops, polling resumes at `DEVIN_POLL_SECS` until it is back. The sync popover shows the stream state ("Devin stream").
 - **Browser → SSE.** `GET /api/events?t=<board token>` streams `board` (content changed, re-fetch `/api/board`), `sync` (poll finished, quota/health only) and `thread` (a session's transcript moved; the open card re-reads it) events. The UI falls back to 5 s polling only while the stream is down. `R` (or `POST /api/refresh`) forces a GitHub + Devin refresh now; the header shows GitHub quota, rate-limit countdown, and webhook delivery status on hover.
+- **Whose quota is that?** The "GitHub API quota" row is the 5000 req/h budget of the board's own `GITHUB_TOKEN`, not of whoever is looking at the board. The board's polling spends it (one request per open PR per poll for anything GitHub won't answer with a `304`, e.g. a `403` on `check-runs` when the PAT lacks Checks: read), so without webhooks it hovers a hundred or so below the limit around the clock and jumps back to 5000 every hour on reset. Configuring webhooks turns the 20 s poll into a 5 min reconcile.
 
 ### Webhook setup
 
