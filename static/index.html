@@ -2117,13 +2117,20 @@ function fmtTs(ts){
   return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
 const URL_RE=/https?:\/\/[^\s<>"')\]]+/g;
-function inlineMD(escaped){
-  return linkifyMD(escaped
-    .replace(/`([^`\n]+)`/g,'<code>$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
-    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
-    .replace(/~~([^~\n]+)~~/g,'<del>$1</del>'));
+// mrkdwn: Slack formatting, where a single *star* is bold (not italic) and ~tilde~ is strike.
+function inlineMD(escaped,mrkdwn=false){
+  let s=escaped.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+  if(mrkdwn){
+    s=s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:!?)]|$)/g,'$1<strong>$2</strong>')
+      .replace(/(^|[\s(])_([^_\n]+)_(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
+      .replace(/(^|[\s(])~([^~\n]+)~(?=[\s.,;:!?)]|$)/g,'$1<del>$2</del>');
+  }else{
+    s=s.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
+      .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
+      .replace(/(^|[\s(])_([^_\n]+)_(?=[\s.,;:!?)]|$)/g,'$1<em>$2</em>')
+      .replace(/~~([^~\n]+)~~/g,'<del>$1</del>');
+  }
+  return linkifyMD(s);
 }
 function linkifyMD(s){
   s=s.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g,(m,alt,u)=>`<img class="att" src="${attURL(u)}" alt="${alt}" loading="lazy">`);
@@ -2140,7 +2147,7 @@ function linkifyMD(s){
 const UL_RE=/^\s*[-*+]\s+/, OL_RE=/^\s*(\d+)[.)]\s+/;
 // Block-level markdown for transcripts: fenced code, lists (nested one level by indent),
 // headings, blockquotes, rules, paragraphs. Escaping happens up-front on the raw text.
-function mdHTML(text){
+function mdHTML(text,mrkdwn=false){
   const lines=escHTML((text??'').toString().replace(/\r\n/g,'\n')).split('\n');
   const out=[];let i=0;
   const listHTML=(items,ordered,start)=>`<${ordered?`ol${start>1?` start="${start}"`:''}`:'ul'}>${items.map(x=>`<li>${x}</li>`).join('')}</${ordered?'ol':'ul'}>`;
@@ -2156,12 +2163,12 @@ function mdHTML(text){
       continue;
     }
     const h=l.match(/^\s{0,3}(#{1,4})\s+(.*?)\s*#*\s*$/);
-    if(h){out.push(`<h${h[1].length}>${inlineMD(h[2])}</h${h[1].length}>`);i++;continue}
+    if(h){out.push(`<h${h[1].length}>${inlineMD(h[2],mrkdwn)}</h${h[1].length}>`);i++;continue}
     if(/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(l)){out.push('<hr>');i++;continue}
     if(/^\s{0,3}&gt;/.test(l)){
       const buf=[];
       while(i<lines.length&&/^\s{0,3}&gt;/.test(lines[i]))buf.push(lines[i++].replace(/^\s{0,3}&gt;\s?/,''));
-      out.push(`<blockquote>${mdHTML_unescaped(buf.join('\n'))}</blockquote>`);
+      out.push(`<blockquote>${mdHTML_unescaped(buf.join('\n'),mrkdwn)}</blockquote>`);
       continue;
     }
     const ol=l.match(OL_RE), ul=!ol&&UL_RE.test(l);
@@ -2173,10 +2180,10 @@ function mdHTML(text){
         const m=ordered?cur.match(OL_RE):(UL_RE.test(cur)?cur.match(UL_RE):null);
         const curIndent=cur.match(/^\s*/)[0].length;
         if(m&&curIndent<=indent){
-          items.push(inlineMD(cur.replace(ordered?OL_RE:UL_RE,'')));i++;
+          items.push(inlineMD(cur.replace(ordered?OL_RE:UL_RE,''),mrkdwn));i++;
           const sub=[];
           while(i<lines.length&&lines[i].trim()&&lines[i].match(/^\s*/)[0].length>indent){sub.push(lines[i].slice(Math.min(indent+2,lines[i].match(/^\s*/)[0].length)));i++}
-          if(sub.length)items[items.length-1]+=mdHTML_unescaped(sub.join('\n'));
+          if(sub.length)items[items.length-1]+=mdHTML_unescaped(sub.join('\n'),mrkdwn);
         }else break;
       }
       out.push(listHTML(items,ordered,start));
@@ -2184,14 +2191,14 @@ function mdHTML(text){
     }
     const para=[];
     while(i<lines.length&&lines[i].trim()&&!/^\s*(```|~~~)/.test(lines[i])&&!/^\s{0,3}#{1,4}\s/.test(lines[i])&&!/^\s{0,3}&gt;/.test(lines[i])&&!OL_RE.test(lines[i])&&!UL_RE.test(lines[i]))para.push(lines[i++]);
-    if(para.length)out.push(`<p>${para.map(x=>inlineMD(x.trim())).join('<br>')}</p>`);
+    if(para.length)out.push(`<p>${para.map(x=>inlineMD(x.trim(),mrkdwn)).join('<br>')}</p>`);
     else i++;
   }
   return out.join('');
 }
 // same as mdHTML but for text that is already HTML-escaped (nested blocks)
-function mdHTML_unescaped(escaped){
-  return mdHTML(escaped.replace(/&quot;/g,'"').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&'));
+function mdHTML_unescaped(escaped,mrkdwn=false){
+  return mdHTML(escaped.replace(/&quot;/g,'"').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&'),mrkdwn);
 }
 const ATT_RE=/ATTACHMENT:\s*(?:\{"url":"(https?:\/\/[^"]+)"[^}]*\}|"(https?:\/\/[^"]+)")/g;
 const DEVIN_ATT_RE=/^https:\/\/app\.devin\.ai\/attachments\/([0-9a-f-]+)\/([^/?#]+)/i;
@@ -2201,10 +2208,10 @@ function attURL(u){
   return `/api/attachment/${m[1]}/${m[2]}${BOARD_TOKEN?`?t=${encodeURIComponent(BOARD_TOKEN)}`:''}`;
 }
 const OFFER_RE=/\[OFFER_TEST_APP\]([\s\S]*?)\[\/OFFER_TEST_APP\]/g;
-function bodyHTML(text){
+function bodyHTML(text,mrkdwn=false){
   const t=(text??'').toString().replace(OFFER_RE,'');
   const atts=[...t.matchAll(ATT_RE)].map(m=>m[1]||m[2]);
-  let out=mdHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim());
+  let out=mdHTML(t.replace(ATT_RE,'').replace(/\n{3,}/g,'\n\n').trim(),mrkdwn);
   for(const u of atts){
     const safe=escHTML(attURL(u));
     const name=escHTML(decodeURIComponent(u.split('/').pop().split('?')[0]||'attachment'));
@@ -2297,6 +2304,8 @@ function renderThread(msgs,ctx={}){
   const lastDevin=[...msgs].reverse().find(m=>m.who==='devin');
   const lastIsDevin=last&&last.who==='devin';
   if(lastIsDevin&&!(ctx.options||[]).length)ctx={...ctx,options:inlineOptions((lastDevin.text??'').toString()),inline:true};
+  // Slack-connected sessions: Devin writes Slack mrkdwn (*bold*), not markdown (*italic*)
+  const mrkdwn=msgs.some(m=>m.who==='user'&&(m.origin||'').toLowerCase()==='slack');
   let qHTML=lastIsDevin?questionHTML(ctx,(lastDevin.text??'').toString()):'';
   const html=msgs.map(m=>{
     if(m.who==='pr')return [`pr:${m.pr.repo}#${m.pr.number}`,`<div class="msg pr">${prCardHTML(m.pr)}</div>`];
@@ -2311,7 +2320,7 @@ function renderThread(msgs,ctx={}){
     const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
     return [`${m.who}|${m.state?'pending|':''}${msgId(m)}`,`<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}${m.streaming?' streaming':''}">
     ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
-    <div class="body">${bodyHTML(m.text)}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`];
+    <div class="body">${bodyHTML(m.text,mrkdwn&&m.who==='devin')}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`];
   });
   if(mode==='card'){const w=workingHTML(cards[openCard]);if(w)html.push(['working',w]);}
   patchThread(html);
