@@ -1543,7 +1543,7 @@ function cardHTML(c){
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
   const live=activityLabel(c)?`<span class="ref live" title="Devin is running a browser test right now">${I.spinner}<span class="shimmer">${escHTML(activityLabel(c))}</span></span>`:'';
   const meta=`<div class="cmeta">${ref}${prRef}${live}</div>`;
-  const pct=Math.max(progressOf(c),c.session_id?0.08:0);
+  const pct=Math.max(progressOf(c),c.session_id||c.pending?0.08:0);
   const nx=c.todos.find(t=>t.state!=='done');
   const you=c.col==='needs-you';
   const r=5.5,cf=2*Math.PI*r;
