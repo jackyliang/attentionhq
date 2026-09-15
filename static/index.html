@@ -353,8 +353,8 @@ main{
 .add-card:is(:hover,:focus) .add-hint{max-width:120px;opacity:1;margin-left:8px}
 .add-card .add-draft{margin-left:8px;font-size:12px;line-height:16px;color:var(--ds-gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;text-align:left;font-style:italic}
 .add-card:has(.add-draft){justify-content:flex-start}
-.add-card.editing{justify-content:stretch;border-style:solid;cursor:text}
-.add-card .title-input{width:100%;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500}
+.add-card.editing{flex-direction:column;align-items:stretch;justify-content:center;border-style:solid;cursor:text}
+.add-card .title-input{width:100%;display:block;background:transparent;border:none;outline:none;color:var(--ds-gray-1000);font-family:var(--font-sans);font-size:13px;line-height:18px;font-weight:500;padding:0;margin:0;resize:none;overflow-y:auto;min-height:18px;max-height:40vh;white-space:pre-wrap;overflow-wrap:anywhere}
 .add-card .title-input::placeholder{color:var(--ds-gray-600)}
 .nx .merge-btn{gap:6px;padding-left:4px}
 .nx .hints{margin-left:auto;align-items:center}
@@ -864,6 +864,7 @@ body.resizing-panel aside,body.resizing-panel .board{transition:none!important}
 .att-chip.uploading .nm::after{content:' · uploading…'}
 .att-chip.failed{border-color:var(--ds-red-700, #e5484d);color:var(--ds-red-700, #e5484d)}
 .add-card .att-tray{margin-top:6px}
+.add-card .att-tray:empty{display:none}
 .drop-target{box-shadow:inset 0 0 0 1px var(--ds-gray-700)}
 
 .pl-link{
@@ -1994,16 +1995,18 @@ function wireAddCard(addBtn){
   function addToInput(){
     if(addBtn.classList.contains('editing'))return;
     addBtn.classList.add('editing');
-    addBtn.innerHTML=`<input class="title-input" type="text" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ start Devin (no issue) · paste files to attach" /><div class="att-tray"></div>`;
-    const inp=addBtn.querySelector('input');
+    addBtn.innerHTML=`<textarea class="title-input" rows="1" placeholder="Describe a task…  ↵ file issue · ${MOD}↵ start Devin (no issue) · ⇧↵ newline · paste files to attach"></textarea><div class="att-tray"></div>`;
+    const inp=addBtn.querySelector('textarea');
     const tray=attachTray(addBtn.querySelector('.att-tray'),inp);
+    const size=()=>{inp.style.height='auto';inp.style.height=inp.scrollHeight+'px';if(ringTarget===addBtn)moveRing(addBtn,true)};
     inp.value=getDraft();
+    size();
     inp.focus();
     inp.setSelectionRange(inp.value.length,inp.value.length);
-    inp.addEventListener('input',()=>setDraft(inp.value));
+    inp.addEventListener('input',()=>{setDraft(inp.value);size()});
     inp.addEventListener('keydown',async e=>{
       e.stopPropagation();
-      if(e.key==='Enter'){
+      if(e.key==='Enter'&&!e.shiftKey){
         e.preventDefault();
         const v=inp.value.trim();
         const start=e.metaKey||e.ctrlKey;
