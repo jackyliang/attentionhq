@@ -2132,9 +2132,12 @@ function inlineMD(escaped,mrkdwn=false){
   }
   return linkifyMD(s);
 }
+// Link text may contain one level of nested brackets, e.g. "[[#alerts] Title](url)".
+const MD_IMG_RE=/!\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]\((https?:\/\/[^)\s]+)\)/g;
+const MD_LINK_RE=/\[((?:[^\[\]\n]|\[[^\[\]\n]*\])+)\]\((https?:\/\/[^)\s]+)\)/g;
 function linkifyMD(s){
-  s=s.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g,(m,alt,u)=>`<img class="att" src="${attURL(u)}" alt="${alt}" loading="lazy">`);
-  s=s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>`<a href="${attURL(u)}" target="_blank" rel="noopener">${t}</a>`);
+  s=s.replace(MD_IMG_RE,(m,alt,u)=>`<img class="att" src="${attURL(u)}" alt="${alt}" loading="lazy">`);
+  s=s.replace(MD_LINK_RE,(m,t,u)=>`<a href="${attURL(u)}" target="_blank" rel="noopener">${t}</a>`);
   return s.replace(URL_RE,(full,i,str)=>{
     const before=str.slice(0,i);
     if(/(href|src)="$/.test(before)||/>$/.test(before.trimEnd().slice(-1)))return full;
