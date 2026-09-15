@@ -2303,7 +2303,8 @@ function renderThread(msgs,ctx={}){
     const acts=[];
     const text=(m.text??'').toString();
     if(m===lastDevin&&lastIsDevin){
-      const offers=[...text.matchAll(OFFER_RE)].map(x=>x[1].trim()).filter(Boolean);
+      const optKeys=new Set((ctx.options||[]).map(o=>String(o).trim().toLowerCase()));
+      const offers=[...text.matchAll(OFFER_RE)].map(x=>x[1].trim()).filter(o=>o&&!(qHTML&&optKeys.has(o.toLowerCase())));
       if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
