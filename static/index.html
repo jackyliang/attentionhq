@@ -205,12 +205,13 @@ header{
 .hdr-sync.warn .dot{background:var(--ds-amber-700)}
 .hdr-sync.live .dot{background:var(--ds-green-700)}
 .hdr-sync{position:relative;cursor:default}
+.hdr-sync .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .hdr-sync .card{
-  display:none;position:absolute;top:100%;right:0;z-index:6;min-width:260px;
+  display:none;position:absolute;top:100%;right:0;z-index:6;min-width:260px;width:max-content;
   background:var(--ds-background-100);border:1px solid var(--ds-gray-400);
   box-shadow:0 8px 24px rgba(0,0,0,.4);padding:6px 0;color:var(--ds-gray-900);font-size:12px;white-space:nowrap
 }
-.hdr-sync:hover .card{display:block}
+.hdr-sync:hover .card,.hdr-sync:focus-within .card{display:block}
 .hdr-sync .card .hd{padding:4px 12px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-gray-600);border-bottom:1px solid var(--ds-gray-300)}
 .hdr-sync .card .row{display:flex;justify-content:space-between;gap:16px;padding:5px 12px}
 .hdr-sync .card .row span:last-child{color:var(--ds-gray-700)}
@@ -944,9 +945,9 @@ body.resizing-panel aside,body.resizing-panel .board{transition:none!important}
       <span class="b" id="crumb-name">Attention</span>
     </div>
     <div class="hdr-right">
-      <span class="hdr-sync" id="hdr-sync" aria-live="polite"><span class="dot grey"></span><span id="hdr-sync-txt">loading…</span><div class="card" id="hdr-sync-card"></div></span>
+      <span class="hdr-sync" id="hdr-sync" aria-live="polite" tabindex="0" aria-label="Sync status"><span class="dot grey"></span><span id="hdr-sync-txt" class="sr-only">loading…</span><div class="card" id="hdr-sync-card"></div></span>
       <div class="hdr-deploys" id="hdr-deploys" aria-label="Render deploy status"></div>
-      <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts"><kbd>?</kbd> shortcuts</button>
+      <button class="hdr-help" id="help-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts"><kbd>?</kbd></button>
     </div>
   </header>
 
