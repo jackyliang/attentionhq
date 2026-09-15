@@ -582,7 +582,7 @@ body.resizing-panel aside,body.resizing-panel .board{transition:none!important}
 .panel-close.armed kbd{color:var(--ds-amber-900);border-color:var(--ds-amber-700)}
 .panel-archive{display:none;padding:0 6px;font-size:11px;line-height:14px}
 #app[data-mode="card"] .panel-archive:not([hidden]){display:inline-flex}
-.panel-title{min-width:0}
+.panel-title{min-width:0;margin-right:auto}
 .panel-title .t{
   font-size:13px;line-height:18px;font-weight:500;letter-spacing:-.006em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -1539,7 +1539,7 @@ const filingIssue=c=>!!c&&!!c.pending&&c.col==='issues';
 const startingSession=c=>!!c&&!!c.pending&&c.col!=='issues';
 function cardHTML(c){
   const isArmed=a=>armed&&armed.key===c.key&&armed.action===a;
-  const ref=filingIssue(c)?`<span class="ref ph-bar" aria-label="creating issue"></span>`:startingSession(c)?`<span class="ref">sending to devin\u2026</span>`:(c.unassigned&&boards.length?`<span class="ref tag">unassigned</span>`:'');
+  const ref=filingIssue(c)?`<span class="ref ph-bar" aria-label="creating issue"></span>`:(c.unassigned&&boards.length?`<span class="ref tag">unassigned</span>`:'');
   const prRef=c.pr&&!(c.kind==='pr')?`<span class="ref pr" title="CI ${escHTML(c.pr.ci)} · review ${escHTML(String(c.pr.review).replace(/_/g,' '))}">${I.merge}#${c.pr.number}<span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:(c.kind==='pr'?`<span class="ref pr"><span class="ci dot ${prState(c.pr).ci.tone}"></span></span>`:'');
   const live=activityLabel(c)?`<span class="ref live" title="Devin is running a browser test right now">${I.spinner}<span class="shimmer">${escHTML(activityLabel(c))}</span></span>`:'';
   const meta=`<div class="cmeta">${ref}${prRef}${live}</div>`;
@@ -1560,7 +1560,7 @@ function cardHTML(c){
   const generic=you&&c.now&&GENERIC_NOW.test(c.now.text);
   const ready=c.col==='ready';
   const mergeBtn=canMerge(c)?`<span class="act green merge-btn${isArmed('merge')?' armed':''}" role="button" tabindex="-1"><kbd>E</kbd>${isArmed('merge')?'Confirm merge':'Merge'}</span>`:`<span class="act green merge-btn" role="button" tabindex="-1"><kbd>E</kbd>Open on GitHub</span>`;
-  const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'&&!ciRunning?`<div class="nx solo">${ring}<span>${c.pending?'sending\u2026':'working\u2026'}</span></div>`:'');
+  const line=txt?`<div class="nx${you?' you':''}${generic?' generic':''}">${ring}<span>${escHTML(txt)}</span></div>`:(c.col==='working'&&!ciRunning?`<div class="nx solo">${ring}${c.pending?'':'<span>working\u2026</span>'}</div>`:'');
   const ciLine=ciRunning?`<div class="ci-line">${I.spinner}<span>CI running on #${c.pr.number}</span></div>`:'';
   const opts=c.col==='needs-you'&&c.options.length?`<div class="opts">${c.options.slice(0,3).map((o,i)=>`<span class="opt" role="button" tabindex="-1"><kbd>${i+1}</kbd>${escHTML(o)}</span>`).join('')}</div>`:'';
   const foot=`<div class="cfoot">${meta}<div class="hints">${closeHint}${ready?mergeBtn:''}</div></div>`;
@@ -2545,9 +2545,9 @@ const COL_TONE={issues:'grey',working:'blue','needs-you':'amber',ready:'green'};
 function panelSubHTML(c){
   const tone=c.tone==='red'?'red':COL_TONE[c.col]||'grey';
   const st={issues:'not started',working:'running','needs-you':'waiting on you',ready:'ready to merge'}[c.col]||c.col;
-  const ref=filingIssue(c)?'<span class="ph-bar" aria-label="creating issue"></span>':startingSession(c)?'sending\u2026':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
-  const stTxt=startingSession(c)?'sending to devin':st;
-  return `<span class="dot ${tone}${c.col==='working'?' pulse':''}"></span><span class="st ${tone}">${stTxt}</span>${ref?`<span>·</span><span>${ref}</span>`:''}`;
+  const ref=filingIssue(c)?'<span class="ph-bar" aria-label="creating issue"></span>':startingSession(c)?'':c.repo?`${escHTML(shortRepo(c.repo))}#${c.num}`:'';
+  const starting=startingSession(c);
+  return `<span class="dot ${tone}${c.col==='working'||starting?' pulse':''}"></span>${starting?'':`<span class="st ${tone}">${st}</span>`}${ref?`<span>·</span><span>${ref}</span>`:''}`;
 }
 function canRename(c){return !!c&&!c.pending&&(((c.kind==='issue'||c.kind==='pr')&&!!c.repo)||(c.kind==='session'&&!!c.session_id&&!c.filing))}
 function refreshPanel(c){
