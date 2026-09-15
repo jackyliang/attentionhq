@@ -741,11 +741,30 @@ body.resizing-panel aside,body.resizing-panel .board{transition:none!important}
 .msg.user .who{color:var(--ds-gray-1000)}
 .msg .via{font-family:var(--font-mono);font-size:9px;line-height:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ds-gray-600);border:1px solid var(--ds-gray-400);padding:0 4px}
 .msg .ts{font-family:var(--font-mono);font-size:10px;color:var(--ds-gray-600)}
+/* shadcn Tooltip: bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-xs, fade-in + zoom-in-95, arrow */
+.msg .who.tip{position:relative;cursor:default;outline:none}
+.msg .who.tip::after{
+  content:attr(data-tip);position:absolute;left:0;bottom:calc(100% + 6px);transform:scale(.95);transform-origin:bottom left;
+  z-index:50;width:max-content;max-width:240px;padding:6px 12px;border-radius:6px;
+  background:var(--ds-gray-1000);color:var(--ds-background-100);
+  font-family:var(--font-sans);font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;text-align:center;
+  opacity:0;pointer-events:none;transition:opacity .15s ease-out,transform .15s ease-out;transition-delay:0s;
+}
+.msg .who.tip::before{
+  content:'';position:absolute;left:12px;bottom:calc(100% + 6px);transform:translate(-50%,50%) rotate(45deg) scale(.95);
+  z-index:51;width:10px;height:10px;border-radius:2px;background:var(--ds-gray-1000);
+  opacity:0;pointer-events:none;transition:opacity .15s ease-out;
+}
+.msg.user .who.tip::after{left:auto;right:0;transform-origin:bottom right}
+.msg.user .who.tip::before{left:auto;right:12px;transform:translate(50%,50%) rotate(45deg) scale(.95)}
+.msg .who.tip:hover::after,.msg .who.tip:focus-visible::after{opacity:1;transform:scale(1);transition-delay:.2s}
+.msg .who.tip:hover::before,.msg .who.tip:focus-visible::before{opacity:1;transition-delay:.2s}
 .msg .body{
   font-size:13px;line-height:19px;color:var(--ds-gray-1000);
   overflow-wrap:anywhere;word-break:break-word;
-  min-width:0;max-width:100%;
+  min-width:0;max-width:85%;
 }
+.msg.system .body,.msg.pr .body{max-width:100%}
 .msg .body p{margin:0}
 .msg .body p + p,.msg .body p + ul,.msg .body p + ol,.msg .body ul + p,.msg .body ol + p,.msg .body pre + p,.msg .body p + pre,.msg .body blockquote + p,.msg .body p + blockquote,.msg .body ul + ul,.msg .body ol + ol,.msg .body ul + ol,.msg .body ol + ul{margin-top:8px}
 .msg .body ul,.msg .body ol{margin:0;padding-left:22px}
@@ -2251,16 +2270,19 @@ function prCardHTML(p){
     <div class="pr-foot">${ci}${diff}<span class="branch" title="${escHTML(p.branch)} \u2192 ${escHTML(p.base)}">${escHTML(p.branch)}</span></div>
     ${btns}</div>`;
 }
+// Timestamp lives in a hover/focus tooltip on the name instead of inline in the meta row.
 function whoHTML(m){
-  if(m.who==='devin')return `<span class="who"><span class="av">D</span>Devin</span>`;
+  const t=m.ts?fmtTs(m.ts):'';
+  const who=t?`<span class="who tip" tabindex="0" data-tip="${escHTML(t)}" aria-label="${escHTML(t)}">`:'<span class="who">';
+  if(m.who==='devin')return `${who}<span class="av">D</span>Devin</span>`;
   if(m.who==='user'){
     const origin=(m.origin||'').toLowerCase();
     const auto=origin==='automation';
     const name=auto?'Automation':(m.name||'You');
     const via=origin&&origin!=='web'&&origin!=='automation'?`<span class="via">${escHTML(origin)}</span>`:'';
-    return `<span class="who"><span class="av">${escHTML(name[0].toUpperCase())}</span>${escHTML(name)}</span>${via}`;
+    return `${who}<span class="av">${escHTML(name[0].toUpperCase())}</span>${escHTML(name)}</span>${via}`;
   }
-  return `<span class="who">${WHO[m.who]||m.who}</span>`;
+  return `${who}${WHO[m.who]||m.who}</span>`;
 }
 const ACTIVITY_LABEL={browser_test:'browser test'};
 function activityLabel(c,st){
@@ -2320,7 +2342,7 @@ function renderThread(msgs,ctx={}){
       if(offers.length)acts.push(`<div class="msg-btns">${offers.map(o=>`<button class="act" data-offer="${escHTML(o)}">${I.play} ${escHTML(o)}</button>`).join('')}</div>`);
       if(qHTML){acts.push(qHTML);qHTML='';}
     }
-    const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:m.ts?`<span class="ts">${escHTML(fmtTs(m.ts))}</span>`:'';
+    const ts=m.state?`<span class="ts">${m.state==='failed'?'not sent':m.state==='sent'?'sent':'sending\u2026'}</span>`:'';
     return [`${m.who}|${m.state?'pending|':''}${msgId(m)}`,`<div class="msg ${m.who}${m.state?` pending ${m.state}`:''}${m.streaming?' streaming':''}">
     ${m.who==='system'?'':`<div class="meta">${whoHTML(m)}${ts}</div>`}
     <div class="body">${bodyHTML(m.text,mrkdwn&&m.who==='devin')}</div>${acts.length?`<div class="acts">${acts.join('')}</div>`:''}</div>`];
